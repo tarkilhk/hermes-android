@@ -6,6 +6,7 @@ import 'package:hermes_android/core/services/profile_gateway.dart';
 /// Local disposable rows only. Never point this test at production.
 void main() {
   const port = int.fromEnvironment('HERMES_TEST_PORT');
+  const moveFolder = String.fromEnvironment('HERMES_TEST_PROJECT');
   test(
     'local stock session mutations retain profile ownership',
     () async {
@@ -71,6 +72,18 @@ void main() {
       expect(first['unread'], true);
       expect(second['title'], 'Disposable Android action test');
       expect(second['pinned'], false);
+      if (moveFolder.isNotEmpty) {
+        final moved = await a.moveSession(id, moveFolder);
+        final movedRow = (await a.sessions()).rows.firstWhere(
+          (row) => row['id'] == id,
+        );
+        final otherRow = (await b.sessions()).rows.firstWhere(
+          (row) => row['id'] == id,
+        );
+        expect(movedRow['cwd'], moved['cwd']);
+        expect(movedRow['git_repo_root'], moved['git_repo_root']);
+        expect(otherRow['cwd'], second['cwd']);
+      }
       await a.updateSession(id, {'archived': true});
       expect(
         (await a.sessions(

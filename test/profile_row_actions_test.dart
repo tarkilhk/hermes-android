@@ -202,6 +202,144 @@ void main() {
     expect(host.updates.last.$3['pinned'], false);
     await tester.pumpWidget(const SizedBox.shrink());
   });
+  test(
+    'move uses stock workspace RPC and keeps the other profile unchanged',
+    () async {
+      final owner = key();
+      final project = controller.current!.projects.first;
+      controller.current!.searchResults = [
+        {
+          ...controller.current!.sessions.firstWhere(
+            (r) => r['id'] == 'newest',
+          ),
+        },
+      ];
+      await controller.moveSessionToProject(owner, project);
+      expect(host.moves.single.$2, {
+        'session_key': 'newest',
+        'cwd': project['primary_path'],
+        'profile': 'personal',
+      });
+      expect(
+        controller.current!.searchResults.single['cwd'],
+        project['primary_path'],
+      );
+      await controller.selectProject(controller.current!.projects.first);
+      expect(
+        controller.current!.projectSessions.any((r) => r['id'] == 'newest'),
+        true,
+      );
+      await controller.navigateProfile('work');
+      expect(controller.current!.sessions.single['cwd'], isNull);
+      await expectLater(
+        controller.moveSessionToProject(owner, project),
+        throwsStateError,
+      );
+      expect(host.moves.length, 1);
+    },
+  );
+  test(
+    'moving out refreshes the entered project and preserves global rows',
+    () async {
+      final first = controller.current!.projects.first;
+      await controller.moveSessionToProject(key(), first);
+      await controller.selectProject(controller.current!.projects.first);
+      final destination = controller.current!.projects[1];
+      await controller.moveSessionToProject(key(), destination);
+      expect(controller.current!.selectedProject!['id'], first['id']);
+      expect(
+        controller.current!.projectSessions.any((r) => r['id'] == 'newest'),
+        false,
+      );
+      expect(
+        controller.current!.sessions.firstWhere(
+          (r) => r['id'] == 'newest',
+        )['cwd'],
+        destination['primary_path'],
+      );
+    },
+  );
+  test(
+    'failed moves and active durable IDs do not change local rows',
+    () async {
+      final project = controller.current!.projects.first;
+      final before = Map<String, dynamic>.from(
+        controller.current!.sessions.firstWhere((r) => r['id'] == 'newest'),
+      );
+      host.active = true;
+      await expectLater(
+        controller.moveSessionToProject(key(), project),
+        throwsStateError,
+      );
+      expect(host.moves, isEmpty);
+      host.active = false;
+      host.failMutation = true;
+      await expectLater(
+        controller.moveSessionToProject(key(), project),
+        throwsStateError,
+      );
+      expect(
+        controller.current!.sessions.firstWhere((r) => r['id'] == 'newest'),
+        before,
+      );
+      expect(controller.current!.mutatingSessions, isEmpty);
+    },
+  );
+  test(
+    'duplicate and delayed moves retain original profile ownership',
+    () async {
+      final owner = key();
+      final personal = controller.current!;
+      final project = personal.projects.first;
+      host.mutationDelay = Completer<void>();
+      final move = controller.moveSessionToProject(owner, project);
+      expect(await controller.moveSessionToProject(owner, project), false);
+      await controller.navigateProfile('work');
+      host.mutationDelay!.complete();
+      await move;
+      expect(host.moves.length, 1);
+      expect(
+        personal.sessions.firstWhere((r) => r['id'] == 'newest')['cwd'],
+        project['primary_path'],
+      );
+      expect(controller.current!.sessions.single['cwd'], isNull);
+    },
+  );
+  test(
+    'move refuses foreign projects and reports refresh failure after success',
+    () async {
+      final project = controller.current!.projects.first;
+      await expectLater(
+        controller.moveSessionToProject(key(), {...project}),
+        throwsStateError,
+      );
+      expect(host.moves, isEmpty);
+      host.failProjects = true;
+      expect(await controller.moveSessionToProject(key(), project), true);
+      expect(controller.current!.projectsError, contains('Chat moved'));
+    },
+  );
+  testWidgets('move picker lists profile folders and cancel is read-only', (
+    tester,
+  ) async {
+    await show(tester);
+    await menu(tester, 'newest');
+    await tester.tap(find.text('Move to project'));
+    await tester.pumpAndSettle();
+    expect(find.textContaining('Projects in personal'), findsOneWidget);
+    expect(find.text('/Mobile app'), findsOneWidget);
+    expect(find.text('Work project'), findsNothing);
+    await tester.tap(find.text('Cancel'));
+    await tester.pumpAndSettle();
+    expect(host.moves, isEmpty);
+    await menu(tester, 'newest');
+    await tester.tap(find.text('Move to project'));
+    await tester.pumpAndSettle();
+    await tester.tap(find.byKey(const ValueKey('move-project-p2')));
+    await tester.pumpAndSettle();
+    expect(host.moves.single.$2['cwd'], '/Mobile app');
+    expect(tester.takeException(), isNull);
+  });
   testWidgets('delete confirmation cancel sends no request', (tester) async {
     await show(tester);
     await menu(tester, 'newest');

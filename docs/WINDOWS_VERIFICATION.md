@@ -433,3 +433,34 @@ After the preview checks, the normal `lib/main.dart` APK was restored on the
 emulator with `adb install -r` and launched successfully. Emulator night mode
 was returned to its earlier light setting. Both devices retain their saved app
 data; neither is left running an authored preview or integration-test APK.
+
+## Move to project verification, 2026-09-06
+
+Implemented profile-bound Move to project using Desktop's stock
+`session.workspace.move` RPC. The picker shows destination paths and explains
+the working-folder change. No `projects.assign_session` compatibility path or
+backend patch was introduced. Known busy chats and durable IDs present in the
+global active-session list are refused. The live lookup's profile ambiguity and
+preflight race are documented in the UI reference.
+
+Six new tests cover the profile-stamped request, target project membership,
+removal from the old project, global/search cache updates, rejected/active moves,
+late responses across profile switches, duplicate taps, foreign project
+rejection, refresh failure after a successful write, and picker selection/cancel.
+Final full suite: 1,056 passed, two opt-in live tests skipped. Analysis is clean.
+
+The separate opt-in local mutation test passed with an explicit existing test
+folder. It imported two disposable chats with the same ID in `android-qa-a` and
+`android-qa-b`, moved only A, checked persisted cwd/repository metadata and B's
+unchanged cwd, then deleted both disposable chats. Their authored test history
+is not recoverable. No production chats were moved, opened or prompted.
+
+Ignored logs: `build/move-tests.log`, `build/move-full-tests.log`,
+`build/move-analyze.log`, `build/move-live.log`, and `build/move-apk.log`.
+
+The normal debug APK built successfully and was installed with `adb install -r`
+on both the Samsung phone and emulator, preserving saved data. No preview APK
+was installed in this pass. The phone returned to another foreground app during
+the attempted UI check, so the new picker has widget-test coverage but no claimed
+physical-device visual verification. No Flutter/Android runtime errors appeared
+in the inspected recent error log.

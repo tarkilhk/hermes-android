@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import '../services/profile_workspace_controller.dart';
+import '../services/profile_gateway.dart';
 
 Future<String?> _choose(
   BuildContext context,
@@ -140,6 +141,7 @@ Future<void> showChatActions(
       true,
     ),
     ('copy', 'Copy ID', Icons.copy_outlined, true),
+    ('move', 'Move to project', Icons.drive_file_move_outlined, !busy),
     (
       'archive',
       archived ? 'Unarchive' : 'Archive',
@@ -158,7 +160,73 @@ Future<void> showChatActions(
     }
     return;
   }
-  if (action == 'rename') {
+  if (action == 'move') {
+    final projects = resource.projects
+        .where(
+          (project) =>
+              project['isNoProject'] != true &&
+              ProfileGateway.projectDirectory(project).isNotEmpty &&
+              project['id'] != resource.selectedProject?['id'] &&
+              ProfileGateway.projectDirectory(project) != row['cwd'],
+        )
+        .toList();
+    final target = await showDialog<Map<String, dynamic>>(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: const Text('Move to project'),
+        content: SizedBox(
+          width: 360,
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Text(
+                'Projects in ${resource.scope.profileName}. This changes the chat\'s working folder.',
+              ),
+              const SizedBox(height: 16),
+              if (projects.isEmpty)
+                const Text(
+                  'No other projects with a working folder are available.',
+                )
+              else
+                Flexible(
+                  child: ListView.builder(
+                    shrinkWrap: true,
+                    itemCount: projects.length,
+                    itemBuilder: (context, index) {
+                      final project = projects[index];
+                      return ListTile(
+                        key: ValueKey('move-project-${project['id']}'),
+                        leading: const Icon(Icons.folder_outlined),
+                        title: Text(project['name'] as String),
+                        subtitle: Text(
+                          ProfileGateway.projectDirectory(project),
+                        ),
+                        onTap: () => Navigator.pop(context, project),
+                      );
+                    },
+                  ),
+                ),
+            ],
+          ),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(context),
+            child: const Text('Cancel'),
+          ),
+        ],
+      ),
+    );
+    if (target != null) {
+      final moved = await controller.moveSessionToProject(key, target);
+      if (moved && context.mounted) {
+        ScaffoldMessenger.of(
+          context,
+        ).showSnackBar(SnackBar(content: Text('Moved to ${target['name']}')));
+      }
+    }
+  } else if (action == 'rename') {
     var value = title;
     final result = await showDialog<String>(
       context: context,

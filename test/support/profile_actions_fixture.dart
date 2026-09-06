@@ -6,6 +6,7 @@ import 'profile_browser_fixture.dart';
 class ProfileActionsFixture extends ProfileBrowserFixture {
   final updates = <(String, String, Map<String, dynamic>)>[];
   final deletes = <(String, Map<String, String>)>[];
+  final moves = <(String, Map<String, dynamic>)>[];
   final changes = <String, Map<String, Map<String, dynamic>>>{};
   final removed = <String, Set<String>>{};
   bool failMutation = false;
@@ -18,6 +19,15 @@ class ProfileActionsFixture extends ProfileBrowserFixture {
         {...row, ...?changes[profile]?[row['id']]},
   ];
   @override
+  List<Map<String, dynamic>> projectSessions(String profile, String id) => [
+    for (final row in sessions(profile))
+      if (row['cwd'] ==
+              projects(profile).firstWhere((p) => p['id'] == id)['path'] ||
+          (row['cwd'] == '/not-the-project-path' &&
+              row['id'] == 'project-only'))
+        row,
+  ];
+  @override
   ProfileGateway gateway(WorkspaceScope scope) {
     final base = super.gateway(scope);
     return ProfileGateway(
@@ -25,6 +35,20 @@ class ProfileActionsFixture extends ProfileBrowserFixture {
       discover: base.discover,
       get: base.read,
       rpc: (method, params) async {
+        if (method == 'session.workspace.move') {
+          moves.add((scope.profileName, params));
+          await mutationDelay?.future;
+          if (failMutation) throw StateError('Move rejected');
+          final id = params['session_key'] as String;
+          final profile = changes.putIfAbsent(scope.profileName, () => {});
+          profile[id] = {
+            ...?profile[id],
+            'cwd': params['cwd'],
+            'git_branch': null,
+            'git_repo_root': null,
+          };
+          return {'cwd': params['cwd'], 'branch': null, 'git_repo_root': null};
+        }
         if (method == 'session.active_list') {
           return {
             'sessions': [

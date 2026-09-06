@@ -141,3 +141,42 @@ Light/dark authored conversations and menus were inspected on the emulator. The
 normal workspace and a safely dismissed chat menu were inspected on the owner's
 Samsung phone. This is a proposed visual direction, not a measured usability
 improvement or pixel copy of a current Codex conversation.
+
+## Move to project, 2026-09-06
+
+Chat menus now include Move to project. The picker shows projects in the captured
+profile, with their host folder paths, and explains that moving changes the
+chat's working folder. Folderless destinations are excluded. The selected
+project is excluded in project view; an exact current-folder destination is
+excluded in the root list. Cancel does not write anything.
+
+The stock Desktop implementation uses `session.workspace.move` with
+`session_key`, `cwd` and `profile`, not `projects.assign_session`. Android follows
+that contract and takes the resulting cwd, branch and repository root from the
+server. Primary folder selection follows Desktop's project path, then first
+repository path rule. Successful moves update profile-owned list/search caches
+and reload the project tree and entered project. This does not move files or
+transfer the chat to another profile.
+
+The server's live-agent lookup is by durable ID without profile ownership.
+Android conservatively refuses any ID present in `session.active_list` and
+refuses known busy chats. This preflight is not atomic with the move; it cannot
+eliminate an agent opening concurrently on the server. No backend patch or
+legacy assignment fallback was introduced.
+
+### Chat indicator legend
+
+| Indicator | Meaning |
+| --- | --- |
+| Blue spinner | Sending, working or finishing a known runtime |
+| Amber question mark | User input or approval needed |
+| Green check | Known response completed, or stored chat has an end timestamp |
+| Red exclamation | Known runtime failed |
+| Crossed-out Wi-Fi | Reconnecting |
+| Stop circle | Stopped |
+| Small blue dot | Unread |
+| Blue horizontal dots | Recent-activity heuristic, not proof of active work |
+
+The separate row ellipsis opens actions. Folder colors identify projects
+decoratively; they do not encode activity. Unknown cross-device live state is
+not inferred from recent activity or an end timestamp.

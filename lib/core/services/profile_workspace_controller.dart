@@ -67,7 +67,7 @@ class ProfileChat {
   String runtimeId;
   String title;
   double lastActive = DateTime.now().millisecondsSinceEpoch / 1000;
-  final String? projectId;
+  String? projectId;
   String draft = '';
   String streaming = '';
   String? tool;
@@ -750,6 +750,94 @@ class ProfileWorkspaceController extends ChangeNotifier {
           (delete || changes['archived'] == true)) {
         resource.selectedSession = null;
       }
+    } finally {
+      resource.mutatingSessions.remove(id);
+      _changed();
+    }
+  }
+
+  Future<bool> moveSessionToProject(
+    ProfileSessionKey key,
+    Map<String, dynamic> project,
+  ) async {
+    final resource = _writable();
+    if (!owns(key) || resource.scope != key.workspace) {
+      throw StateError('Profile changed. Open the menu again.');
+    }
+    if (!resource.projects.contains(project) ||
+        project['isNoProject'] == true ||
+        ProfileGateway.projectDirectory(project).isEmpty) {
+      throw StateError('Project is unavailable. Open the menu again.');
+    }
+    final id = key.sessionId;
+    if (resource.mutatingSessions.contains(id)) return false;
+    if (resource.chats[id]?.busy == true) {
+      throw StateError('Wait for this chat to finish before moving.');
+    }
+    resource.mutatingSessions.add(id);
+    _changed();
+    try {
+      final updated = await resource.gateway.moveSession(
+        id,
+        ProfileGateway.projectDirectory(project),
+      );
+      if (_closed) return true;
+      _invalidateSessionLoad(resource);
+      resource.searchGeneration++;
+      resource.searchLoading = false;
+      resource.projectGeneration++;
+      resource.projectSessionsLoading = false;
+      for (final rows in [
+        resource.sessions,
+        resource.projectSessions,
+        resource.searchResults,
+      ]) {
+        for (var index = 0; index < rows.length; index++) {
+          if (rows[index]['id'] == id) {
+            rows[index] = {...rows[index], ...updated};
+          }
+        }
+      }
+      resource.chats[id]?.projectId = project['id'] as String;
+      // Do not leave a moved row in its old folder while the tree reloads.
+      if (resource.selectedProject?['id'] != project['id']) {
+        resource.projectSessions.removeWhere((row) => row['id'] == id);
+      }
+      _changed();
+      final navigation = _generation;
+      final generation = resource.projectGeneration;
+      bool valid() =>
+          !_closed &&
+          current == resource &&
+          !switching &&
+          navigation == _generation &&
+          generation == resource.projectGeneration;
+      try {
+        final projects = await resource.gateway.projects();
+        if (valid()) {
+          resource.projects = projects;
+          resource.projectsError = null;
+          final selectedId = resource.selectedProject?['id'];
+          if (selectedId != null) {
+            final selected = projects
+                .where((p) => p['id'] == selectedId)
+                .firstOrNull;
+            if (selected != null) {
+              resource.selectedProject = selected;
+              await _loadProject(resource, selected);
+            } else {
+              resource.projectSessions = [];
+              resource.projectSessionsError =
+                  'The selected project is unavailable.';
+            }
+          }
+        }
+      } catch (_) {
+        if (valid()) {
+          resource.projectsError = 'Chat moved. Refresh to reload projects.';
+        }
+      }
+      return true;
     } finally {
       resource.mutatingSessions.remove(id);
       _changed();

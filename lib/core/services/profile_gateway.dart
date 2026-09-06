@@ -419,6 +419,51 @@ class ProfileGateway {
     return result;
   }
 
+  /// Same operation as Desktop: moves the stored workspace, not a local tag.
+  Future<Map<String, dynamic>> moveSession(String id, String cwd) async {
+    if (id.isEmpty || cwd.trim().isEmpty) {
+      throw ArgumentError('A chat and project folder are required');
+    }
+    await requireProfile();
+    // Stock workspace.move finds live agents by durable ID without checking
+    // profile ownership. Do not risk re-homing a colliding live session.
+    final live = records((await call('session.active_list'))['sessions']);
+    if (live.any((row) => row['session_key'] == id)) {
+      throw StateError(
+        'This chat is still open on Hermes. Close it before moving.',
+      );
+    }
+    final result = await call('session.workspace.move', {
+      'session_key': id,
+      'cwd': cwd,
+    });
+    if (result['cwd'] is! String ||
+        (result['cwd'] as String).trim().isEmpty ||
+        (result['branch'] != null && result['branch'] is! String) ||
+        (result['git_repo_root'] != null &&
+            result['git_repo_root'] is! String)) {
+      throw const FormatException('Invalid workspace move response');
+    }
+    return {
+      'cwd': result['cwd'],
+      'git_branch': result['branch'],
+      'git_repo_root': result['git_repo_root'],
+    };
+  }
+
+  /// Desktop uses the primary folder, then the first repository folder.
+  static String projectDirectory(Map<String, dynamic> project) {
+    final primary = (project['primary_path'] ?? project['path'])?.toString();
+    if (primary != null && primary.trim().isNotEmpty) return primary.trim();
+    for (final repo in (project['repos'] as List? ?? const [])) {
+      if (repo is Map && repo['path'] is String) {
+        final path = (repo['path'] as String).trim();
+        if (path.isNotEmpty) return path;
+      }
+    }
+    return '';
+  }
+
   Future<void> deleteSession(String id) async {
     if (id.isEmpty) throw ArgumentError('Missing session');
     await requireProfile();
