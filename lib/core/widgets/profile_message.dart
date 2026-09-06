@@ -51,6 +51,20 @@ class ProfileMessage extends StatelessWidget {
     }
   }
 
+  Widget _copy(BuildContext context, String content) => IconButton(
+    tooltip: 'Copy message',
+    style: IconButton.styleFrom(minimumSize: const Size(48, 48)),
+    icon: const Icon(Icons.copy_outlined, size: 17),
+    onPressed: () async {
+      await Clipboard.setData(ClipboardData(text: content));
+      if (context.mounted) {
+        ScaffoldMessenger.of(
+          context,
+        ).showSnackBar(const SnackBar(content: Text('Message copied')));
+      }
+    },
+  );
+
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
@@ -63,7 +77,7 @@ class ProfileMessage extends StatelessWidget {
     }
     final user = role == 'user';
     return Padding(
-      padding: const EdgeInsets.only(bottom: 20),
+      padding: const EdgeInsets.only(bottom: 12),
       child: Column(
         crossAxisAlignment: user
             ? CrossAxisAlignment.end
@@ -71,7 +85,7 @@ class ProfileMessage extends StatelessWidget {
         children: [
           if (!user)
             Padding(
-              padding: const EdgeInsets.only(bottom: 8),
+              padding: const EdgeInsets.only(bottom: 2),
               child: Row(
                 children: [
                   Container(
@@ -100,84 +114,96 @@ class ProfileMessage extends StatelessWidget {
                       color: theme.colorScheme.onSurfaceVariant,
                     ),
                   ),
+                  const Spacer(),
+                  if (!streaming) _copy(context, content),
                 ],
               ),
             ),
-          Container(
-            margin: EdgeInsets.only(left: user ? 28 : 0),
-            padding: user ? const EdgeInsets.all(14) : EdgeInsets.zero,
-            decoration: user
-                ? BoxDecoration(
-                    color: theme.colorScheme.primaryContainer,
-                    borderRadius: const BorderRadius.only(
-                      topLeft: Radius.circular(20),
-                      topRight: Radius.circular(20),
-                      bottomLeft: Radius.circular(20),
-                      bottomRight: Radius.circular(6),
-                    ),
-                  )
-                : null,
-            child: user
-                ? SelectableText(
-                    content,
-                    style: theme.textTheme.bodyLarge?.copyWith(
-                      height: 1.45,
-                      color: theme.colorScheme.onPrimaryContainer,
-                    ),
-                  )
-                : Column(
-                    crossAxisAlignment: CrossAxisAlignment.stretch,
-                    children: [
-                      for (final segment in splitMarkdownCodeBlocks(content))
-                        if (segment is MarkdownCodeBlock)
-                          segment
-                        else
-                          MarkdownBody(
-                            data: segment as String,
-                            selectable: true,
-                            onTapLink: (_, href, _) {
-                              if (href != null) _open(context, href);
-                            },
-                            sizedImageBuilder: (config) => OutlinedButton.icon(
-                              onPressed: () =>
-                                  _open(context, config.uri.toString()),
-                              icon: const Icon(Icons.image_outlined),
-                              label: Text(
-                                config.alt ?? 'Open image link',
-                                maxLines: 2,
-                                overflow: TextOverflow.ellipsis,
-                              ),
-                            ),
-                            styleSheet: MarkdownStyleSheet.fromTheme(theme)
-                                .copyWith(
-                                  p: theme.textTheme.bodyLarge?.copyWith(
-                                    height: 1.5,
-                                  ),
-                                  blockSpacing: 12,
-                                  code: theme.textTheme.bodyMedium?.copyWith(
-                                    fontFamily: 'monospace',
-                                    backgroundColor:
-                                        theme.colorScheme.surfaceContainerHigh,
-                                  ),
-                                  tableColumnWidth: const FlexColumnWidth(),
-                                ),
+          Row(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            mainAxisAlignment: user
+                ? MainAxisAlignment.end
+                : MainAxisAlignment.start,
+            children: [
+              Flexible(
+                child: Container(
+                  margin: EdgeInsets.only(left: user ? 28 : 0),
+                  padding: user
+                      ? const EdgeInsets.symmetric(horizontal: 12, vertical: 10)
+                      : EdgeInsets.zero,
+                  decoration: user
+                      ? BoxDecoration(
+                          color: theme.colorScheme.primaryContainer,
+                          borderRadius: const BorderRadius.only(
+                            topLeft: Radius.circular(20),
+                            topRight: Radius.circular(20),
+                            bottomLeft: Radius.circular(20),
+                            bottomRight: Radius.circular(6),
                           ),
-                    ],
-                  ),
+                        )
+                      : null,
+                  child: user
+                      ? SelectableText(
+                          content,
+                          style: theme.textTheme.bodyLarge?.copyWith(
+                            height: 1.45,
+                            color: theme.colorScheme.onPrimaryContainer,
+                          ),
+                        )
+                      : Column(
+                          crossAxisAlignment: CrossAxisAlignment.stretch,
+                          children: [
+                            for (final segment in splitMarkdownCodeBlocks(
+                              content,
+                            ))
+                              if (segment is MarkdownCodeBlock)
+                                segment
+                              else
+                                MarkdownBody(
+                                  data: segment as String,
+                                  selectable: true,
+                                  onTapLink: (_, href, _) {
+                                    if (href != null) _open(context, href);
+                                  },
+                                  sizedImageBuilder: (config) =>
+                                      OutlinedButton.icon(
+                                        onPressed: () => _open(
+                                          context,
+                                          config.uri.toString(),
+                                        ),
+                                        icon: const Icon(Icons.image_outlined),
+                                        label: Text(
+                                          config.alt ?? 'Open image link',
+                                          maxLines: 2,
+                                          overflow: TextOverflow.ellipsis,
+                                        ),
+                                      ),
+                                  styleSheet:
+                                      MarkdownStyleSheet.fromTheme(
+                                        theme,
+                                      ).copyWith(
+                                        p: theme.textTheme.bodyLarge?.copyWith(
+                                          height: 1.5,
+                                        ),
+                                        blockSpacing: 8,
+                                        code: theme.textTheme.bodyMedium
+                                            ?.copyWith(
+                                              fontFamily: 'monospace',
+                                              backgroundColor: theme
+                                                  .colorScheme
+                                                  .surfaceContainerHigh,
+                                            ),
+                                        tableColumnWidth:
+                                            const FlexColumnWidth(),
+                                      ),
+                                ),
+                          ],
+                        ),
+                ),
+              ),
+              if (user && !streaming) _copy(context, content),
+            ],
           ),
-          if (!streaming)
-            IconButton(
-              tooltip: 'Copy message',
-              icon: const Icon(Icons.copy_outlined, size: 17),
-              onPressed: () async {
-                await Clipboard.setData(ClipboardData(text: content));
-                if (context.mounted) {
-                  ScaffoldMessenger.of(context).showSnackBar(
-                    const SnackBar(content: Text('Message copied')),
-                  );
-                }
-              },
-            ),
         ],
       ),
     );

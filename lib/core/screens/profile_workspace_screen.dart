@@ -209,25 +209,26 @@ class _ProfileWorkspaceScreenState extends State<ProfileWorkspaceScreen>
 
   Widget _chat(ProfileChat chat, BuildContext context) => Column(
     children: [
-      Padding(
-        padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
-        child: Row(
-          children: [
-            ProfileChatIndicator(chat: chat, row: const {}),
-            const SizedBox(width: 8),
-            Expanded(
-              child: Text(
-                _status(chat),
-                maxLines: 1,
-                overflow: TextOverflow.ellipsis,
-                style: Theme.of(context).textTheme.labelMedium?.copyWith(
-                  color: Theme.of(context).colorScheme.onSurfaceVariant,
+      if (chat.busy || chat.error != null)
+        Padding(
+          padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 4),
+          child: Row(
+            children: [
+              ProfileChatIndicator(chat: chat, row: const {}),
+              const SizedBox(width: 8),
+              Expanded(
+                child: Text(
+                  _status(chat),
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  style: Theme.of(context).textTheme.labelMedium?.copyWith(
+                    color: Theme.of(context).colorScheme.onSurfaceVariant,
+                  ),
                 ),
               ),
-            ),
-          ],
+            ],
+          ),
         ),
-      ),
       Expanded(
         child: ProfileTranscript(
           key: ValueKey(chat.key),
@@ -325,6 +326,7 @@ class _ProfileWorkspaceScreenState extends State<ProfileWorkspaceScreen>
         child: Padding(
           padding: const EdgeInsets.fromLTRB(12, 8, 12, 10),
           child: DecoratedBox(
+            key: const ValueKey('conversation-composer'),
             decoration: BoxDecoration(
               color: Theme.of(context).colorScheme.surfaceContainerLow,
               borderRadius: BorderRadius.circular(24),
@@ -377,29 +379,14 @@ class _ProfileWorkspaceScreenState extends State<ProfileWorkspaceScreen>
                         ],
                       ),
                     ),
-                  TextField(
-                    key: const Key('profile-message-composer'),
-                    controller: _composer,
-                    minLines: 1,
-                    maxLines: 5,
-                    keyboardType: TextInputType.multiline,
-                    textInputAction: TextInputAction.newline,
-                    onChanged: (value) => setState(() => chat.draft = value),
-                    decoration: InputDecoration(
-                      hintText: chat.busy
-                          ? 'Draft your next message'
-                          : 'Message Hermes',
-                      border: InputBorder.none,
-                      enabledBorder: InputBorder.none,
-                      focusedBorder: InputBorder.none,
-                      filled: false,
-                      contentPadding: const EdgeInsets.fromLTRB(12, 8, 12, 8),
-                    ),
-                  ),
                   Row(
+                    crossAxisAlignment: CrossAxisAlignment.end,
                     children: [
                       IconButton(
                         tooltip: 'Attach file',
+                        style: IconButton.styleFrom(
+                          minimumSize: const Size(48, 48),
+                        ),
                         icon: const Icon(Icons.add),
                         onPressed: chat.busy || controller.switching
                             ? null
@@ -416,9 +403,36 @@ class _ProfileWorkspaceScreenState extends State<ProfileWorkspaceScreen>
                                 }
                               }),
                       ),
-                      const Spacer(),
+                      Expanded(
+                        child: TextField(
+                          key: const Key('profile-message-composer'),
+                          controller: _composer,
+                          minLines: 1,
+                          maxLines: 5,
+                          keyboardType: TextInputType.multiline,
+                          textInputAction: TextInputAction.newline,
+                          onChanged: (value) =>
+                              setState(() => chat.draft = value),
+                          decoration: InputDecoration(
+                            isDense: true,
+                            hintMaxLines: 1,
+                            hintText: chat.busy
+                                ? 'Draft your next message'
+                                : 'Message Hermes',
+                            border: InputBorder.none,
+                            enabledBorder: InputBorder.none,
+                            focusedBorder: InputBorder.none,
+                            filled: false,
+                            contentPadding: const EdgeInsets.symmetric(
+                              horizontal: 4,
+                              vertical: 12,
+                            ),
+                          ),
+                        ),
+                      ),
                       IconButton.filled(
                         style: IconButton.styleFrom(
+                          minimumSize: const Size(48, 48),
                           shape: RoundedRectangleBorder(
                             borderRadius: BorderRadius.circular(14),
                           ),

@@ -12,13 +12,12 @@ class ProfileToolActivity extends StatelessWidget {
         ? messages.single['tool_name']?.toString() ?? 'Tool result'
         : '${messages.length} tool results';
     return Padding(
-      padding: const EdgeInsets.only(bottom: 12),
+      padding: const EdgeInsets.only(bottom: 8),
       child: Material(
         color: colors.surfaceContainerLow,
         borderRadius: BorderRadius.circular(14),
         clipBehavior: Clip.antiAlias,
         child: ExpansionTile(
-          key: ValueKey('tools-${messages.last['id']}'),
           minTileHeight: 48,
           tilePadding: const EdgeInsets.symmetric(horizontal: 12),
           shape: const Border(),

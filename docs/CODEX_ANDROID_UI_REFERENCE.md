@@ -194,3 +194,16 @@ section spacing is tighter. Chat rows have a 52 dp minimum while retaining two
 title lines when needed. Large text can expand the layout; touch targets are
 not reduced to make the list look denser. This supersedes the project-tile
 proposal above.
+
+## Denser conversations and long-history polish, 2026-09-06
+
+The conversation now uses a one-row growing composer and puts Copy beside the
+assistant header or user bubble. Tighter message and paragraph spacing replaces
+the separate copy footer. Idle status no longer takes its own strip; active work
+and errors remain visible. Text size and 48 dp composer tap targets are retained.
+
+Latest changes to New activity when output arrives while reading older messages,
+or Input needed when approval/clarification is pending. This control only scrolls;
+it does not act on a request. Stable lazy-list identities preserve tool expansion
+when history pages or new output change row indices. Tool output stays collapsed
+initially, and reduced-motion settings suppress the animated jump.

@@ -76,6 +76,12 @@ Read these files before implementation:
    `com.hermesagent.hermes_android.dev`, capture a screenshot, and inspect logcat
    for startup failures. Keep host-specific SDK paths out of Git.
 3. Use ADB and Flutter integration tests for repeatable app actions and logs.
+   Always use `--no-uninstall` for device integration tests: Flutter 3.44 otherwise
+   uninstalls the app during cleanup, deleting its local data. Use disposable
+   emulator configurations and preserve backups. On the owner's phone, deploy
+   with explicit `adb install -r` and stop on failure; Flutter's install fallback
+   can uninstall after a failed upgrade. See `docs/WINDOWS_VERIFICATION.md` for
+   the emulator data-loss incident discovered during conversation verification.
    Add Android UI automation for native permissions/notifications when needed.
    If Computer Use is available, enable it for Hermes Desktop and the emulator
    and verify it can actually inspect/interact with each. On Windows it requires

@@ -218,6 +218,29 @@ void main() {
     });
 
     testWidgets(
+      'single-line composer uses one compact row with full tap targets',
+      (tester) async {
+        tester.view.physicalSize = const Size(360, 800);
+        tester.view.devicePixelRatio = 1;
+        addTearDown(tester.view.reset);
+        await show(tester);
+        expect(
+          tester
+              .getSize(find.byKey(const ValueKey('conversation-composer')))
+              .height,
+          lessThanOrEqualTo(72),
+        );
+        for (final tooltip in ['Attach file', 'Send']) {
+          expect(
+            tester.getSize(find.byTooltip(tooltip)).height,
+            greaterThanOrEqualTo(48),
+          );
+        }
+        expect(tester.takeException(), isNull);
+      },
+    );
+
+    testWidgets(
       'empty send disabled, multiline draft survives profile navigation',
       (tester) async {
         await show(tester);

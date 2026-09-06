@@ -58,7 +58,7 @@ Use the PowerShell toolchain setup in `LOCAL_BUILD_SETUP.md`, then:
 $adb = 'C:\Users\rober\Development\android-dev\android-sdk\platform-tools\adb.exe'
 & $adb reverse tcp:65243 tcp:65243
 & $flutter test test/profile_live_contract_test.dart --dart-define=HERMES_TEST_PORT=65243
-& $flutter test integration_test/profile_workspace_test.dart -d emulator-5554 --dart-define=HERMES_TEST_PORT=65243 --dart-define=HERMES_TEST_PROJECT=C:/Users/rober/Development/hermes-android
+& $flutter test integration_test/profile_workspace_test.dart -d emulator-5554 --no-uninstall --dart-define=HERMES_TEST_PORT=65243 --dart-define=HERMES_TEST_PROJECT=C:/Users/rober/Development/hermes-android
 ```
 
 Adding `--dart-define=RUN_MODEL=true` submits one real prompt on each run. Do not
@@ -543,3 +543,67 @@ and installed successfully on the Samsung phone with `adb install -r`, preservin
 app data. No new phone screenshot was taken for this change. Ignored evidence:
 `build/compact-profile-tests.log`, `build/compact-profile-analyze.log` and
 `build/compact-profile-release.log`.
+
+## Long conversation and density pass, 2026-09-06
+
+The lazy transcript now maps stable row keys back to their indices so additions
+retain mounted messages and expanded tool groups. The Latest control distinguishes
+new activity and pending input, respects reduced motion and never grants approval
+or sends a reply. A newer touch gesture cancels a queued automatic correction.
+History loading uses a compact labelled indicator and an explicit loaded-history
+boundary. Existing per-chat in-memory offset restoration remains; this is not a
+durable bookmark across process death or arbitrary offscreen history replacement.
+
+Message Copy controls now sit beside the header/bubble instead of in a separate
+footer. Message/paragraph spacing is tighter. The composer uses one row until
+multiline text requires more room, with 48 dp attach/send controls. The redundant
+idle status strip is hidden; working/error status remains visible.
+
+The full suite passed 1,066 tests with two opt-in live skips. Final focused tests
+passed 17 checks after the last UI adjustment. Static analysis is clean. New tests
+cover 2,500 variable-height rows without eager mounting, a 1,800 dp streaming tail,
+reader anchoring, activity labels, tool expansion across additions, input discovery,
+page retry and compact composer dimensions. Light and dark authored previews were
+visually checked in the emulator. The signed personal arm64 release passed signature,
+certificate, identity and non-debuggable verification.
+
+### Production retest and emulator data incident
+
+The first production integration attempt failed while loading the initial session
+list with a closed connection. The second timed out attaching to the VM service.
+The emulator also stalled and showed a System UI ANR. It was restarted without
+wiping its disk, and the System UI process was closed through its ANR dialog.
+
+Flutter 3.44's `flutter test` defaults to `--uninstall` for integration tests.
+The two invocations in this pass omitted `--no-uninstall`. Flutter consequently
+removed the emulator's Dev app and its local data, including saved connections,
+during cleanup.
+This was an agent mistake, not a requested deletion. Subsequent manual APK installs
+used `adb install -r`, but cannot recover the deleted app data. No secure backup
+for that emulator configuration has been established. Phone apps and server-side
+chats were not deleted or changed by these tests.
+
+Always pass `--no-uninstall` to future integration runs, use a disposable test
+device, and protect its configuration before testing. Flutter can also uninstall
+after a failed APK upgrade, so do not use its deployment path as a data-preserving
+guarantee on the owner's phone. Use explicit `adb install -r` and stop on failure.
+
+The added standalone `profile_history_readonly_probe.dart` avoids the test/debugger
+runner, uses in-memory preferences and allowlisted reads, and prints only counts.
+It built and launched, but could not run its checks because the saved production
+connection was gone. **Production re-verification is incomplete for this pass.**
+The existing read-only integration test now also uses in-memory preferences and
+an RPC allowlist to prevent runtime restoration or mutations during verification.
+
+Ignored evidence: `build/long-conversation-full-tests.log`,
+`build/long-conversation-final-focused.log`, `build/long-conversation-final-analyze.log`,
+`build/long-conversation-prod.log`, `build/long-conversation-prod-retry.log`,
+`build/long-conversation-probe-result.log`, `build/long-conversation-release.log`,
+and `build/hermes-conversation-compact-{light,dark}.png`.
+
+The normal debug APK was restored on the emulator with `adb install -r`; no
+preview or test APK remains installed. This restores the application, not its
+deleted configuration. The signed Hermes Personal update was installed on the
+Samsung phone with `adb install -r`. Installation succeeded, and package metadata
+confirms version 2.1.1/code 21412 with no DEBUGGABLE flag. The phone app was not
+opened during this pass. Its existing data and other installed apps were preserved.

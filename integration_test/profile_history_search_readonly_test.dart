@@ -7,6 +7,7 @@ import 'package:hermes_android/core/widgets/profile_message.dart';
 import 'package:hermes_android/core/services/connection_manager.dart';
 import 'package:hermes_android/core/services/profile_connection_identity.dart';
 import 'package:hermes_android/core/services/profile_workspace_controller.dart';
+import 'package:hermes_android/core/services/profile_gateway.dart';
 
 /// Production read-only acceptance. No session.resume, prompts, or mutations.
 /// Display metadata and message bodies are never printed to logs.
@@ -23,12 +24,40 @@ void main() {
       final manager = await ConnectionManager.create(preferences);
       final connection = (await manager.loadConnectionsWithSecrets())
           .singleWhere((c) => c.label == label && c.host == host);
+      // Use the saved secret only for transport. Never restore pending runtimes
+      // or overwrite the owner's selected profile/preferences in a read test.
+      SharedPreferences.setMockInitialValues({});
       final controller = ProfileWorkspaceController(
         connection: connection,
         connectionIdentity: await ProfileConnectionIdentity().resolve(
           connection,
         ),
-        preferences: preferences,
+        preferences: await SharedPreferences.getInstance(),
+        gatewayFactory: (scope) {
+          final live = ProfileGateway.forConnection(connection, scope);
+          return ProfileGateway(
+            scope: scope,
+            discover: live.discover,
+            connect: live.connect,
+            close: live.close,
+            get: (endpoint, query) {
+              if (endpoint != 'sessions' &&
+                  endpoint != 'sessions/search' &&
+                  !RegExp(r'^sessions/[^/]+/messages$').hasMatch(endpoint)) {
+                throw StateError('Read-only test blocked an unexpected route');
+              }
+              return live.read(endpoint, query);
+            },
+            rpc: (method, params) {
+              if (method != 'projects.tree') {
+                throw StateError(
+                  'Read-only test blocked a non-allowlisted RPC',
+                );
+              }
+              return live.call(method, params);
+            },
+          );
+        },
       );
       addTearDown(controller.dispose);
       await controller.initialize();
@@ -128,6 +157,33 @@ void main() {
         );
         await tester.pumpAndSettle();
         expect(tester.takeException(), isNull);
+        final candidatesOnScreen = find.byType(ProfileMessage).evaluate().where(
+          (element) {
+            final rect = tester.getRect(find.byWidget(element.widget));
+            return rect.top >= 40 && rect.top < 300;
+          },
+        ).toList();
+        if (candidatesOnScreen.isNotEmpty) {
+          final anchorId =
+              (candidatesOnScreen.first.widget as ProfileMessage).message['id'];
+          final anchor = find.byWidgetPredicate(
+            (w) => w is ProfileMessage && w.message['id'] == anchorId,
+          );
+          final before = tester.getTopLeft(anchor).dy;
+          if (chat.nextHistoryOffset != null) {
+            await controller.loadOlderMessages(chat);
+            expect(chat.historyError, isNull);
+            await tester.pumpAndSettle();
+            expect(anchor.evaluate().length == 1, isTrue);
+            expect(tester.getTopLeft(anchor).dy, closeTo(before, 2));
+          }
+          expect(find.byKey(const ValueKey('jump-to-latest')), findsOneWidget);
+          final count = chat.messages.length;
+          await tester.tap(find.byKey(const ValueKey('jump-to-latest')));
+          await tester.pumpAndSettle();
+          expect(chat.historyScrollOffset, closeTo(0, 1));
+          expect(chat.messages.length, count);
+        }
         // Refresh keeps the older prefix when the server's newest page overlaps.
         final oldest = chat.messages.firstOrNull?['id'];
         await controller.refreshHistory(chat);
@@ -145,8 +201,6 @@ void main() {
         greaterThan(0),
         reason: 'No real history over 500 rows was available.',
       );
-      // Return the saved startup profile to its previous first-profile default.
-      await controller.navigateProfile(names.first);
       debugPrint(
         '[history-search-readonly] PASS: profiles=${names.length} histories_over_500=$longHistories remote_searches=$remoteMatches; no resume, mutations, or model calls.',
       );
