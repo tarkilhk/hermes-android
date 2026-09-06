@@ -17,7 +17,12 @@ production chats for testing, or add compatibility layers.
 - [x] Inspect authored previews in light/dark themes.
 - [x] Install the normal build on the phone and inspect its workspace/menu.
 - [x] Restore the emulator's normal APK with saved data preserved.
-- [ ] Gather the owner's visual feedback during everyday use.
+- [x] Gather the owner's visual feedback during everyday use.
+
+Owner feedback: the project cards use too much space. The follow-up replaces
+them with full-width 48 dp plain rows and reduces toolbar, section and chat-row
+spacing. Project order and all actions are retained. The tile proposal below is
+historical and is no longer the chosen layout.
 
 Research and implementation verification are complete. The appearance remains
 a proposal for the owner to evaluate. Full suite: 1,050 passed, two opt-in live

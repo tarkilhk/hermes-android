@@ -180,3 +180,17 @@ legacy assignment fallback was introduced.
 The separate row ellipsis opens actions. Folder colors identify projects
 decoratively; they do not encode activity. Unknown cross-device live state is
 not inferred from recent activity or an end timestamp.
+
+## Compact workspace revision, 2026-09-06
+
+The owner found project cards too large. The overview and all-projects view now
+use plain full-width rows with a small colored folder icon, single-line title
+and visible 48 dp overflow action. Five overview rows occupy 240 logical pixels
+at default text size, with no card gaps or tile grid. Recency order, top-five
+limit, See all, project drill-in and long-press behavior are unchanged.
+
+The workspace title is smaller, the toolbar is 64 dp at default text size, and
+section spacing is tighter. Chat rows have a 52 dp minimum while retaining two
+title lines when needed. Large text can expand the layout; touch targets are
+not reduced to make the list look denser. This supersedes the project-tile
+proposal above.

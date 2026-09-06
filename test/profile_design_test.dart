@@ -140,6 +140,40 @@ void main() {
     expect(bounds.bottom, lessThanOrEqualTo(800));
   });
 
+  testWidgets('five projects are compact full-width rows with usable actions', (
+    tester,
+  ) async {
+    await show(tester);
+    final overview = find.byKey(const ValueKey('project-overview'));
+    expect(tester.getSize(overview).height, 240);
+    final ids = controller.current!.projects
+        .take(5)
+        .map((p) => p['id'])
+        .toList();
+    double? previousBottom;
+    for (final id in ids) {
+      final row = find.byKey(ValueKey('project-$id'));
+      final bounds = tester.getRect(row);
+      expect(bounds.height, 48);
+      expect(bounds.width, 328);
+      if (previousBottom != null) expect(bounds.top, previousBottom);
+      previousBottom = bounds.bottom;
+      final action = find.descendant(
+        of: row,
+        matching: find.byTooltip('Project actions'),
+      );
+      expect(tester.getSize(action).height, greaterThanOrEqualTo(48));
+      final material = tester.widget<Material>(
+        find.ancestor(of: row, matching: find.byType(Material)).first,
+      );
+      expect(material.color, Colors.transparent);
+    }
+    await tester.tap(find.byKey(ValueKey('project-${ids.first}')));
+    await tester.pumpAndSettle();
+    expect(controller.current!.selectedProject!['id'], ids.first);
+    expect(tester.takeException(), isNull);
+  });
+
   test(
     'tool grouping preserves chronology, non-tools and newest anchor IDs',
     () {

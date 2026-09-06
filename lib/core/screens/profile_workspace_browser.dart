@@ -144,7 +144,7 @@ class _ProfileWorkspaceBrowserState extends State<ProfileWorkspaceBrowser> {
   }
 
   Widget _heading(String title, {Widget? action}) => Padding(
-    padding: const EdgeInsets.fromLTRB(20, 20, 12, 8),
+    padding: const EdgeInsets.fromLTRB(20, 12, 12, 4),
     child: Row(
       children: [
         Expanded(
@@ -165,30 +165,21 @@ class _ProfileWorkspaceBrowserState extends State<ProfileWorkspaceBrowser> {
 
   Widget _project(Map<String, dynamic> project) => Builder(
     builder: (rowContext) => Padding(
-      padding: const EdgeInsets.fromLTRB(16, 0, 16, 6),
+      padding: const EdgeInsets.symmetric(horizontal: 16),
       child: Material(
-        color: Theme.of(context).colorScheme.surfaceContainerLow,
-        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+        color: Colors.transparent,
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
         clipBehavior: Clip.antiAlias,
         child: ListTile(
           key: ValueKey('project-${project['id']}'),
-          contentPadding: const EdgeInsets.only(left: 14, right: 2),
-          minTileHeight: 56,
-          leading: Container(
-            width: 36,
-            height: 36,
-            decoration: BoxDecoration(
-              color: projectAccent(
-                context,
-                project['id'] as String,
-              ).withValues(alpha: 0.13),
-              borderRadius: BorderRadius.circular(10),
-            ),
-            child: Icon(
-              Icons.folder_outlined,
-              size: 22,
-              color: projectAccent(context, project['id'] as String),
-            ),
+          contentPadding: const EdgeInsets.only(left: 4),
+          minTileHeight: 48,
+          minVerticalPadding: 0,
+          horizontalTitleGap: 12,
+          leading: Icon(
+            Icons.folder_outlined,
+            size: 20,
+            color: projectAccent(context, project['id'] as String),
           ),
           minLeadingWidth: 22,
           title: Text(
@@ -197,17 +188,7 @@ class _ProfileWorkspaceBrowserState extends State<ProfileWorkspaceBrowser> {
             overflow: TextOverflow.ellipsis,
             style: const TextStyle(fontSize: 15, fontWeight: FontWeight.w500),
           ),
-          onTap: controller.switching
-              ? null
-              : () {
-                  _searchDebounce?.cancel();
-                  _search.clear();
-                  setState(() {
-                    _query = '';
-                    _view = 'home';
-                  });
-                  unawaited(_run(() => controller.selectProject(project)));
-                },
+          onTap: controller.switching ? null : () => _openProject(project),
           onLongPress: controller.switching
               ? null
               : () => _run(
@@ -215,6 +196,10 @@ class _ProfileWorkspaceBrowserState extends State<ProfileWorkspaceBrowser> {
                 ),
           trailing: IconButton(
             tooltip: 'Project actions',
+            style: IconButton.styleFrom(
+              minimumSize: const Size(48, 48),
+              visualDensity: VisualDensity.standard,
+            ),
             icon: const Icon(Icons.more_horiz, size: 20),
             onPressed: controller.switching
                 ? null
@@ -243,7 +228,7 @@ class _ProfileWorkspaceBrowserState extends State<ProfileWorkspaceBrowser> {
           child: ListTile(
             key: ValueKey('chat-${row['id']}'),
             contentPadding: const EdgeInsets.only(left: 14, right: 0),
-            minTileHeight: 60,
+            minTileHeight: 52,
             onLongPress:
                 controller.switching ||
                     resource.mutatingSessions.contains(row['id'])
@@ -327,97 +312,9 @@ class _ProfileWorkspaceBrowserState extends State<ProfileWorkspaceBrowser> {
     unawaited(_run(() => controller.selectProject(project)));
   }
 
-  Widget _projectOverview(List<Map<String, dynamic>> projects) => LayoutBuilder(
-    builder: (context, constraints) {
-      if (constraints.maxWidth < 350 ||
-          MediaQuery.textScalerOf(context).scale(14) > 20) {
-        return Column(children: projects.map(_project).toList());
-      }
-      return Column(
-        children: [
-          _project(projects.first),
-          for (var index = 1; index < projects.length; index += 2)
-            Padding(
-              padding: const EdgeInsets.fromLTRB(16, 0, 16, 8),
-              child: Row(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Expanded(child: _projectTile(projects[index])),
-                  const SizedBox(width: 8),
-                  Expanded(
-                    child: index + 1 < projects.length
-                        ? _projectTile(projects[index + 1])
-                        : const SizedBox.shrink(),
-                  ),
-                ],
-              ),
-            ),
-        ],
-      );
-    },
-  );
-
-  Widget _projectTile(Map<String, dynamic> project) => Builder(
-    builder: (context) {
-      final accent = projectAccent(context, project['id'] as String);
-      return Material(
-        color: Color.alphaBlend(
-          accent.withValues(alpha: 0.09),
-          Theme.of(context).colorScheme.surfaceContainerLow,
-        ),
-        borderRadius: BorderRadius.circular(18),
-        clipBehavior: Clip.antiAlias,
-        child: InkWell(
-          key: ValueKey('project-${project['id']}'),
-          onTap: controller.switching ? null : () => _openProject(project),
-          onLongPress: controller.switching
-              ? null
-              : () => _run(
-                  () => showProjectActions(context, controller, project),
-                ),
-          child: Padding(
-            padding: const EdgeInsets.fromLTRB(14, 0, 2, 12),
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Row(
-                  children: [
-                    Icon(Icons.folder_outlined, size: 20, color: accent),
-                    const Spacer(),
-                    IconButton(
-                      tooltip: 'Project actions',
-                      icon: const Icon(Icons.more_horiz, size: 18),
-                      onPressed: controller.switching
-                          ? null
-                          : () => _run(
-                              () => showProjectActions(
-                                context,
-                                controller,
-                                project,
-                              ),
-                            ),
-                    ),
-                  ],
-                ),
-                Padding(
-                  padding: const EdgeInsets.only(right: 12),
-                  child: Text(
-                    project['name'] as String,
-                    maxLines: 2,
-                    overflow: TextOverflow.ellipsis,
-                    style: const TextStyle(
-                      fontSize: 14,
-                      height: 1.2,
-                      fontWeight: FontWeight.w600,
-                    ),
-                  ),
-                ),
-              ],
-            ),
-          ),
-        ),
-      );
-    },
+  Widget _projectOverview(List<Map<String, dynamic>> projects) => Column(
+    key: const ValueKey('project-overview'),
+    children: projects.map(_project).toList(),
   );
 
   List<Widget> _tree() {
@@ -624,7 +521,7 @@ class _ProfileWorkspaceBrowserState extends State<ProfileWorkspaceBrowser> {
         backgroundColor: background,
         appBar: AppBar(
           centerTitle: false,
-          toolbarHeight: 80,
+          toolbarHeight: 64 + (MediaQuery.textScalerOf(context).scale(24) - 24),
           backgroundColor: background,
           surfaceTintColor: Colors.transparent,
           leading: IconButton(
@@ -644,9 +541,11 @@ class _ProfileWorkspaceBrowserState extends State<ProfileWorkspaceBrowser> {
                         : _view == 'activity'
                         ? 'Activity'
                         : 'Hermes'),
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
                 style: const TextStyle(
                   fontWeight: FontWeight.w700,
-                  fontSize: 28,
+                  fontSize: 24,
                   letterSpacing: -1.0,
                 ),
               ),

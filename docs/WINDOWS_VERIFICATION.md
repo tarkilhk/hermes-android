@@ -464,3 +464,24 @@ was installed in this pass. The phone returned to another foreground app during
 the attempted UI check, so the new picker has widget-test coverage but no claimed
 physical-device visual verification. No Flutter/Android runtime errors appeared
 in the inspected recent error log.
+
+## Compact project list and release readiness, 2026-09-06
+
+Removed the project tile grid and card backgrounds in favor of 48 dp full-width
+rows with small colored folder icons. Reduced the default toolbar to 64 dp,
+title to 24 sp, section spacing, and chat-row minimum to 52 dp. Font scaling,
+top-five recency order, See all, profile navigation and row actions are retained.
+
+A new widget test checks five contiguous rows occupying 240 dp, full-width
+titles, transparent row backgrounds, 48 dp action controls and project drill-in.
+The existing 2x-text and menu tests pass. Full suite: 1,057 passed, two opt-in
+live tests skipped. Analysis is clean. No gateway behavior or data was changed.
+Logs are ignored under `build/compact-tests.log`, `compact-full-tests.log`,
+`compact-analyze.log` and `compact-apk.log`.
+
+Release readiness was inspected without publishing or generating secrets. The
+phone has both Dev and an older release package, version 2.1.0/code 21402. The
+checkout has no signing properties and GitHub lists no repository secrets.
+Updating the existing release requires its original certificate/key; a distinct
+fork identity can instead coexist. [Release plan](ANDROID_RELEASE_PLAN.md)
+records signing, versioning, installation and encrypted configuration transfer.
