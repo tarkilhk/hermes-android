@@ -319,3 +319,43 @@ The normal `lib/main.dart` debug APK was rebuilt, installed with `adb install -r
 and launched after acceptance. Saved connections were preserved; the integration
 test APK is not left installed. Build evidence:
 `build/history-search-normal-apk.log`.
+
+## Conversation UI verification, 2026-09-06
+
+The profile conversation now renders assistant Markdown, tables, and existing
+copy/wrap code blocks, with message copying and tap-only web links. User text
+stays literal. Named tool output is collapsed; approvals/input remain visible.
+The composer supports multiline drafts, disabled empty sends, attachment chips,
+and Stop while running. It does not promise queued submission. A Latest control
+returns to the tail while keeping older pages loaded. No gateway protocol or
+Hermes backend changes were made.
+
+Ten new tests cover narrow-phone Markdown/tables, whitespace-preserving code
+copy/wrap, message copy, partial streaming fences, literal user content, safe URL
+schemes, no automatic image fetching, collapsed tool output, 1.8x text with a
+keyboard inset, profile-isolated multiline drafts, scoped Stop without prompt
+submission, and jump-to-latest. Existing scroll anchoring and clarification tests
+also pass. Final full suite: 1,033 passed, one opt-in test skipped. Analysis clean.
+
+The production read-only history/search acceptance now renders actual messages
+through `ProfileMessage`. It passed on all four Prod Claw profiles again, loading
+600, 551, 144, and 600 unique durable rows. Three histories exceeded 500 rows;
+all retained their initial latest page and older prefix after refresh. The device
+result was `00:24 +2: All tests passed!`. No prompts, runtime resume requests, or
+server mutations were used.
+
+The isolated authored-content preview was inspected on the emulator. Markdown,
+code controls, collapsed tool activity, the header, and composer were checked;
+typing a draft enabled Send without submitting it. The keyboard-inset regression
+is a widget test; physical-device keyboard/background behavior remains unverified.
+ADB currently exposes only `emulator-5554`, not the owner's phone.
+
+Evidence remains ignored: `build/conversation-ui-tests.log`,
+`build/conversation-full-tests.log`, `build/conversation-analyze.log`,
+`build/conversation-prod-result.log`, `build/hermes-conversation-preview.png`,
+and `build/hermes-conversation-keyboard.png`. Production logs contain only counts.
+
+The normal `lib/main.dart` APK was rebuilt and restored with `adb install -r`.
+Saved connections and the granted notification permission were preserved. Neither
+the test APK nor the authored preview is left installed. Build evidence is in
+`build/conversation-normal-apk.log`.

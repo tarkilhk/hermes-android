@@ -3,6 +3,7 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:integration_test/integration_test.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:hermes_android/core/screens/profile_transcript.dart';
+import 'package:hermes_android/core/widgets/profile_message.dart';
 import 'package:hermes_android/core/services/connection_manager.dart';
 import 'package:hermes_android/core/services/profile_connection_identity.dart';
 import 'package:hermes_android/core/services/profile_workspace_controller.dart';
@@ -113,12 +114,7 @@ void main() {
                   key: ValueKey(chat.key),
                   chat: chat,
                   controller: controller,
-                  messageBuilder: (m) => Padding(
-                    padding: const EdgeInsets.all(12),
-                    child: Text(
-                      (m['display_content'] ?? m['content'] ?? '').toString(),
-                    ),
-                  ),
+                  messageBuilder: (m) => ProfileMessage(message: m),
                   tail: const [],
                 ),
               ),

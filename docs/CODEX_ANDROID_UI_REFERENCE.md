@@ -68,3 +68,30 @@ stand in for the missing Android screens.
 
 A further visual comparison should cover the active conversation, composer,
 approval request, output viewer and return from a notification.
+
+## Conversation readability pass, 2026-09-06
+
+The owner approved Markdown/code/link rendering, collapsed tool output, a better
+composer, clearer streaming status, and a jump-to-latest control. The conversation
+now puts the chat title above the host/profile selector, uses a right-aligned
+literal-text user bubble and full-width assistant Markdown, and reuses the
+existing code block copy/wrap component. Tool output starts collapsed and remains
+plain text when expanded. Approval and input requests stay directly actionable.
+
+The rounded multiline composer keeps attachments in a horizontal strip, disables
+empty sends, and allows drafting while a turn runs. During that turn, its action
+is Stop, not an implied queued send. Human-readable status text distinguishes
+sending, working, writing, attention, reconnecting, and history refresh. Latest
+returns to the newest row without dropping loaded history. Scrolling the
+transcript dismisses the keyboard.
+
+Links open externally only after a tap and only for http/https URLs without
+embedded credentials. Images render as explicit link controls rather than
+automatically fetching remote content or opening host paths on the phone.
+Remote file previews remain separate future work.
+
+`integration_test/profile_conversation_preview.dart` supplies labelled authored
+content for emulator visual inspection without connecting to Hermes. It is not
+imported by the normal app. This pass follows the approved mobile direction but
+does not claim pixel equivalence with a Codex conversation screenshot, which the
+owner has not supplied.

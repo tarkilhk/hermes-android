@@ -5,6 +5,7 @@ import 'package:flutter/material.dart';
 
 import '../services/profile_workspace_controller.dart';
 import '../services/android_share_intent_service.dart';
+import '../widgets/profile_message.dart';
 import 'profile_workspace_browser.dart';
 import 'profile_transcript.dart';
 
@@ -121,11 +122,14 @@ class _ProfileWorkspaceScreenState extends State<ProfileWorkspaceScreen>
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
                 Text(
-                  controller.connection.label,
-                  style: Theme.of(context).textTheme.labelMedium,
+                  chat.title,
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  style: Theme.of(context).textTheme.titleMedium,
                 ),
                 PopupMenuButton<String>(
                   tooltip: 'Switch profile',
+                  enabled: !controller.switching,
                   onSelected: (name) =>
                       unawaited(controller.navigateProfile(name)),
                   itemBuilder: (_) => [
@@ -140,8 +144,9 @@ class _ProfileWorkspaceScreenState extends State<ProfileWorkspaceScreen>
                     children: [
                       Flexible(
                         child: Text(
-                          current!.scope.profileName,
+                          '${controller.connection.label} · ${current!.scope.profileName}',
                           overflow: TextOverflow.ellipsis,
+                          style: Theme.of(context).textTheme.labelMedium,
                         ),
                       ),
                       const Icon(Icons.expand_more),
@@ -193,16 +198,20 @@ class _ProfileWorkspaceScreenState extends State<ProfileWorkspaceScreen>
           children: [
             Expanded(
               child: Text(
-                chat.title,
+                _status(chat),
                 maxLines: 1,
                 overflow: TextOverflow.ellipsis,
-                style: Theme.of(context).textTheme.titleMedium,
+                style: Theme.of(context).textTheme.labelMedium?.copyWith(
+                  color: Theme.of(context).colorScheme.onSurfaceVariant,
+                ),
               ),
             ),
-            Text(
-              chat.status.name,
-              style: Theme.of(context).textTheme.labelSmall,
-            ),
+            if ({
+              ProfileTurnStatus.submitting,
+              ProfileTurnStatus.running,
+              ProfileTurnStatus.settling,
+            }.contains(chat.status))
+              const Icon(Icons.pending_outlined, size: 18),
           ],
         ),
       ),
@@ -211,13 +220,22 @@ class _ProfileWorkspaceScreenState extends State<ProfileWorkspaceScreen>
           key: ValueKey(chat.key),
           chat: chat,
           controller: controller,
-          messageBuilder: _message,
+          messageBuilder: (message) => ProfileMessage(message: message),
           tail: [
             if (chat.streaming.isNotEmpty)
-              _message({'role': 'assistant', 'content': chat.streaming}),
+              ProfileMessage(
+                message: {'role': 'assistant', 'content': chat.streaming},
+                streaming: true,
+              ),
             if (chat.tool != null)
               ExpansionTile(
-                title: Text(chat.tool!),
+                leading: const Icon(Icons.terminal, size: 20),
+                title: Text(
+                  'Using ${chat.tool!}',
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                ),
+                subtitle: const Text('Tool activity'),
                 children: const [Text('Running on the connected Hermes host')],
               ),
             if (chat.error != null)
@@ -287,103 +305,139 @@ class _ProfileWorkspaceScreenState extends State<ProfileWorkspaceScreen>
           ],
         ),
       ),
-      if (chat.attachments.isNotEmpty)
-        Wrap(
-          children: [
-            for (final file in chat.attachments)
-              InputChip(
-                label: Text(file.name),
-                onDeleted: chat.busy
-                    ? null
-                    : () => _run(() => controller.removeAttachment(chat, file)),
-              ),
-          ],
-        ),
       SafeArea(
         top: false,
         child: Padding(
-          padding: const EdgeInsets.fromLTRB(8, 8, 12, 10),
-          child: Row(
-            crossAxisAlignment: CrossAxisAlignment.end,
-            children: [
-              IconButton(
-                tooltip: 'Attach file',
-                icon: const Icon(Icons.add),
-                onPressed: chat.busy
-                    ? null
-                    : () => _run(() async {
-                        final result = await FilePicker.platform.pickFiles();
-                        final file = result?.files.single;
-                        if (file?.path != null) {
-                          await controller.addAttachment(
-                            chat,
-                            file!.path!,
-                            file.name,
-                          );
-                        }
-                      }),
+          padding: const EdgeInsets.fromLTRB(12, 8, 12, 10),
+          child: DecoratedBox(
+            decoration: BoxDecoration(
+              color: Theme.of(context).colorScheme.surfaceContainerLow,
+              borderRadius: BorderRadius.circular(24),
+              border: Border.all(
+                color: Theme.of(context).colorScheme.outlineVariant,
               ),
-              Expanded(
-                child: TextField(
-                  key: const Key('profile-message-composer'),
-                  controller: _composer,
-                  minLines: 1,
-                  maxLines: 6,
-                  onChanged: (value) => chat.draft = value,
-                  decoration: const InputDecoration(
-                    hintText: 'Message Hermes',
-                    border: OutlineInputBorder(),
-                  ),
-                ),
-              ),
-              IconButton.filled(
-                tooltip: chat.busy ? 'Stop' : 'Send',
-                icon: Icon(chat.busy ? Icons.stop : Icons.arrow_upward),
-                onPressed: controller.switching
-                    ? null
-                    : () => _run(
-                        () => chat.busy
-                            ? controller.stop(chat)
-                            : controller.send(chat),
+            ),
+            child: Padding(
+              padding: const EdgeInsets.all(6),
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  if (chat.attachments.isNotEmpty)
+                    SingleChildScrollView(
+                      scrollDirection: Axis.horizontal,
+                      child: Row(
+                        children: [
+                          for (final file in chat.attachments)
+                            Padding(
+                              padding: const EdgeInsets.symmetric(
+                                horizontal: 4,
+                              ),
+                              child: InputChip(
+                                label: ConstrainedBox(
+                                  constraints: const BoxConstraints(
+                                    maxWidth: 180,
+                                  ),
+                                  child: Text(
+                                    file.name,
+                                    overflow: TextOverflow.ellipsis,
+                                  ),
+                                ),
+                                onDeleted: chat.busy || controller.switching
+                                    ? null
+                                    : () => _run(
+                                        () => controller.removeAttachment(
+                                          chat,
+                                          file,
+                                        ),
+                                      ),
+                              ),
+                            ),
+                        ],
                       ),
+                    ),
+                  TextField(
+                    key: const Key('profile-message-composer'),
+                    controller: _composer,
+                    minLines: 1,
+                    maxLines: 5,
+                    keyboardType: TextInputType.multiline,
+                    textInputAction: TextInputAction.newline,
+                    onChanged: (value) => setState(() => chat.draft = value),
+                    decoration: InputDecoration(
+                      hintText: chat.busy
+                          ? 'Draft your next message'
+                          : 'Message Hermes',
+                      border: InputBorder.none,
+                      enabledBorder: InputBorder.none,
+                      focusedBorder: InputBorder.none,
+                      filled: false,
+                      contentPadding: const EdgeInsets.fromLTRB(12, 8, 12, 8),
+                    ),
+                  ),
+                  Row(
+                    children: [
+                      IconButton(
+                        tooltip: 'Attach file',
+                        icon: const Icon(Icons.add),
+                        onPressed: chat.busy || controller.switching
+                            ? null
+                            : () => _run(() async {
+                                final result = await FilePicker.platform
+                                    .pickFiles();
+                                final file = result?.files.single;
+                                if (file?.path != null) {
+                                  await controller.addAttachment(
+                                    chat,
+                                    file!.path!,
+                                    file.name,
+                                  );
+                                }
+                              }),
+                      ),
+                      const Spacer(),
+                      IconButton.filled(
+                        tooltip: chat.busy ? 'Stop' : 'Send',
+                        icon: Icon(chat.busy ? Icons.stop : Icons.arrow_upward),
+                        onPressed:
+                            controller.switching ||
+                                (!chat.busy &&
+                                    chat.draft.trim().isEmpty &&
+                                    chat.attachments.isEmpty)
+                            ? null
+                            : () => _run(
+                                () => chat.busy
+                                    ? controller.stop(chat)
+                                    : controller.send(chat),
+                              ),
+                      ),
+                    ],
+                  ),
+                ],
               ),
-            ],
+            ),
           ),
         ),
       ),
     ],
   );
 
-  Widget _message(Map<String, dynamic> message) {
-    final role = message['role']?.toString() ?? '';
-    final content =
-        (message['display_content'] ??
-                message['content'] ??
-                message['text'] ??
-                '')
-            .toString();
-    if (content.isEmpty) return const SizedBox.shrink();
-    if (role == 'tool') {
-      return ExpansionTile(
-        title: const Text('Tool result'),
-        children: [SelectableText(content)],
-      );
-    }
-    return Padding(
-      padding: const EdgeInsets.only(bottom: 20),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Text(
-            role == 'user' ? 'You' : 'Hermes',
-            style: Theme.of(context).textTheme.labelMedium,
-          ),
-          const SizedBox(height: 5),
-          SelectableText(content),
-        ],
-      ),
-    );
-  }
+  String _status(ProfileChat chat) => switch (chat.status) {
+    ProfileTurnStatus.idle => 'Ready',
+    ProfileTurnStatus.submitting => 'Sending message…',
+    ProfileTurnStatus.running =>
+      chat.tool != null
+          ? 'Using ${chat.tool}'
+          : chat.streaming.isEmpty
+          ? 'Hermes is working…'
+          : 'Writing response…',
+    ProfileTurnStatus.attention =>
+      chat.approval != null ? 'Approval needed' : 'Your reply is needed',
+    ProfileTurnStatus.reconnecting => 'Connection lost · checking this chat',
+    ProfileTurnStatus.settling => 'Updating history…',
+    ProfileTurnStatus.completed => 'Response complete',
+    ProfileTurnStatus.cancelled => 'Stopped',
+    ProfileTurnStatus.failed => 'Something went wrong',
+  };
 
   Future<String?> _textDialog(String title, String label) async {
     var input = '';
