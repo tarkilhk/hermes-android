@@ -95,16 +95,13 @@ void main() {
   );
 
   testWidgets(
-    'search offers more pages without silently scanning the archive',
+    'search finds a chat beyond loaded pages without fetching the archive list',
     (tester) async {
       await show(tester);
       await tester.enterText(find.byType(TextField), 'chat 110');
+      await tester.pump(const Duration(milliseconds: 400));
       await tester.pumpAndSettle();
-      expect(fixture.reads.length, 1);
-      await tester.tap(find.byKey(const ValueKey('load-more-chats')));
-      await tester.pumpAndSettle();
-      await tester.tap(find.byKey(const ValueKey('load-more-chats')));
-      await tester.pumpAndSettle();
+      expect(fixture.reads.where((r) => r.$1 == 'sessions').length, 1);
       expect(find.text('personal chat 110'), findsOneWidget);
       expect(find.byKey(const ValueKey('load-more-chats')), findsNothing);
       await tester.pumpWidget(const SizedBox.shrink());

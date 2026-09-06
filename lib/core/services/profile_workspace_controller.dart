@@ -75,6 +75,12 @@ class ProfileChat {
   Map<String, dynamic>? approval;
   Map<String, dynamic>? clarification;
   List<Map<String, dynamic>> messages = [];
+  String? historySessionId;
+  int? nextHistoryOffset;
+  int historyGeneration = 0;
+  bool historyLoading = false;
+  String? historyError;
+  double historyScrollOffset = 0;
   final List<AttachmentDraft> attachments = [];
   ProfileTurnStatus status = ProfileTurnStatus.idle;
   ProfileChat({
@@ -120,6 +126,11 @@ class ProfileWorkspaceData {
   bool sessionsLoadingMore = false;
   String? sessionsPageError;
   int sessionGeneration = 0;
+  String searchQuery = '';
+  List<Map<String, dynamic>> searchResults = [];
+  bool searchLoading = false;
+  String? searchError;
+  int searchGeneration = 0;
   List<Map<String, dynamic>> projects = [];
   String? projectsError;
   final Map<String, ProfileChat> chats = {};
@@ -235,6 +246,8 @@ class ProfileWorkspaceController extends ChangeNotifier {
     bool resetNavigation = false,
   }) async {
     final generation = ++_generation;
+    if (current != null) _clearSearch(current!);
+    _cancelOlderLoads();
     if (current != null) _invalidateSessionLoad(current!);
     final target = _resource(name);
     if (target != current) _invalidateSessionLoad(target);
@@ -256,6 +269,7 @@ class ProfileWorkspaceController extends ChangeNotifier {
         projectError = 'Projects are unavailable for $name. Retry to reload.';
       }
       if (_closed || generation != _generation) return false;
+      _clearSearch(target);
       _replaceSessions(target, sessions);
       target.projects = projects;
       target.projectsError = projectError;
@@ -317,6 +331,148 @@ class ProfileWorkspaceController extends ChangeNotifier {
   void _invalidateSessionLoad(ProfileWorkspaceData resource) {
     resource.sessionGeneration++;
     resource.sessionsLoadingMore = false;
+  }
+
+  void _clearSearch(ProfileWorkspaceData resource) {
+    resource.searchGeneration++;
+    resource.searchQuery = '';
+    resource.searchResults = [];
+    resource.searchLoading = false;
+    resource.searchError = null;
+  }
+
+  void clearSearch() {
+    if (current != null) _clearSearch(current!);
+    _changed();
+  }
+
+  Future<void> searchChats(String query) async {
+    final resource = current;
+    if (resource == null || switching || _closed) return;
+    _clearSearch(resource);
+    final generation = resource.searchGeneration;
+    resource.searchQuery = query.trim().toLowerCase();
+    if (resource.searchQuery.isEmpty) {
+      _changed();
+      return;
+    }
+    resource.searchLoading = true;
+    _changed();
+    bool valid() =>
+        !_closed &&
+        current == resource &&
+        !switching &&
+        generation == resource.searchGeneration;
+    try {
+      final rows = await resource.gateway.search(resource.searchQuery);
+      if (valid()) resource.searchResults = rows;
+    } catch (_) {
+      if (valid()) {
+        resource.searchError =
+            'Search failed. Retry without changing your query.';
+      }
+    } finally {
+      if (valid()) {
+        resource.searchLoading = false;
+        _changed();
+      }
+    }
+  }
+
+  void _cancelOlderLoads() {
+    for (final resource in _resources.values) {
+      for (final chat in resource.chats.values) {
+        chat.historyGeneration++;
+        chat.historyLoading = false;
+      }
+    }
+  }
+
+  /// Read-only transcript hydration, also usable without attaching a runtime.
+  Future<void> refreshHistory(ProfileChat chat) async {
+    final resource = _owned(chat);
+    final generation = ++chat.historyGeneration;
+    chat.historyLoading = true;
+    chat.historyError = null;
+    _changed();
+    try {
+      final page = await resource.gateway.history(chat.key.sessionId);
+      if (_closed || chat.historyGeneration != generation) return;
+      final anchor =
+          page.rows.isEmpty || chat.historySessionId != page.sessionId
+          ? -1
+          : chat.messages.indexWhere((r) => r['id'] == page.rows.first['id']);
+      final prefix = anchor > 0
+          ? chat.messages.take(anchor).toList()
+          : <Map<String, dynamic>>[];
+      chat.messages = [...prefix, ...page.rows];
+      chat.historySessionId = page.sessionId;
+      chat.nextHistoryOffset = page.nextOffset == null
+          ? null
+          : chat.messages.length;
+    } catch (_) {
+      if (!_closed && chat.historyGeneration == generation) {
+        chat.historyError = 'History could not be loaded. Retry to reload.';
+      }
+    } finally {
+      if (!_closed && chat.historyGeneration == generation) {
+        chat.historyLoading = false;
+        _changed();
+      }
+    }
+  }
+
+  Future<void> loadOlderMessages(ProfileChat chat) async {
+    final resource = _owned(chat);
+    if (_closed ||
+        switching ||
+        current?.chat != chat ||
+        chat.historyLoading ||
+        chat.nextHistoryOffset == null) {
+      return;
+    }
+    final generation = chat.historyGeneration;
+    final offset = chat.nextHistoryOffset!;
+    chat.historyLoading = true;
+    chat.historyError = null;
+    _changed();
+    bool valid() =>
+        !_closed &&
+        !switching &&
+        current?.chat == chat &&
+        chat.historyGeneration == generation;
+    try {
+      final page = await resource.gateway.history(
+        chat.historySessionId!,
+        offset: offset,
+      );
+      if (!valid()) return;
+      if (page.sessionId != chat.historySessionId) {
+        throw StateError('History moved to a new segment');
+      }
+      final ids = chat.messages.map((r) => r['id']).toSet();
+      final oldest =
+          chat.messages.where((r) => r['id'] is int).firstOrNull?['id'] as int?;
+      final older = page.rows
+          .where(
+            (r) =>
+                !ids.contains(r['id']) &&
+                (oldest == null || (r['id'] as int) < oldest),
+          )
+          .toList();
+      chat.messages = [...older, ...chat.messages];
+      chat.nextHistoryOffset = page.nextOffset;
+    } catch (_) {
+      if (valid()) {
+        chat.historyError =
+            'Older messages could not be loaded. Retry or refresh history.';
+      }
+    } finally {
+      if (valid()) {
+        chat.historyLoading = false;
+        _changed();
+      }
+    }
   }
 
   void _replaceSessions(
@@ -422,6 +578,7 @@ class ProfileWorkspaceController extends ChangeNotifier {
       return;
     }
     final resource = _resource(key.workspace.profileName);
+    _cancelOlderLoads();
     var chat = resource.chats[key.sessionId];
     if (chat == null) {
       final response = await resource.gateway.resume(key.sessionId);
@@ -429,7 +586,11 @@ class ProfileWorkspaceController extends ChangeNotifier {
         key: key,
         runtimeId: response['session_id'] as String,
         title:
-            resource.sessions
+            [
+                  ...resource.searchResults,
+                  ...resource.visibleSessions,
+                  ...resource.sessions,
+                ]
                 .where((s) => s['id'] == key.sessionId)
                 .firstOrNull?['title']
                 ?.toString() ??
@@ -443,9 +604,11 @@ class ProfileWorkspaceController extends ChangeNotifier {
       resource.selectedSession = key.sessionId;
     }
     _changed();
+    if (current?.chat == chat) await refreshHistory(chat);
   }
 
   void showList() {
+    _cancelOlderLoads();
     current?.selectedSession = null;
     _changed();
   }
@@ -456,6 +619,7 @@ class ProfileWorkspaceController extends ChangeNotifier {
       throw ArgumentError('Wrong project owner');
     }
     _invalidateSessionLoad(resource);
+    _clearSearch(resource);
     resource.selectedProject = project;
     resource.selectedSession = null;
     resource.projectSessions = [];
@@ -728,7 +892,8 @@ class ProfileWorkspaceController extends ChangeNotifier {
     chat.streaming = '';
     chat.error = failure;
     try {
-      chat.messages = await resource.gateway.history(chat.key.sessionId);
+      await refreshHistory(chat);
+      if (chat.historyError != null) throw StateError('History refresh failed');
       if (!switching) await _refreshSessions(resource);
       try {
         resource.projects = await resource.gateway.projects();
@@ -796,6 +961,7 @@ class ProfileWorkspaceController extends ChangeNotifier {
         if (!chat.busy && chat != resource.chat) continue;
         final wasBusy = chat.busy;
         _hydrate(chat, await resource.gateway.resume(chat.key.sessionId));
+        await refreshHistory(chat);
         if (wasBusy && !chat.busy) {
           _notify(chat, chat.status == ProfileTurnStatus.failed);
         }
@@ -819,7 +985,6 @@ class ProfileWorkspaceController extends ChangeNotifier {
   void _hydrate(ProfileChat chat, Map<String, dynamic> result) {
     final wasBusy = chat.busy;
     chat.runtimeId = result['session_id'] as String;
-    chat.messages = ProfileGateway.records(result['messages']);
     final inflight = result['inflight'] as Map?;
     chat.streaming = inflight?['assistant']?.toString() ?? '';
     chat.approval = result['pending_approval'] is Map
@@ -887,6 +1052,7 @@ class ProfileWorkspaceController extends ChangeNotifier {
         )..status = ProfileTurnStatus.reconnecting;
         _hydrate(chat, result);
         resource.chats[key.sessionId] = chat;
+        await refreshHistory(chat);
         _unrestoredPending.remove(key);
         if (!chat.busy) _notify(chat, chat.status == ProfileTurnStatus.failed);
       } catch (_) {

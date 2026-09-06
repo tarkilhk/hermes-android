@@ -34,6 +34,15 @@ class ProfileSessionPage {
   int? get nextOffset => offset + limit < total ? offset + limit : null;
 }
 
+class ProfileHistoryPage {
+  final String sessionId;
+  final List<Map<String, dynamic>> rows;
+  final int offset;
+  final int limit;
+  const ProfileHistoryPage(this.sessionId, this.rows, this.offset, this.limit);
+  int? get nextOffset => rows.length == limit ? offset + rows.length : null;
+}
+
 /// The stock modern Hermes contract. All profile-owned traffic passes through
 /// this immutable scope. There is no unscoped or experimental-recovery fallback.
 class ProfileGateway {
@@ -271,7 +280,10 @@ class ProfileGateway {
   Future<Map<String, dynamic>> resume(String durableId) async {
     await requireProfile();
     return _ownedSession(
-      await call('session.resume', {'session_id': durableId}),
+      await call('session.resume', {
+        'session_id': durableId,
+        'omit_messages': true,
+      }),
     );
   }
 
@@ -289,12 +301,60 @@ class ProfileGateway {
     return result;
   }
 
-  Future<List<Map<String, dynamic>>> history(String id) async => records(
-    (await read('sessions/${Uri.encodeComponent(id)}/messages', {
-      'limit': '500',
-      'order': 'oldest',
-    }))['messages'],
-  );
+  static const historyPageSize = 50;
+  Future<ProfileHistoryPage> history(String id, {int offset = 0}) async {
+    if (id.isEmpty || offset < 0) throw ArgumentError('Invalid history page');
+    final result = await read('sessions/${Uri.encodeComponent(id)}/messages', {
+      'limit': '$historyPageSize',
+      'offset': '$offset',
+      'order': 'latest',
+      'include_compacted': 'true',
+    });
+    final pagination = result['pagination'];
+    final rows = records(result['messages']);
+    final resolved = result['session_id'];
+    if (resolved is! String ||
+        resolved.isEmpty ||
+        pagination is! Map ||
+        pagination['limit'] != historyPageSize ||
+        pagination['offset'] != offset ||
+        pagination['order'] != 'latest' ||
+        pagination['returned'] != rows.length ||
+        rows.length > historyPageSize ||
+        rows.any((row) => row['id'] is! int)) {
+      throw const FormatException('Invalid history page');
+    }
+    return ProfileHistoryPage(resolved, rows, offset, historyPageSize);
+  }
+
+  /// Stock search is profile-bound but does not stamp owners in its response.
+  /// Keep results in this client's scope; reject any contradictory owner field.
+  Future<List<Map<String, dynamic>>> search(String query) async {
+    if (query.trim().isEmpty) return [];
+    await requireProfile();
+    final rows = records(
+      (await read('sessions/search', {
+        'q': query.trim(),
+        'limit': '100',
+      }))['results'],
+    );
+    for (final row in rows) {
+      if (row['session_id'] is! String ||
+          (row['session_id'] as String).isEmpty ||
+          (row.containsKey('profile') && row['profile'] != scope.profileName)) {
+        throw const FormatException('Invalid search result owner');
+      }
+    }
+    return rows
+        .map(
+          (row) => <String, dynamic>{
+            ...row,
+            'id': row['session_id'],
+            'profile': scope.profileName,
+          },
+        )
+        .toList();
+  }
 
   Future<Map<String, dynamic>> createProject(String name, String path) async {
     await requireProfile();

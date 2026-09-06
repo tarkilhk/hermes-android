@@ -263,3 +263,59 @@ Final full suite: 1,012 passed, one opt-in test skipped. Flutter analysis is
 clean. The normal debug APK was rebuilt and reinstalled with `Prod Claw` saved;
 the read-only test APK is not left installed. Notification permission and all
 previous saved connections were preserved.
+
+## History pagination and profile search, 2026-09-06
+
+History now opens at the newest 50 durable rows and loads older pages on upward
+scroll, with explicit load/retry controls. It uses the unchanged Desktop contract:
+`session.resume` with `omit_messages=true`, followed by profile-scoped REST
+`messages` reads with `order=latest` and `include_compacted=true`. These reads
+resolve the current compression segment; traversal of ancestor segments is not
+implemented. Offset pages can overlap when new rows arrive. Durable row IDs
+deduplicate overlaps, and latest-tail refresh preserves an overlapping older
+prefix. A reversed lazy transcript keeps a visible row anchored through older
+page insertion and streaming growth and remembers each chat's scroll offset.
+
+Root search is debounced and calls the stock profile-scoped `/sessions/search`
+endpoint for chat IDs and message content, including archived chats. Loaded
+title matches supplement server results, but global title search is not claimed.
+Archived results are labelled. The server caps results at 100 and has no search
+cursor; the UI reports that limit. Search and history generations discard stale
+responses after navigation, profile changes, or newer requests. Failures retain
+useful rows and expose retry controls instead of presenting a false empty state.
+
+The new read-only emulator acceptance test is
+`integration_test/profile_history_search_readonly_test.dart`. It reads the saved
+`Prod Claw` credentials from Android secure storage and does not call
+`session.resume`, send prompts, or mutate server data. It tests message reads
+through a test-only transcript without attaching a runtime. No Hermes source or
+production configuration was changed.
+
+Actual production results:
+
+| Profile index | History rows loaded | History pages | Older rows remain | Content matches |
+| --- | ---: | ---: | --- | ---: |
+| 1 | 600 | 12 | Yes | 100 (server cap) |
+| 2 | 551 | 12 | No | 61 |
+| 3 | 144 | 3 | No | 27 |
+| 4 | 600 | 12 | Yes | 84 |
+
+All three profiles with more than one chat-list page returned an ID search match
+outside their first loaded page. All histories had unique durable IDs, preserved
+the initial newest page, rendered and scrolled without widget errors, and kept
+their older prefix on refresh. The device result was
+`00:24 +2: All tests passed!` across all four production profiles.
+
+Eleven new unit/widget tests cover history beyond 500, overlapping windows,
+refresh/retry races, A/B/A profile ownership, unloaded archived search matches,
+query races, debounce, errors, and visible-row/scroll restoration. Full suite:
+1,023 passed, one opt-in test skipped. Flutter analysis found no issues.
+Evidence remains in ignored `build/history-search-tests.log`,
+`build/history-search-full-tests.log`, `build/history-search-analyze.log`, and
+`build/history-search-prod-result.log`. Logs contain counts, not conversation
+titles, message bodies, or credentials.
+
+The normal `lib/main.dart` debug APK was rebuilt, installed with `adb install -r`,
+and launched after acceptance. Saved connections were preserved; the integration
+test APK is not left installed. Build evidence:
+`build/history-search-normal-apk.log`.

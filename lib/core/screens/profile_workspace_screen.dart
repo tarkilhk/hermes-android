@@ -6,6 +6,7 @@ import 'package:flutter/material.dart';
 import '../services/profile_workspace_controller.dart';
 import '../services/android_share_intent_service.dart';
 import 'profile_workspace_browser.dart';
+import 'profile_transcript.dart';
 
 /// Phone workspace: host/profile stays visible above sessions or a conversation.
 /// Network work and drafts belong to the application controller.
@@ -206,10 +207,12 @@ class _ProfileWorkspaceScreenState extends State<ProfileWorkspaceScreen>
         ),
       ),
       Expanded(
-        child: ListView(
-          padding: const EdgeInsets.all(16),
-          children: [
-            for (final message in chat.messages) _message(message),
+        child: ProfileTranscript(
+          key: ValueKey(chat.key),
+          chat: chat,
+          controller: controller,
+          messageBuilder: _message,
+          tail: [
             if (chat.streaming.isNotEmpty)
               _message({'role': 'assistant', 'content': chat.streaming}),
             if (chat.tool != null)

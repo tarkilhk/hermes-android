@@ -13,6 +13,17 @@ class ProfileBrowserFixture {
   final pageFailures = <(String, int)>{};
   bool failWork = false;
   bool failProjects = false;
+  bool failHistory = false;
+  bool failSearch = false;
+  final historyDelays = <(String, int), Completer<void>>{};
+  final searchDelays = <String, Completer<void>>{};
+  List<Map<String, dynamic>> historyRows(String profile, String id) => [];
+  List<Map<String, dynamic>> searchRows(String profile, String query) => [
+    for (final row in sessions(
+      profile,
+    ).where((r) => r['title'].toString().toLowerCase().contains(query)))
+      {...row, 'session_id': row['id']},
+  ];
   List<Map<String, dynamic>> projectSessions(String profile, String id) => [
     sessions(profile).firstWhere(
       (r) => r['id'] == (profile == 'work' ? 'newest' : 'project-only'),
@@ -121,6 +132,32 @@ class ProfileBrowserFixture {
       reads.add((path, query));
       final offset = int.parse(query['offset'] ?? '0');
       final limit = int.parse(query['limit'] ?? '50');
+      if (path.endsWith('/messages')) {
+        final id = Uri.decodeComponent(path.split('/')[1]);
+        final rows = historyRows(
+          scope.profileName,
+          id,
+        ).reversed.skip(offset).take(limit).toList().reversed.toList();
+        await historyDelays[(id, offset)]?.future;
+        if (failHistory) throw StateError('History offline');
+        return {
+          'session_id': id,
+          'messages': rows,
+          'pagination': {
+            'offset': offset,
+            'limit': limit,
+            'returned': rows.length,
+            'order': 'latest',
+          },
+        };
+      }
+      if (path == 'sessions/search') {
+        final q = query['q']!;
+        final rows = searchRows(scope.profileName, q);
+        await searchDelays[q]?.future;
+        if (failSearch) throw StateError('Search offline');
+        return {'results': rows};
+      }
       final rows = sessions(scope.profileName).toList()
         ..sort(
           (a, b) =>

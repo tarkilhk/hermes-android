@@ -48,8 +48,15 @@ class Host {
           };
         }
         return {
+          'session_id': path.split('/')[1],
+          'pagination': {
+            'limit': 50,
+            'offset': 0,
+            'order': 'latest',
+            'returned': 1,
+          },
           'messages': [
-            {'role': 'assistant', 'content': '$name completed'},
+            {'id': 1, 'role': 'assistant', 'content': '$name completed'},
           ],
         };
       },
@@ -364,7 +371,11 @@ void main() {
     await controller.reconnect(a.key.workspace);
     expect(host.calls.where((c) => c.$2 == 'prompt.submit').length, 1);
     final resume = host.calls.lastWhere((c) => c.$2 == 'session.resume');
-    expect(resume.$3, {'session_id': 'same', 'profile': 'a'});
+    expect(resume.$3, {
+      'session_id': 'same',
+      'profile': 'a',
+      'omit_messages': true,
+    });
     expect(a.status, ProfileTurnStatus.running);
   });
 

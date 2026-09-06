@@ -27,6 +27,23 @@ class _ProfileWorkspaceBrowserState extends State<ProfileWorkspaceBrowser> {
   String _query = '';
   String _view = 'home';
   final _search = TextEditingController();
+  Timer? _searchDebounce;
+  void _setQuery(String value) {
+    _searchDebounce?.cancel();
+    final query = value.trim().toLowerCase();
+    setState(() => _query = query);
+    controller.clearSearch();
+    if (query.isNotEmpty &&
+        _view == 'home' &&
+        controller.current?.selectedProject == null) {
+      _searchDebounce = Timer(const Duration(milliseconds: 350), () {
+        if (mounted && !controller.switching) {
+          unawaited(controller.searchChats(query));
+        }
+      });
+    }
+  }
+
   String? _enteredProject;
   int _projectVisibleCount = ProfileGateway.sessionPageSize;
   bool _projectHasMore = false;
@@ -57,6 +74,7 @@ class _ProfileWorkspaceBrowserState extends State<ProfileWorkspaceBrowser> {
 
   @override
   void dispose() {
+    _searchDebounce?.cancel();
     _search.dispose();
     super.dispose();
   }
@@ -85,6 +103,8 @@ class _ProfileWorkspaceBrowserState extends State<ProfileWorkspaceBrowser> {
       Navigator.maybePop(context);
     }
     _search.clear();
+    _searchDebounce?.cancel();
+    controller.clearSearch();
     setState(() => _query = '');
   }
 
@@ -136,6 +156,7 @@ class _ProfileWorkspaceBrowserState extends State<ProfileWorkspaceBrowser> {
     onTap: controller.switching
         ? null
         : () {
+            _searchDebounce?.cancel();
             _search.clear();
             setState(() {
               _query = '';
@@ -159,6 +180,16 @@ class _ProfileWorkspaceBrowserState extends State<ProfileWorkspaceBrowser> {
         overflow: TextOverflow.ellipsis,
         style: const TextStyle(fontSize: 16),
       ),
+      subtitle: row['snippet'] != null || row['archived'] == true
+          ? Text(
+              [
+                if (row['archived'] == true) 'Archived',
+                if (row['snippet'] != null) row['snippet'].toString(),
+              ].join(' · '),
+              maxLines: 2,
+              overflow: TextOverflow.ellipsis,
+            )
+          : null,
       trailing: Row(
         mainAxisSize: MainAxisSize.min,
         children: [
@@ -230,6 +261,39 @@ class _ProfileWorkspaceBrowserState extends State<ProfileWorkspaceBrowser> {
       ];
     }
     final project = resource.selectedProject;
+    if (project == null && _query.isNotEmpty) {
+      final pending = resource.searchQuery != _query || resource.searchLoading;
+      final results = <String, Map<String, dynamic>>{
+        for (final row in resource.sessions.where(
+          (r) => r['title'].toString().toLowerCase().contains(_query),
+        ))
+          row['id'] as String: row,
+        if (!pending && resource.searchQuery == _query)
+          for (final row in resource.searchResults) row['id'] as String: row,
+      };
+      return [
+        _heading('Search results'),
+        _empty(
+          "Searches this profile's message content and chat IDs, including archived chats. Loaded titles also match.",
+        ),
+        if (pending) const LinearProgressIndicator(),
+        if (resource.searchError != null)
+          ListTile(
+            title: Text(resource.searchError!),
+            trailing: TextButton(
+              onPressed: () => controller.searchChats(_query),
+              child: const Text('Retry search'),
+            ),
+          ),
+        ...results.values.map(_session),
+        if (!pending && resource.searchError == null && results.isEmpty)
+          _empty('No matching chats'),
+        if (!pending && resource.searchResults.length == 100)
+          _empty(
+            'Showing up to 100 server matches. Narrow your search for more specific results.',
+          ),
+      ];
+    }
     final pinnedIds = resource.sessions
         .where((row) => row['pinned'] == true)
         .map((row) => row['id'])
@@ -459,6 +523,7 @@ class _ProfileWorkspaceBrowserState extends State<ProfileWorkspaceBrowser> {
                         shape: const StadiumBorder(side: BorderSide.none),
                         side: BorderSide.none,
                         onSelected: (_) {
+                          _searchDebounce?.cancel();
                           _search.clear();
                           setState(() {
                             _query = '';
@@ -524,9 +589,7 @@ class _ProfileWorkspaceBrowserState extends State<ProfileWorkspaceBrowser> {
                       Expanded(
                         child: TextField(
                           controller: _search,
-                          onChanged: (value) => setState(
-                            () => _query = value.trim().toLowerCase(),
-                          ),
+                          onChanged: _setQuery,
                           decoration: InputDecoration(
                             hintText: _view == 'projects'
                                 ? 'Search projects'
