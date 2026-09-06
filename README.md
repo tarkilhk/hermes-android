@@ -2,6 +2,8 @@
 
 Android client for [Hermes Agent](https://hermes-agent.nousresearch.com/) — chat with your Hermes sessions from a phone or tablet over local Wi-Fi or a private Tailscale network.
 
+> **Public profile-switching fork:** this fork is adding first-class Hermes profile selection to the active Workspace. Selecting a profile will reload that profile's sessions and projects while turns already running under other profiles continue in the background. See the [source-backed design note](docs/PROFILE_SWITCHING_DESIGN.md), [implementation specification](docs/PROFILE_SWITCHING_IMPLEMENTATION_SPEC.md), [request-scoping ADR](docs/adr/0001-request-scoped-hermes-profiles.md), and [background-continuity ADR](docs/adr/0002-background-session-continuity.md).
+
 > **v2.0.0** merges the community Remote Gateway edition contributed by
 > [@CristianGCiocoi](https://github.com/CristianGCiocoi), with review and
 > testing from [@AI-Guru](https://github.com/AI-Guru) and
