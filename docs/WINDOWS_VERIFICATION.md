@@ -485,3 +485,46 @@ checkout has no signing properties and GitHub lists no repository secrets.
 Updating the existing release requires its original certificate/key; a distinct
 fork identity can instead coexist. [Release plan](ANDROID_RELEASE_PLAN.md)
 records signing, versioning, installation and encrypted configuration transfer.
+
+## Separate signed personal release, 2026-09-06
+
+The owner confirmed the existing release was someone else's app. The personal
+release now uses `com.tarkilhk.hermes.android`, label Hermes Personal, version
+2.1.1/code 21412 for arm64. The Dev identity remains unchanged. Launcher shortcut
+intents explicitly target their own package and native activity. No original
+app was replaced or uninstalled.
+
+Generated a new RSA-3072 signing key outside Git in the owner's local app-data
+directory, with restricted directory permissions and a Windows-DPAPI-protected
+password. A portable secure backup still needs to be arranged with the owner.
+The public certificate fingerprint is pinned in
+`android/personal-release-certificate.sha256`; local and CI verification reject
+a different signer. No secrets or release assets were uploaded to GitHub.
+
+All 1,058 unit/widget tests passed, two opt-in live tests skipped, and analysis
+was clean. The release build succeeded after enabling Gradle resource generation
+and allowing Flutter's pub/tooling step to regenerate the production plugin
+registry. Flutter 3.44 with `--no-pub` had retained integration_test registration
+from debug/test tooling while the release dependency was excluded. The release
+script now omits that flag; do not run tests concurrently with a release build.
+
+`apksigner verify` validated the APK's v2 signature and the pinned certificate.
+`aapt` confirmed the personal package, label, arm64 ABI and version code, with no
+debuggable marker. Installation on the Samsung phone succeeded. Installed package
+flags also omit DEBUGGABLE, and package inventory confirms Personal, Dev and the
+older upstream app coexist. After the owner unlocked the phone, the foreground
+activity was verified as `com.tarkilhk.hermes.android`. The screenshot confirms
+the compact project rows and no debug banner. Personal already displayed a Home
+workspace with profile tabs and chat lists; the agent did not transfer credentials
+or change notification permissions during this check.
+
+The captured screen also reports "Could not reconnect to default. No prompts
+were resent." This confirms visual launch, not a healthy live gateway connection.
+Reconnect behavior still needs verification. No chats were opened, prompted or
+modified during this release inspection. Screenshot: `build/hermes-personal-phone.png`.
+
+Build/test evidence stays ignored in `build/personal-release.log`,
+`build/personal-release-tests.log`, `build/personal-release-analyze.log`,
+`build/app/outputs/flutter-apk/app-arm64-v8a-release.apk` and
+`build/personal-symbols/`. Repeatable build and backup guidance is in
+[the release plan](ANDROID_RELEASE_PLAN.md).

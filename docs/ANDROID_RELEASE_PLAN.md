@@ -1,28 +1,66 @@
 # Android release plan
 
-Inspected on 2026-09-06. No release was published or signing key generated.
+Updated on 2026-09-06. The owner confirmed that the older app belongs to someone
+else, so this fork uses a separate identity and signing key. No public release
+or GitHub signing-secret upload has been performed.
 
 ## Current state
 
 - Dev package: `com.hermesagent.hermes_android.dev`.
-- Release package in Gradle: `com.hermesagent.hermes_android`.
-- The owner's phone already has both packages. The existing release reports
-  version `2.1.0`, effective version code `21402`.
-- This checkout has no root `key.properties`. GitHub repository secret metadata
-  lists no configured secrets. This does not prove the original key is lost;
-  it might be on the original build machine or in the owner's backups.
+- Personal release package: `com.tarkilhk.hermes.android`, labelled Hermes Personal.
+- The older upstream package remains `com.hermesagent.hermes_android`.
+- The owner's phone has all three packages. The older release reports version
+  `2.1.0`, effective version code `21402`; Personal is `2.1.1`, code `21412`.
+- A new personal signing key is stored outside Git under
+  `%LOCALAPPDATA%\HermesPersonal\signing`. The directory is restricted to the
+  current Windows user and SYSTEM. `password.dpapi.xml` holds a Windows-encrypted
+  credential, not a plaintext password. GitHub has no signing secrets configured.
 - Release builds deliberately do not fall back to a debug signing key.
+- The public certificate fingerprint is pinned in
+  `android/personal-release-certificate.sha256`. Both the local release script
+  and CI reject an APK signed with a different key. The fingerprint is public
+  verification material, not the private signing key.
 
-## Choose the application identity before signing
+## Application identity
 
 To update the installed release app in place, recover its original signing key
 and verify that the certificate matches the installed APK before attempting an
 update. Do not generate a replacement key with the same package ID and then
 uninstall the existing app to bypass a signature mismatch.
 
-If the key is unavailable, give this independently maintained fork a distinct
-package ID and a new private signing key. It will coexist with both existing
-apps. Confirm the identity/name with the owner before changing them.
+The separate personal identity coexists with both existing apps. The Dev package
+ID is deliberately unchanged so subsequent debug builds keep its saved data.
+Static launcher shortcuts target the matching package explicitly, preventing a
+shortcut from launching the other installed Hermes app. Internal native class
+and Flutter channel names do not need to change with the distribution identity.
+
+## Repeat the Windows build
+
+From the repository root on Prestige:
+
+```powershell
+./scripts/build-personal-release.ps1 -ToolchainRoot C:/Users/rober/Development/android-dev
+```
+
+The script loads the protected credential, supplies signing through process
+environment variables, builds a release arm64 APK and verifies its signature,
+application identity and non-debuggable status. It clears signing variables
+afterward. `-InitializeSigning` is for initial provisioning only and refuses to
+overwrite an existing signing directory. Do not generate a replacement key for
+future updates.
+
+Run tests before the release script, not concurrently in the same checkout.
+Flutter commands share generated Android plugin registration; a test run can
+reintroduce the test-only plugin while a release build excludes its dependency.
+The script also deliberately omits `--no-pub`: Flutter 3.44 skips the mode-specific
+plugin-registry regeneration with that flag, leaving test-only registration in
+place after a previous debug/test run. Dependencies still follow pubspec.lock.
+
+Keep `hermes-personal.p12` and its password in a secure, portable backup. DPAPI
+binds the encrypted credential to this Windows account/computer; copying only
+`password.dpapi.xml` to another machine is insufficient. A password-manager or
+encrypted offline backup still needs to be arranged with the owner. Never print
+the signing password in agent logs or chat to facilitate a backup.
 
 Android verifies update identity through application ID and signing certificate.
 Keep a protected backup of the signing key and its passwords for future updates.
@@ -30,9 +68,9 @@ Keep a protected backup of the signing key and its passwords for future updates.
 
 ## First private release
 
-1. Configure the chosen keystore through the repository-root `key.properties`,
-   which this repo ignores. This location differs from Flutter's default example.
-   Keep the keystore outside source control and back it up securely.
+1. Use the protected Windows build script above. CI may instead configure the
+   chosen keystore through repository-root `key.properties`, which this repo
+   ignores. This location differs from Flutter's default example.
 2. Choose an unused version/tag and increase the version code. The current
    `2.1.1+2141` produces arm64 split code `21412`. Both quality and release
    workflows currently pin the base code to `2141`; update those assertions
@@ -71,5 +109,5 @@ triggers the existing workflow to test, sign and publish APKs to GitHub Releases
 This is direct-download distribution, not automatic in-app updates. Play internal
 testing is an alternative when managed updates become worth the setup.
 
-Creating a public release, uploading signing secrets, changing package identity
-and uninstalling existing apps are not authorized by this plan itself.
+Creating a public release, uploading signing secrets and uninstalling existing
+apps are not authorized by this plan itself.

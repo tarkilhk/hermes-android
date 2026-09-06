@@ -6,7 +6,10 @@
         android:icon="@mipmap/ic_launcher"
         android:shortcutShortLabel="@string/shortcut_quick_chat_short"
         android:shortcutLongLabel="@string/shortcut_quick_chat_long">
-        <intent android:action="com.hermesagent.hermes_android.action.QUICK_CHAT" />
+        <intent
+            android:action="com.hermesagent.hermes_android.action.QUICK_CHAT"
+            android:targetPackage="@string/hermes_application_id"
+            android:targetClass="com.hermesagent.hermes_android.MainActivity" />
         <categories android:name="android.shortcut.conversation" />
     </shortcut>
 </shortcuts>
