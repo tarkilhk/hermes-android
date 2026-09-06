@@ -7,6 +7,7 @@ import 'package:hermes_android/main.dart';
 import 'package:hermes_android/core/screens/profile_workspace_screen.dart';
 import 'package:hermes_android/core/services/connection_manager.dart';
 import 'package:hermes_android/core/services/profile_selection_store.dart';
+import 'package:hermes_android/core/services/profile_connection_identity.dart';
 import 'package:hermes_android/core/services/profile_workspace_controller.dart';
 
 /// No model call. Build this target, install with adb install -r to preserve the
@@ -31,9 +32,10 @@ void main() {
       );
       await manager.importConnections([connection], replaceExisting: false);
       await preferences.setString('last_connection_id', connection.id);
-      await ProfileSelectionStore(
-        preferences,
-      ).write(connection.id, 'android-qa-a');
+      await ProfileSelectionStore(preferences).write(
+        await ProfileConnectionIdentity().resolve(connection),
+        'android-qa-a',
+      );
       await tester.pumpWidget(HermesApp(connManager: manager));
       Future<void> until(bool Function() condition, {int seconds = 30}) async {
         final deadline = DateTime.now().add(Duration(seconds: seconds));

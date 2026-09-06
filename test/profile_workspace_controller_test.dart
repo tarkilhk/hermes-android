@@ -21,6 +21,7 @@ class Host {
   Map<String, dynamic>? inflight;
   Completer<void>? projectDelay;
   bool wrongProjectOwner = false;
+  Map<String, dynamic> clarifyResult = {'status': 'ok'};
   Future<ProfileDiscovery> discover() async => ProfileDiscovery(
     profiles: profiles.map((p) => HermesProfile(name: p)).toList(),
     currentName: 'a',
@@ -51,6 +52,7 @@ class Host {
       },
       rpc: (method, params) async {
         calls.add((name, method, params));
+        if (method == 'clarify.respond') return clarifyResult;
         if (method == 'projects.list') {
           return {
             'projects': [
@@ -124,6 +126,7 @@ void main() {
     host = Host();
     notifications = [];
     controller = ProfileWorkspaceController(
+      connectionIdentity: 'original-settings',
       connection: SavedConnection(
         id: 'host',
         label: 'Host',
@@ -193,7 +196,7 @@ void main() {
     host.delays['b']!.complete();
     expect(await b, isFalse);
     expect(controller.current!.scope.profileName, 'a');
-    expect(ProfileSelectionStore(preferences).read('host'), 'a');
+    expect(ProfileSelectionStore(preferences).read('original-settings'), 'a');
   });
 
   test(
@@ -282,7 +285,11 @@ void main() {
     () async {
       await controller.openSession(
         ProfileSessionKey(
-          WorkspaceScope(connectionId: 'host', profileName: 'missing'),
+          WorkspaceScope(
+            connectionId: 'host',
+            profileName: 'missing',
+            connectionIdentity: 'original-settings',
+          ),
           'same',
         ),
       );
@@ -375,6 +382,7 @@ void main() {
     controller.dispose();
     host.profiles = ['b'];
     controller = ProfileWorkspaceController(
+      connectionIdentity: 'original-settings',
       connection: connection,
       preferences: preferences,
       gatewayFactory: host.gateway,
@@ -390,4 +398,88 @@ void main() {
     expect(saved.any((value) => value.contains('"profile":"a"')), isTrue);
     expect(saved.any((value) => value.contains('"profile":"b"')), isTrue);
   });
+
+  test(
+    'stock batched clarification routes the unanswered question ID',
+    () async {
+      final chat = await controller.createChat();
+      chat.clarification = {
+        'request_id': 'request',
+        'questions': [
+          {'qid': 'q0', 'question': 'First question'},
+          {'qid': 'q1', 'question': 'What is the recovery marker?'},
+        ],
+        'answers': {'q0': 'already answered'},
+      };
+      expect(chat.pendingQuestion!['question'], 'What is the recovery marker?');
+      await controller.clarify(chat, 'PROCESS_RECOVERY_QA');
+      expect(host.calls.last.$3['question_id'], 'q1');
+      expect(host.calls.last.$3['request_id'], 'request');
+    },
+  );
+
+  test(
+    'batch answers keep remaining questions attached to their owner',
+    () async {
+      final chat = await controller.createChat();
+      chat.status = ProfileTurnStatus.attention;
+      chat.clarification = {
+        'request_id': 'batch',
+        'questions': [
+          {'qid': 'q0', 'question': 'First'},
+          {'qid': 'q1', 'question': 'Second'},
+        ],
+      };
+      await controller.switchProfile('b');
+      host.clarifyResult = {
+        'status': 'ok',
+        'remaining': ['q1'],
+      };
+      await controller.clarify(chat, 'one');
+      expect(chat.pendingQuestion!['question'], 'Second');
+      expect(chat.status, ProfileTurnStatus.attention);
+      expect(host.calls.last.$1, 'a');
+      expect(host.calls.last.$3['question_id'], 'q0');
+      host.clarifyResult = {'status': 'ok', 'remaining': []};
+      await controller.clarify(chat, 'two');
+      expect(host.calls.last.$3['question_id'], 'q1');
+      expect(chat.clarification, isNull);
+      expect(chat.status, ProfileTurnStatus.running);
+      expect(controller.current!.scope.profileName, 'b');
+    },
+  );
+
+  test(
+    'single clarification sends its request ID without a batch ID',
+    () async {
+      final chat = await controller.createChat();
+      chat.status = ProfileTurnStatus.attention;
+      chat.clarification = {
+        'request_id': 'single',
+        'question': 'Which marker?',
+      };
+      expect(chat.pendingQuestion!['question'], 'Which marker?');
+      await controller.clarify(chat, 'marker');
+      expect(host.calls.last.$3['request_id'], 'single');
+      expect(host.calls.last.$3.containsKey('question_id'), isFalse);
+      expect(chat.clarification, isNull);
+    },
+  );
+
+  test(
+    'expired input refreshes its owner without retrying the answer',
+    () async {
+      final chat = await controller.createChat();
+      chat.status = ProfileTurnStatus.attention;
+      chat.clarification = {'request_id': 'expired', 'question': 'Marker?'};
+      host.running = false;
+      host.clarifyResult = {'status': 'expired'};
+      await controller.clarify(chat, 'marker');
+      expect(chat.clarification, isNull);
+      expect(chat.status, ProfileTurnStatus.completed);
+      expect(chat.error, contains('expired'));
+      expect(host.calls.where((c) => c.$2 == 'clarify.respond'), hasLength(1));
+      expect(host.calls.where((c) => c.$2 == 'prompt.submit'), isEmpty);
+    },
+  );
 }

@@ -86,7 +86,15 @@ class WorkspaceScope {
   final String connectionId;
   final String profileName;
 
-  WorkspaceScope({required this.connectionId, required this.profileName}) {
+  /// Opaque endpoint/authentication identity. Empty scopes are suitable for
+  /// discovery only, never persisted chat ownership.
+  final String connectionIdentity;
+
+  WorkspaceScope({
+    required this.connectionId,
+    required this.profileName,
+    this.connectionIdentity = '',
+  }) {
     if (connectionId.trim().isEmpty) {
       throw ArgumentError.value(
         connectionId,
@@ -107,16 +115,21 @@ class WorkspaceScope {
   ///
   /// The unhashed values remain available as typed fields; user-controlled
   /// names never become raw path or preference-key segments.
-  String get storageNamespace =>
-      sha256.convert(utf8.encode('$connectionId\u0000$profileName')).toString();
+  String get storageNamespace => sha256
+      .convert(
+        utf8.encode('$connectionId\u0000$connectionIdentity\u0000$profileName'),
+      )
+      .toString();
 
   @override
   bool operator ==(Object other) =>
       identical(this, other) ||
       other is WorkspaceScope &&
           connectionId == other.connectionId &&
+          connectionIdentity == other.connectionIdentity &&
           profileName == other.profileName;
 
   @override
-  int get hashCode => Object.hash(connectionId, profileName);
+  int get hashCode =>
+      Object.hash(connectionId, connectionIdentity, profileName);
 }

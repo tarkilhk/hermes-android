@@ -20,7 +20,8 @@ remote production gateway were made.
 ## Verified
 
 - `flutter analyze --no-pub`: no issues.
-- Full unit/widget suite: 976 passed, one opt-in live test skipped.
+- Full unit/widget suite at the initial checkpoint: 976 passed, one opt-in live
+  test skipped. See the connection/recovery follow-up below for the newer run.
 - Normal debug APK builds and installs successfully.
 - Opt-in host contract test passes against both actual QA profiles. It verifies
   authenticated discovery, scoped sessions/projects, session creation and file
@@ -76,12 +77,12 @@ Restore the normal APK built with `-t lib/main.dart` afterward.
 
 ## Remaining acceptance and implementation limits
 
-- Exercise a real approval/input request. Controller routing tests alone do not
-  prove the complete server-to-device approval interaction.
-- Test Android process termination during a running turn. Pending owner retention
-  and reconnect tests do not prove complete process-death recovery.
-- Add connection endpoint/credential-change invalidation for retained resources.
-  Do not treat editing an existing connection during active work as verified.
+- Exercise a real tool approval (Allow once/Deny). Real clarification input and
+  Android process termination while awaiting input now pass as described below.
+- Test termination during token streaming and attachment upload as separate cases.
+- An edited connection retains its original running clients in memory, but the
+  replacement cannot restore those owners after process death. Restoring the exact
+  original endpoint/auth settings makes their separate journals eligible again.
 - Add session/history pagination and richer transcript/attachment rendering.
 - Compare real Codex Remote Android screenshots before claiming visual fidelity.
 - Stock Hermes can resolve a profile deleted between discovery and an RPC to the
@@ -92,3 +93,61 @@ Restore the normal APK built with `-t lib/main.dart` afterward.
 Profile switching does not change the server's sticky active profile. New app
 routes use the stock modern profile-aware gateway; older unscoped UI modules are
 not a runtime fallback for these routes.
+
+## Connection ownership and process recovery follow-up, 2026-09-06
+
+Connection ownership now includes the saved ID plus endpoint/authentication
+settings, represented by an HMAC-SHA256 identity keyed by a random 32-byte secret
+in Android secure storage. Labels do not partition ownership. The application
+registry, profile selection, pending journals, and notification targets use this
+identity. Opening a workspace reloads saved credentials; an older Home snapshot cannot
+silently select an old authenticated client. Old notifications are rejected before
+gateway I/O when their endpoint or credentials no longer match.
+
+Existing v1 pending journals and notifications lack endpoint/auth ownership and
+are deliberately not rebound to current settings. They are not deleted, and
+server conversations remain accessible through their correct connection/profile.
+There is no server-compatibility fallback or modification to installed Hermes.
+
+Verified on the same stock local gateway and emulator:
+
+- Final `flutter analyze --no-pub`: no issues. Full unit/widget suite: 992 passed,
+  one opt-in live test skipped. Normal `lib/main.dart` debug APK built and installed.
+- Unit tests cover endpoint/credential changes, label-only changes, secure-key
+  failure, config import, duplicate IDs, pending-owner isolation, stale notification
+  rejection before gateway traffic, and process recreation without prompt replay.
+- The no-model emulator acceptance test passed with real Android secure storage:
+  edited endpoint got a separate controller; the old session was rejected; the
+  original client remained bound to port 65243. The QA connection was restored.
+- A real `clarify` request exposed stock batch questions (`questions`, `qid`, and
+  replayed `answers`). Android now displays the next unanswered question and sends
+  its `question_id`, retains remaining questions, and handles expired requests.
+- Closing Reply exposed premature `TextEditingController` disposal during the
+  dialog exit animation. A failing widget test reproduced it; the field now owns
+  its controller lifetime and the regression passes.
+- Two bounded QA prompts were used. The first recovered after process termination
+  and returned the exact marker, but its test failed on the dialog exception; it
+  is not counted as a clean end-to-end pass. No prompt was resent during debugging.
+- The clean second run (`20260906-verified`) passed: PID 4363 waited for real input
+  in A with B visible, was force-stopped, and PID 4438 restored the original owner.
+  The actual Reply dialog submitted `PROCESS_RECOVERY_QA`; the final assistant
+  response matched exactly and history contained one original user prompt.
+  Device result: `00:09 +2: All tests passed!`, with no UI exceptions.
+- Computer Use inspected and answered the first recovered batch question after
+  the batch fix. The clean rerun drove the same dialog through Flutter's device
+  test harness. Notification permission remained granted throughout.
+
+Local evidence: `build/connection-safety-full-tests.log`,
+`build/connection-safety-final-focused.log`, `build/clarification-regression.log`,
+`build/clarification-dialog-red.log`, `build/recovery-qa-final-result.log`,
+`build/connection-recovery-full-tests.log`, and `build/connection-recovery-normal-apk.log`.
+
+To repeat process recovery, build `integration_test/profile_process_recovery_test.dart`
+with `HERMES_TEST_PORT`, a new `RECOVERY_RUN_ID`, and explicit `RUN_MODEL=true`.
+`AUTO_ANSWER=true` drives the real Reply dialog after restart; otherwise answer
+through the emulator UI. Install with `adb install -r`, launch, wait for
+`READY_FOR_PROCESS_STOP`, force-stop only this Android package, and launch the
+same APK again. The checkpoint is written before submission so relaunch cannot
+create another prompt. A completed run ID cannot start a new turn. Each new run
+ID with `RUN_MODEL=true` authorizes one real model turn; do not loop indefinitely.
+Always restore the normal APK built with `-t lib/main.dart` afterward.

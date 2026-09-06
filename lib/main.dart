@@ -13,6 +13,8 @@ import 'core/services/gateway_turn_application_controller.dart';
 import 'core/services/text_size_preference.dart';
 import 'core/screens/profile_workspace_screen.dart';
 import 'core/services/profile_workspace_controller.dart';
+import 'core/services/profile_connection_identity.dart';
+import 'core/services/profile_workspace_registry.dart';
 import 'core/services/profile_gateway.dart';
 import 'core/services/profiles_repository.dart';
 import 'core/models/hermes_profile.dart';
@@ -83,31 +85,20 @@ class HermesApp extends StatefulWidget {
 class HermesAppState extends State<HermesApp> {
   late final GatewayTurnApplicationController _turnApplicationController;
   final _navigatorKey = GlobalKey<NavigatorState>();
-  final _profileControllers = <String, ProfileWorkspaceController>{};
+  late final ProfileWorkspaceRegistry _profileControllers;
   late final PluginTurnNotificationSink _profileNotifications;
   late final Future<void> _notificationsReady;
 
-  ProfileWorkspaceController profileController(SavedConnection connection) {
-    return _profileControllers.putIfAbsent(
-      connection.id,
-      () => ProfileWorkspaceController(
-        connection: connection,
-        preferences: widget.connManager.prefs,
-        onAttention: (chat, needsInput) async {
-          await _notificationsReady;
-          await _profileNotifications.show(
-            TurnNotification(
-              id: chat.key.hashCode & 0x7fffffff,
-              title:
-                  '${chat.key.workspace.profileName}: ${needsInput ? 'Needs attention' : 'Chat finished'}',
-              body: chat.title,
-              payload: jsonEncode(chat.key.toJson()),
-              channel: TurnNotificationService.turnChannel,
-            ),
-          );
-        },
-      ),
-    );
+  Future<ProfileWorkspaceController> profileController(
+    SavedConnection connection,
+  ) async {
+    // Home and incoming share routes can hold an older metadata snapshot after
+    // settings edits or config restore. Resolve the current secure credentials.
+    final current = (await widget.connManager.loadConnectionsWithSecrets())
+        .where((c) => c.id == connection.id)
+        .firstOrNull;
+    if (current == null) throw StateError('The connection is unavailable');
+    return _profileControllers.forConnection(current);
   }
 
   Future<void> enableProfileNotifications() async {
@@ -127,7 +118,7 @@ class HermesAppState extends State<HermesApp> {
       if (connection == null) {
         throw StateError('The original connection is unavailable');
       }
-      final controller = profileController(connection);
+      final controller = await _profileControllers.forSession(connection, key);
       if (controller.discovery == null) await controller.initialize();
       await controller.openSession(key);
       if (!mounted) return;
@@ -174,6 +165,27 @@ class HermesAppState extends State<HermesApp> {
     _notificationsReady = _profileNotifications.initialize().catchError(
       (Object _) {},
     );
+    _profileControllers = ProfileWorkspaceRegistry(
+      identities: ProfileConnectionIdentity(),
+      create: (connection, identity) => ProfileWorkspaceController(
+        connection: connection,
+        connectionIdentity: identity,
+        preferences: widget.connManager.prefs,
+        onAttention: (chat, needsInput) async {
+          await _notificationsReady;
+          await _profileNotifications.show(
+            TurnNotification(
+              id: chat.key.hashCode & 0x7fffffff,
+              title:
+                  '${chat.key.workspace.profileName}: ${needsInput ? 'Needs attention' : 'Chat finished'}',
+              body: chat.title,
+              payload: jsonEncode(chat.key.toJson()),
+              channel: TurnNotificationService.turnChannel,
+            ),
+          );
+        },
+      ),
+    );
   }
 
   Future<void> setTextSizePreference(TextSizePreference preference) async {
@@ -215,9 +227,7 @@ class HermesAppState extends State<HermesApp> {
   @override
   void dispose() {
     unawaited(_turnApplicationController.close());
-    for (final controller in _profileControllers.values) {
-      controller.dispose();
-    }
+    _profileControllers.dispose();
     super.dispose();
   }
 }
@@ -270,7 +280,8 @@ class HermesHeader extends StatelessWidget {
 }
 
 class HomeScreen extends StatefulWidget {
-  final ProfileWorkspaceController Function(SavedConnection)? profileController;
+  final FutureOr<ProfileWorkspaceController> Function(SavedConnection)?
+  profileController;
   final Future<void> Function()? enableProfileNotifications;
   final ConnectionManager connManager;
   final GatewayTurnApplicationController turnApplicationController;
@@ -428,7 +439,23 @@ class HomeScreenState extends State<HomeScreen> {
     });
   }
 
-  void _navigateToWorkspace(SavedConnection conn) {
+  Future<void> _navigateToWorkspace(SavedConnection conn) async {
+    final ProfileWorkspaceController controller;
+    try {
+      controller = await widget.profileController!(conn);
+    } catch (_) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text(
+              'Connection ownership could not be verified securely.',
+            ),
+          ),
+        );
+      }
+      return;
+    }
+    if (!mounted) return;
     widget.connManager.prefs.setString(_lastConnectionKey, conn.id);
     final sharedPayload = widget.shareIntents?.takePendingShare();
     final initialQuickChat =
@@ -438,7 +465,7 @@ class HomeScreenState extends State<HomeScreen> {
       context,
       MaterialPageRoute(
         builder: (_) => ProfileWorkspaceScreen(
-          controller: widget.profileController!(conn),
+          controller: controller,
           enableNotifications: widget.enableProfileNotifications,
           initialSharedPayload: sharedPayload,
           initialQuickChat: initialQuickChat,

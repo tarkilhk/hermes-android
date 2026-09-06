@@ -76,6 +76,7 @@ ProfileWorkspaceController profileController(
   SharedPreferences prefs,
 ) {
   final controller = ProfileWorkspaceController(
+    connectionIdentity: 'test-settings-${connection.id}',
     attachmentService: _MissingFileService(),
     connection: connection,
     preferences: prefs,

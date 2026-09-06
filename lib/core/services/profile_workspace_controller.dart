@@ -19,17 +19,23 @@ class ProfileSessionKey {
   const ProfileSessionKey(this.workspace, this.sessionId);
   Map<String, String> toJson() => {
     'connection': workspace.connectionId,
+    'connection_identity': workspace.connectionIdentity,
     'profile': workspace.profileName,
     'session': sessionId,
   };
   factory ProfileSessionKey.fromJson(Map<String, dynamic> value) {
     final id = value['session'];
-    if (id is! String || id.isEmpty) {
-      throw const FormatException('Missing session');
+    final identity = value['connection_identity'];
+    if (id is! String ||
+        id.isEmpty ||
+        identity is! String ||
+        identity.isEmpty) {
+      throw const FormatException('Missing session or connection ownership');
     }
     return ProfileSessionKey(
       WorkspaceScope(
         connectionId: value['connection'] as String,
+        connectionIdentity: identity,
         profileName: value['profile'] as String,
       ),
       id,
@@ -76,6 +82,27 @@ class ProfileChat {
     required this.title,
     this.projectId,
   });
+
+  /// Stock Hermes can send a single question or a batch with per-question locks.
+  /// A resumed batch includes answers already locked on the server.
+  Map<String, dynamic>? get pendingQuestion {
+    final request = clarification;
+    if (request == null) return null;
+    if (request['questions'] is! List) return request;
+    final answered = request['answers'] is Map ? request['answers'] as Map : {};
+    for (final question in ProfileGateway.records(request['questions'])) {
+      final id = question['qid'];
+      if (id is String && !answered.containsKey(id)) {
+        return {
+          ...question,
+          'request_id': request['request_id'],
+          'question_id': id,
+        };
+      }
+    }
+    return null;
+  }
+
   bool get busy => {
     ProfileTurnStatus.submitting,
     ProfileTurnStatus.running,
@@ -115,6 +142,7 @@ typedef ProfileAttention =
 /// switch never closes a socket, changes a chat owner, or cancels a turn.
 class ProfileWorkspaceController extends ChangeNotifier {
   final SavedConnection connection;
+  final String connectionIdentity;
   final SharedPreferences preferences;
   final ProfileGatewayFactory _factory;
   final AttachmentDraftService attachments;
@@ -132,6 +160,7 @@ class ProfileWorkspaceController extends ChangeNotifier {
 
   ProfileWorkspaceController({
     required this.connection,
+    required this.connectionIdentity,
     required this.preferences,
     ProfileGatewayFactory? gatewayFactory,
     AttachmentDraftService? attachmentService,
@@ -139,14 +168,21 @@ class ProfileWorkspaceController extends ChangeNotifier {
   }) : _factory =
            gatewayFactory ??
            ((scope) => ProfileGateway.forConnection(connection, scope)),
-       attachments = attachmentService ?? AttachmentDraftService();
+       attachments = attachmentService ?? AttachmentDraftService() {
+    if (connectionIdentity.isEmpty) {
+      throw ArgumentError('A verified connection identity is required');
+    }
+  }
 
   Iterable<ProfileChat> get activity => _resources.values
       .expand((r) => r.chats.values)
       .where((chat) => chat.status != ProfileTurnStatus.idle);
   bool get switching => pendingProfile != null;
-  String get _journalKey =>
-      'profile_pending_v1_${WorkspaceScope(connectionId: connection.id, profileName: 'default').storageNamespace}';
+  String get _journalKey => 'profile_pending_v2_$connectionIdentity';
+
+  bool owns(ProfileSessionKey key) =>
+      key.workspace.connectionId == connection.id &&
+      key.workspace.connectionIdentity == connectionIdentity;
 
   void _changed() {
     if (!_closed) notifyListeners();
@@ -155,6 +191,7 @@ class ProfileWorkspaceController extends ChangeNotifier {
   ProfileWorkspaceData _resource(String name) {
     final scope = WorkspaceScope(
       connectionId: connection.id,
+      connectionIdentity: connectionIdentity,
       profileName: name,
     );
     return _resources.putIfAbsent(scope, () {
@@ -179,7 +216,7 @@ class ProfileWorkspaceController extends ChangeNotifier {
       discovery = await _resource('default').gateway.discover();
       final initial = ProfileSelectionStore(
         preferences,
-      ).resolveInitial(connection.id, discovery!);
+      ).resolveInitial(connectionIdentity, discovery!);
       await switchProfile(initial.name);
       await _restorePending();
     } catch (e) {
@@ -230,7 +267,7 @@ class ProfileWorkspaceController extends ChangeNotifier {
       discovery = profiles;
       current = target;
       pendingProfile = null;
-      await ProfileSelectionStore(preferences).write(connection.id, name);
+      await ProfileSelectionStore(preferences).write(connectionIdentity, name);
       _changed();
       return true;
     } catch (e) {
@@ -283,8 +320,8 @@ class ProfileWorkspaceController extends ChangeNotifier {
   }
 
   Future<void> openSession(ProfileSessionKey key) async {
-    if (key.workspace.connectionId != connection.id) {
-      throw ArgumentError('Wrong host');
+    if (!owns(key)) {
+      throw ArgumentError('Wrong connection settings or host');
     }
     if (current?.scope != key.workspace &&
         !await switchProfile(key.workspace.profileName)) {
@@ -487,17 +524,39 @@ class ProfileWorkspaceController extends ChangeNotifier {
   }
 
   Future<void> clarify(ProfileChat chat, String answer) async {
-    final question = chat.clarification;
+    final resource = _owned(chat);
+    final request = chat.clarification;
+    final question = chat.pendingQuestion;
     if (question == null) return;
-    await _owned(chat).gateway.call('clarify.respond', {
+    final result = await resource.gateway.call('clarify.respond', {
       'session_id': chat.runtimeId,
       'request_id': question['request_id'],
       'answer': answer,
       if (question['question_id'] != null)
         'question_id': question['question_id'],
     });
-    chat.clarification = null;
-    chat.status = ProfileTurnStatus.running;
+    if (!identical(chat.clarification, request)) return;
+    if (result['status'] == 'expired') {
+      await reconnect(resource.scope);
+      chat.error =
+          'This input request expired. Your answer was not submitted again.';
+    } else if (result['remaining'] is List &&
+        (result['remaining'] as List).isNotEmpty) {
+      chat.clarification = {
+        ...request!,
+        'answers': {
+          if (request['answers'] is Map)
+            ...Map<String, dynamic>.from(request['answers'] as Map),
+          question['question_id'] as String: answer,
+        },
+      };
+      chat.status = ProfileTurnStatus.attention;
+    } else {
+      chat.clarification = null;
+      if (chat.status == ProfileTurnStatus.attention) {
+        chat.status = ProfileTurnStatus.running;
+      }
+    }
     _changed();
   }
 
@@ -693,7 +752,7 @@ class ProfileWorkspaceController extends ChangeNotifier {
         final key = ProfileSessionKey.fromJson(
           jsonDecode(raw) as Map<String, dynamic>,
         );
-        if (key.workspace.connectionId != connection.id) continue;
+        if (!owns(key)) continue;
         _unrestoredPending.add(key);
       } catch (_) {
         error = 'A saved pending chat identity could not be read.';

@@ -437,7 +437,7 @@ class _ProfileWorkspaceScreenState extends State<ProfileWorkspaceScreen>
               Card(
                 child: ListTile(
                   title: Text(
-                    chat.clarification!['question']?.toString() ??
+                    chat.pendingQuestion?['question']?.toString() ??
                         'Input requested',
                   ),
                   trailing: TextButton(
@@ -556,31 +556,29 @@ class _ProfileWorkspaceScreenState extends State<ProfileWorkspaceScreen>
   }
 
   Future<String?> _textDialog(String title, String label) async {
-    final input = TextEditingController();
-    try {
-      return await showDialog<String>(
-        context: context,
-        builder: (context) => AlertDialog(
-          title: Text(title),
-          content: TextField(
-            controller: input,
-            decoration: InputDecoration(labelText: label),
-          ),
-          actions: [
-            TextButton(
-              onPressed: () => Navigator.pop(context),
-              child: const Text('Cancel'),
-            ),
-            TextButton(
-              onPressed: () => Navigator.pop(context, input.text.trim()),
-              child: const Text('Continue'),
-            ),
-          ],
+    var input = '';
+    // Let the field own its controller through the dialog's exit animation.
+    // showDialog resolves before the route's widgets have finished unmounting.
+    return showDialog<String>(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: Text(title),
+        content: TextField(
+          onChanged: (value) => input = value,
+          decoration: InputDecoration(labelText: label),
         ),
-      );
-    } finally {
-      input.dispose();
-    }
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(context),
+            child: const Text('Cancel'),
+          ),
+          TextButton(
+            onPressed: () => Navigator.pop(context, input.trim()),
+            child: const Text('Continue'),
+          ),
+        ],
+      ),
+    );
   }
 
   Future<void> _projectDialog() async {

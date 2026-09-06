@@ -1,5 +1,6 @@
 import 'dart:io';
 
+import 'package:flutter/foundation.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:integration_test/integration_test.dart';
 import 'package:path_provider/path_provider.dart';
@@ -7,6 +8,7 @@ import 'package:shared_preferences/shared_preferences.dart';
 import 'package:hermes_android/main.dart';
 import 'package:hermes_android/core/services/connection_manager.dart';
 import 'package:hermes_android/core/services/profile_selection_store.dart';
+import 'package:hermes_android/core/services/profile_connection_identity.dart';
 import 'package:hermes_android/core/services/profile_workspace_controller.dart';
 import 'package:hermes_android/core/screens/profile_workspace_screen.dart';
 
@@ -33,9 +35,10 @@ void main() {
       );
       await manager.importConnections([connection], replaceExisting: false);
       await preferences.setString('last_connection_id', connection.id);
-      await ProfileSelectionStore(
-        preferences,
-      ).write(connection.id, 'android-qa-a');
+      await ProfileSelectionStore(preferences).write(
+        await ProfileConnectionIdentity().resolve(connection),
+        'android-qa-a',
+      );
       await tester.pumpWidget(HermesApp(connManager: manager));
       Future<void> until(bool Function() condition, {int seconds = 30}) async {
         final deadline = DateTime.now().add(Duration(seconds: seconds));
@@ -125,6 +128,38 @@ void main() {
       expect(controller.current!.chat, same(a));
       await controller.reconnect(a.key.workspace);
       expect(controller.error, isNull);
+      final app = tester.state<HermesAppState>(find.byType(HermesApp));
+      // Exercise the real Android secure store and application registry. Do not
+      // connect to the replacement: an old target must fail before any I/O.
+      final replacementConnection = connection.copyWith(
+        dashboardPortOverride: 1,
+      );
+      try {
+        await manager.importConnections([
+          replacementConnection,
+        ], replaceExisting: false);
+        final savedReplacement = (await manager.loadConnectionsWithSecrets())
+            .singleWhere((c) => c.id == connection.id);
+        final replacement = await app.profileController(savedReplacement);
+        expect(replacement, isNot(same(controller)));
+        expect(replacement.discovery, isNull);
+        expect(replacement.activity, isEmpty);
+        expect(replacement.owns(a.key), isFalse);
+        await expectLater(replacement.openSession(a.key), throwsArgumentError);
+        expect(replacement.discovery, isNull);
+        expect(controller.connection.dashboardPort, port);
+        expect(
+          await ProfileConnectionIdentity().resolve(connection),
+          controller.connectionIdentity,
+          reason: 'A fresh resolver must read the same Android secure key',
+        );
+      } finally {
+        await manager.importConnections([connection], replaceExisting: false);
+      }
+      expect(await app.profileController(connection), same(controller));
+      debugPrint(
+        '[connection-qa] PASS: edited endpoint isolated; old session rejected; original owner preserved.',
+      );
       await attachment.delete();
     },
     timeout: const Timeout(Duration(minutes: 5)),
