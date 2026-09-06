@@ -8,8 +8,16 @@ class ProfileBrowserFixture {
   final now = DateTime.now().millisecondsSinceEpoch / 1000;
   final delays = <String, Completer<void>>{};
   final calls = <(String, String, Map<String, dynamic>)>[];
+  final reads = <(String, Map<String, String>)>[];
+  final pageDelays = <(String, int), Completer<void>>{};
+  final pageFailures = <(String, int)>{};
   bool failWork = false;
   bool failProjects = false;
+  List<Map<String, dynamic>> projectSessions(String profile, String id) => [
+    sessions(profile).firstWhere(
+      (r) => r['id'] == (profile == 'work' ? 'newest' : 'project-only'),
+    ),
+  ];
   List<Map<String, dynamic>> projects(String profile) => profile == 'work'
       ? [
           {
@@ -110,10 +118,32 @@ class ProfileBrowserFixture {
       activeName: 'personal',
     ),
     get: (path, query) async {
+      reads.add((path, query));
+      final offset = int.parse(query['offset'] ?? '0');
+      final limit = int.parse(query['limit'] ?? '50');
+      final rows = sessions(scope.profileName).toList()
+        ..sort(
+          (a, b) =>
+              (b['last_active'] as num).compareTo(a['last_active'] as num),
+        );
+      final page = rows.skip(offset).take(limit).toList();
+      final seen = page.map((row) => row['id']).toSet();
+      page.addAll(
+        rows.where((r) => r['pinned'] == true && !seen.contains(r['id'])),
+      );
       await delays[scope.profileName]?.future;
+      await pageDelays[(scope.profileName, offset)]?.future;
+      if (pageFailures.contains((scope.profileName, offset))) {
+        throw StateError('Page offline');
+      }
       if (failWork && scope.profileName == 'work') throw StateError('Offline');
       return path == 'sessions'
-          ? {'sessions': sessions(scope.profileName)}
+          ? {
+              'sessions': page,
+              'offset': offset,
+              'limit': limit,
+              'total': rows.length,
+            }
           : {'messages': []};
     },
     rpc: (method, params) async {
@@ -130,15 +160,10 @@ class ProfileBrowserFixture {
               {
                 'groups': [
                   {
-                    'sessions': [
-                      sessions(scope.profileName).firstWhere(
-                        (r) =>
-                            r['id'] ==
-                            (scope.profileName == 'work'
-                                ? 'newest'
-                                : 'project-only'),
-                      ),
-                    ],
+                    'sessions': projectSessions(
+                      scope.profileName,
+                      params['project_id'] as String,
+                    ),
                   },
                 ],
               },

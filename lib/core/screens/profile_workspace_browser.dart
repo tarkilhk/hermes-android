@@ -3,6 +3,7 @@ import 'dart:async';
 import 'package:flutter/material.dart';
 
 import '../services/profile_workspace_controller.dart';
+import '../services/profile_gateway.dart';
 
 /// The reference-inspired navigation tree. All rows come from its immutable
 /// profile owner; project membership remains the server's decision.
@@ -26,6 +27,33 @@ class _ProfileWorkspaceBrowserState extends State<ProfileWorkspaceBrowser> {
   String _query = '';
   String _view = 'home';
   final _search = TextEditingController();
+  String? _enteredProject;
+  int _projectVisibleCount = ProfileGateway.sessionPageSize;
+  bool _projectHasMore = false;
+
+  void _loadMore() {
+    final resource = controller.current;
+    if (controller.switching || resource == null || _view != 'home') return;
+    if (resource.selectedProject != null) {
+      if (_projectHasMore && !resource.projectSessionsLoading) {
+        setState(() => _projectVisibleCount += ProfileGateway.sessionPageSize);
+      }
+    } else {
+      unawaited(controller.loadMoreSessions());
+    }
+  }
+
+  bool _onScroll(ScrollNotification event) {
+    if (event.depth == 0 &&
+        event.metrics.axis == Axis.vertical &&
+        event.metrics.extentAfter < 250 &&
+        _query.isEmpty &&
+        controller.current?.sessionsPageError == null &&
+        (event is ScrollUpdateNotification || event is ScrollEndNotification)) {
+      _loadMore();
+    }
+    return false;
+  }
 
   @override
   void dispose() {
@@ -202,8 +230,18 @@ class _ProfileWorkspaceBrowserState extends State<ProfileWorkspaceBrowser> {
       ];
     }
     final project = resource.selectedProject;
+    final pinnedIds = resource.sessions
+        .where((row) => row['pinned'] == true)
+        .map((row) => row['id'])
+        .toSet();
     final rows = <String, Map<String, dynamic>>{
-      for (final row in resource.visibleSessions) row['id'] as String: row,
+      for (final row in resource.visibleSessions)
+        row['id'] as String: {
+          ...row,
+          // The project RPC omits pin flags. REST back-fills all profile pins;
+          // only overlay that flag on authoritative project members.
+          if (project != null) 'pinned': pinnedIds.contains(row['id']),
+        },
     };
     for (final chat in resource.chats.values) {
       if ((project == null || chat.projectId == project['id']) &&
@@ -222,6 +260,7 @@ class _ProfileWorkspaceBrowserState extends State<ProfileWorkspaceBrowser> {
           ..sort((a, b) => _activity(b).compareTo(_activity(a)));
     final pinned = matches.where((r) => r['pinned'] == true).toList();
     final recent = matches.where((r) => r['pinned'] != true).toList();
+    _projectHasMore = project != null && recent.length > _projectVisibleCount;
     return [
       if (project == null && _query.isEmpty) ...[
         _heading(
@@ -266,11 +305,42 @@ class _ProfileWorkspaceBrowserState extends State<ProfileWorkspaceBrowser> {
       ],
       if (project == null || pinned.isNotEmpty)
         _heading(_query.isEmpty ? 'Recents' : 'Search results'),
-      ...recent.map(_session),
+      ...(project == null ? recent : recent.take(_projectVisibleCount)).map(
+        _session,
+      ),
       if (matches.isEmpty &&
           !resource.projectSessionsLoading &&
           resource.projectSessionsError == null)
         _empty(_query.isEmpty ? 'No chats here yet' : 'No matching chats'),
+      if (project == null && resource.sessionsLoadingMore)
+        const Padding(
+          padding: EdgeInsets.all(16),
+          child: Center(child: CircularProgressIndicator()),
+        )
+      else if (project == null && resource.sessionsPageError != null)
+        ListTile(
+          title: Text(resource.sessionsPageError!),
+          trailing: TextButton(
+            onPressed: _loadMore,
+            child: const Text('Retry'),
+          ),
+        )
+      else if ((project == null && resource.nextSessionOffset != null) ||
+          _projectHasMore)
+        Center(
+          child: TextButton(
+            key: const ValueKey('load-more-chats'),
+            onPressed: _loadMore,
+            child: const Text('Load more chats'),
+          ),
+        ),
+      if (project != null &&
+          !resource.projectSessionsLoading &&
+          resource.projectSessionsError == null &&
+          !_projectHasMore)
+        _empty(
+          "Project results come from Hermes's latest 5,000-session profile scan.",
+        ),
     ];
   }
 
@@ -278,6 +348,11 @@ class _ProfileWorkspaceBrowserState extends State<ProfileWorkspaceBrowser> {
   Widget build(BuildContext context) {
     final resource = controller.current;
     final project = resource?.selectedProject;
+    final projectId = project?['id'] as String?;
+    if (_enteredProject != projectId) {
+      _enteredProject = projectId;
+      _projectVisibleCount = ProfileGateway.sessionPageSize;
+    }
     final dark = Theme.of(context).brightness == Brightness.dark;
     final background = dark ? const Color(0xff151515) : Colors.white;
     final foreground = dark ? Colors.white : const Color(0xff171717);
@@ -417,13 +492,22 @@ class _ProfileWorkspaceBrowserState extends State<ProfileWorkspaceBrowser> {
                     )
                   : RefreshIndicator(
                       onRefresh: controller.refresh,
-                      child: ListView(
-                        key: ValueKey(
-                          '${resource.scope.storageNamespace}-${project?['id']}-$_view',
+                      child: NotificationListener<ScrollNotification>(
+                        onNotification: _onScroll,
+                        child: Builder(
+                          builder: (context) {
+                            final rows = _tree();
+                            return ListView.builder(
+                              key: ValueKey(
+                                '${resource.scope.storageNamespace}-${project?['id']}-$_view',
+                              ),
+                              physics: const AlwaysScrollableScrollPhysics(),
+                              padding: const EdgeInsets.only(bottom: 24),
+                              itemCount: rows.length,
+                              itemBuilder: (_, index) => rows[index],
+                            );
+                          },
                         ),
-                        physics: const AlwaysScrollableScrollPhysics(),
-                        padding: const EdgeInsets.only(bottom: 24),
-                        children: _tree(),
                       ),
                     ),
             ),

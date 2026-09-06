@@ -116,6 +116,10 @@ class ProfileChat {
 class ProfileWorkspaceData {
   final ProfileGateway gateway;
   List<Map<String, dynamic>> sessions = [];
+  int? nextSessionOffset;
+  bool sessionsLoadingMore = false;
+  String? sessionsPageError;
+  int sessionGeneration = 0;
   List<Map<String, dynamic>> projects = [];
   String? projectsError;
   final Map<String, ProfileChat> chats = {};
@@ -231,11 +235,13 @@ class ProfileWorkspaceController extends ChangeNotifier {
     bool resetNavigation = false,
   }) async {
     final generation = ++_generation;
+    if (current != null) _invalidateSessionLoad(current!);
+    final target = _resource(name);
+    if (target != current) _invalidateSessionLoad(target);
     pendingProfile = name;
     error = null;
     _changed();
     try {
-      final target = _resource(name);
       final profiles = await target.gateway.discover();
       if (profiles.named(name) == null) {
         throw StateError('Profile $name is no longer available');
@@ -250,7 +256,7 @@ class ProfileWorkspaceController extends ChangeNotifier {
         projectError = 'Projects are unavailable for $name. Retry to reload.';
       }
       if (_closed || generation != _generation) return false;
-      target.sessions = sessions;
+      _replaceSessions(target, sessions);
       target.projects = projects;
       target.projectsError = projectError;
       if (resetNavigation) {
@@ -306,6 +312,76 @@ class ProfileWorkspaceController extends ChangeNotifier {
   /// project or chat retained from an earlier visit. Running owners are kept.
   Future<void> navigateProfile(String name) async {
     await switchProfile(name, resetNavigation: true);
+  }
+
+  void _invalidateSessionLoad(ProfileWorkspaceData resource) {
+    resource.sessionGeneration++;
+    resource.sessionsLoadingMore = false;
+  }
+
+  void _replaceSessions(
+    ProfileWorkspaceData resource,
+    ProfileSessionPage page,
+  ) {
+    resource.sessions = _mergeSessionRows([], page.rows);
+    resource.nextSessionOffset = page.nextOffset;
+    resource.sessionsPageError = null;
+  }
+
+  List<Map<String, dynamic>> _mergeSessionRows(
+    List<Map<String, dynamic>> previous,
+    List<Map<String, dynamic>> incoming,
+  ) => <String, Map<String, dynamic>>{
+    for (final row in previous) row['id'] as String: row,
+    for (final row in incoming) row['id'] as String: row,
+  }.values.toList();
+
+  /// A navigation or refresh invalidates publication, not the owning socket or
+  /// any running turn. A failed page keeps its offset and existing rows for retry.
+  Future<void> loadMoreSessions() async {
+    final resource = current;
+    if (_closed ||
+        switching ||
+        resource == null ||
+        resource.selectedProject != null ||
+        resource.sessionsLoadingMore ||
+        resource.nextSessionOffset == null) {
+      return;
+    }
+    final generation = resource.sessionGeneration;
+    final offset = resource.nextSessionOffset!;
+    resource.sessionsLoadingMore = true;
+    resource.sessionsPageError = null;
+    _changed();
+    bool valid() =>
+        !_closed &&
+        current == resource &&
+        !switching &&
+        generation == resource.sessionGeneration;
+    try {
+      final page = await resource.gateway.sessions(offset: offset);
+      if (!valid()) return;
+      resource.sessions = _mergeSessionRows(resource.sessions, page.rows);
+      resource.nextSessionOffset = page.nextOffset;
+    } catch (_) {
+      if (valid()) {
+        resource.sessionsPageError = 'More chats could not be loaded. Retry.';
+      }
+    } finally {
+      if (valid()) {
+        resource.sessionsLoadingMore = false;
+        _changed();
+      }
+    }
+  }
+
+  Future<void> _refreshSessions(ProfileWorkspaceData resource) async {
+    _invalidateSessionLoad(resource);
+    final generation = resource.sessionGeneration;
+    final page = await resource.gateway.sessions();
+    if (!_closed && generation == resource.sessionGeneration) {
+      _replaceSessions(resource, page);
+    }
   }
 
   ProfileWorkspaceData _writable() {
@@ -379,6 +455,7 @@ class ProfileWorkspaceController extends ChangeNotifier {
     if (project != null && !resource.projects.contains(project)) {
       throw ArgumentError('Wrong project owner');
     }
+    _invalidateSessionLoad(resource);
     resource.selectedProject = project;
     resource.selectedSession = null;
     resource.projectSessions = [];
@@ -652,7 +729,7 @@ class ProfileWorkspaceController extends ChangeNotifier {
     chat.error = failure;
     try {
       chat.messages = await resource.gateway.history(chat.key.sessionId);
-      resource.sessions = await resource.gateway.sessions();
+      if (!switching) await _refreshSessions(resource);
       try {
         resource.projects = await resource.gateway.projects();
         final selectedId = resource.selectedProject?['id'];

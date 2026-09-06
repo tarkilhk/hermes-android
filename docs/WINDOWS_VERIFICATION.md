@@ -83,7 +83,8 @@ Restore the normal APK built with `-t lib/main.dart` afterward.
 - An edited connection retains its original running clients in memory, but the
   replacement cannot restore those owners after process death. Restoring the exact
   original endpoint/auth settings makes their separate journals eligible again.
-- Add session/history pagination and richer transcript/attachment rendering.
+- Add history pagination and richer transcript/attachment rendering. Session
+  list paging is covered in the follow-up below.
 - Root/project navigation now uses the owner's Android screenshots. Conversation,
   approval, and output-viewer visual references remain to be supplied.
 - Stock Hermes can resolve a profile deleted between discovery and an RPC to the
@@ -196,3 +197,69 @@ captures are `build/hermes-ui-home.png` and `build/hermes-ui-project.png`.
 The normal app with real local gateway data is captured in `build/hermes-ui-live.png`.
 The preview can be rebuilt with `-t integration_test/profile_workspace_preview.dart`;
 always reinstall the normal `lib/main.dart` APK after inspecting it.
+
+## Session pagination follow-up, 2026-09-06
+
+All chats uses the stock profile-scoped REST listing with `limit=50`, `offset`,
+and `order=recent`. The next offset advances by the server page size, not the
+number of returned rows: Hermes back-fills all pinned sessions on every page.
+Android deduplicates by session ID within the immutable connection/profile owner.
+Errors preserve rows and the failed offset for retry. Navigation, refresh, and
+profile switching invalidate in-flight page publication without closing sockets
+or interrupting running turns. Pull-to-refresh restarts at page zero. Offset
+pagination is not a snapshot: concurrent new activity can move rows between
+pages; refresh retrieves a new first page.
+
+Project membership still comes only from `projects.project_sessions`. The stock
+handler has no offset/cursor and scans the latest 5,000 eligible sessions across
+the profile by default. Android explicitly requests that limit, progressively
+reveals returned members, and states the limit at the end of the list. It does
+not invent a project paging route, increase the server scan without bounds, or
+guess membership from directory prefixes. Pin flags omitted by this RPC are
+overlaid only on returned project members using the REST listing's pins.
+
+Protocol evidence was read from the installed, unchanged Hermes source:
+`hermes_cli/web_routers/sessions.py`, `hermes_state_sessions.py`,
+`tui_gateway/methods_config.py`, and `tui_gateway/methods_projects.py`.
+
+Fourteen new tests cover paging beyond 100 rows, pinned back-fill, duplicate
+scroll requests, retry, refresh races, A/B/A races, project navigation, a changing
+offset window, empty/exact page boundaries, malformed metadata, and lazy project
+display, and a failed profile switch while the original project is loading.
+The production read-only emulator check is
+`integration_test/profile_pagination_readonly_test.dart`, selected by
+`PAGING_CONNECTION_LABEL` and `PAGING_EXPECTED_HOST`. It reads credentials from
+the app's secure store and logs counts, not conversation titles or credentials.
+It makes no model calls or server mutation requests, and bounds each profile to
+40 pages. Project results retain the stock 5,000-session scan limit.
+
+The owner requested real production data instead of a seeded local volume test.
+Their confirmed production connection was saved as `Prod Claw` through the normal
+Android connection form. Dashboard authentication and the profile/gateway probe
+passed with the inference API key left blank. The password is in Android secure
+storage, not plaintext connection preferences, source, or test defines.
+
+The read-only emulator check passed on all four actual production profiles:
+
+| Profile index | Unique chats | REST pages | Pins | Largest returned project |
+| --- | ---: | ---: | ---: | ---: |
+| 1 | 1,311 | 27 | 3 | 259 |
+| 2 | 54 | 2 | 1 | 5 |
+| 3 | 23 | 1 | 0 | 6 |
+| 4 | 1,187 | 24 | 0 | 6 |
+
+All four lists reached the server's final page. The 259-chat project scrolled
+beyond its first 100 members; the list revealed 250 chat rows plus its load-more
+control during the assertion. Real pending-page profile navigation also passed.
+The final device result was `00:34 +2: All tests passed!`. Logs use profile indexes
+and counts rather than private conversation titles. No dummy data, model calls,
+or server mutation requests were used in production.
+
+Local evidence: `build/pagination-tests.log`, `build/pagination-full-tests.log`,
+`build/pagination-analyze.log`, `build/pagination-prod-result.log`, and
+`build/pagination-normal-apk.log`. Screenshots and logs remain ignored by Git.
+
+Final full suite: 1,012 passed, one opt-in test skipped. Flutter analysis is
+clean. The normal debug APK was rebuilt and reinstalled with `Prod Claw` saved;
+the read-only test APK is not left installed. Notification permission and all
+previous saved connections were preserved.

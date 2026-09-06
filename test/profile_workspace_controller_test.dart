@@ -39,6 +39,9 @@ class Host {
         if (failures.contains(name)) throw Exception('offline');
         if (path == 'sessions') {
           return {
+            'offset': int.parse(query['offset']!),
+            'limit': int.parse(query['limit']!),
+            'total': 1,
             'sessions': [
               {'id': 'same', 'title': '$name chat', 'profile': name},
             ],
@@ -147,6 +150,23 @@ void main() {
   });
   tearDown(() => controller.dispose());
 
+  test(
+    'failed profile navigation preserves the previous project load',
+    () async {
+      final data = controller.current!;
+      host.projectDelay = Completer<void>();
+      final pending = controller.selectProject(data.projects.first);
+      host.failures.add('b');
+      await controller.navigateProfile('b');
+      expect(controller.current, same(data));
+      expect(data.projectSessionsLoading, isTrue);
+      host.projectDelay!.complete();
+      await pending;
+      expect(data.projectSessions.single['id'], 'project-chat');
+      expect(data.projectSessionsError, isNull);
+    },
+  );
+
   test('all reads and RPCs carry immutable canonical profile', () async {
     await controller.createProject('Test', '/a');
     final chat = await controller.createChat();
@@ -229,7 +249,11 @@ void main() {
       final project = controller.current!.projects.single;
       await controller.selectProject(project);
       expect(controller.current!.visibleSessions.single['id'], 'project-chat');
-      expect(host.calls.last.$3, {'project_id': 'same', 'profile': 'a'});
+      expect(host.calls.last.$3, {
+        'project_id': 'same',
+        'session_limit': 5000,
+        'profile': 'a',
+      });
       final draft = await controller.createChat();
       expect(draft.projectId, project['id']);
       expect(host.calls.last.$3['cwd'], '/a');

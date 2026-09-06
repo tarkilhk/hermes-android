@@ -87,7 +87,12 @@ ProfileWorkspaceController profileController(
         currentName: 'default',
         activeName: 'default',
       ),
-      get: (_, _) async => {'sessions': <Map<String, dynamic>>[]},
+      get: (_, query) async => {
+        'sessions': <Map<String, dynamic>>[],
+        'offset': int.parse(query['offset']!),
+        'limit': int.parse(query['limit']!),
+        'total': 0,
+      },
       rpc: (method, _) async => method == 'session.create'
           ? {
               'session_id': 'runtime',

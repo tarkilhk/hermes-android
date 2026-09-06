@@ -19,6 +19,21 @@ typedef ScopedRpc =
       Map<String, dynamic> params,
     );
 
+/// The REST page may include extra pinned rows outside its offset window.
+class ProfileSessionPage {
+  final List<Map<String, dynamic>> rows;
+  final int offset;
+  final int limit;
+  final int total;
+  const ProfileSessionPage({
+    required this.rows,
+    required this.offset,
+    required this.limit,
+    required this.total,
+  });
+  int? get nextOffset => offset + limit < total ? offset + limit : null;
+}
+
 /// The stock modern Hermes contract. All profile-owned traffic passes through
 /// this immutable scope. There is no unscoped or experimental-recovery fallback.
 class ProfileGateway {
@@ -154,17 +169,43 @@ class ProfileGateway {
     Map<String, dynamic> params = const {},
   ]) => _rpc(method, {...params, 'profile': scope.profileName});
 
-  Future<List<Map<String, dynamic>>> sessions() async {
-    final result = await read('sessions', {'limit': '100', 'order': 'recent'});
+  static const sessionPageSize = 50;
+  static const projectSessionScanLimit = 5000;
+
+  Future<ProfileSessionPage> sessions({
+    int offset = 0,
+    int limit = sessionPageSize,
+  }) async {
+    if (offset < 0 || limit < 1 || limit > 100) {
+      throw ArgumentError('Invalid session page');
+    }
+    final result = await read('sessions', {
+      'limit': '$limit',
+      'offset': '$offset',
+      'order': 'recent',
+    });
+    if (result['offset'] != offset ||
+        result['limit'] != limit ||
+        result['total'] is! int ||
+        (result['total'] as int) < 0) {
+      throw const FormatException('Invalid session pagination metadata');
+    }
     final rows = records(result['sessions']);
     for (final row in rows) {
-      if (row['profile'] != scope.profileName) {
+      if (row['profile'] != scope.profileName ||
+          row['id'] is! String ||
+          (row['id'] as String).isEmpty) {
         throw const FormatException(
           'Session response has a different profile owner',
         );
       }
     }
-    return rows;
+    return ProfileSessionPage(
+      rows: rows,
+      offset: offset,
+      limit: limit,
+      total: result['total'] as int,
+    );
   }
 
   Future<List<Map<String, dynamic>>> projects() async {
@@ -191,6 +232,7 @@ class ProfileGateway {
     await requireProfile();
     final result = await call('projects.project_sessions', {
       'project_id': projectId,
+      'session_limit': projectSessionScanLimit,
     });
     final project = result['project'];
     if (project is! Map || project['id'] != projectId) {

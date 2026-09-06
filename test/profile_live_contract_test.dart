@@ -27,7 +27,7 @@ void main() {
         expect((await gateway.discover()).named(profile), isNotNull);
         await gateway.connect();
         final sessions = await gateway.sessions();
-        expect(sessions.every((s) => s['profile'] == profile), isTrue);
+        expect(sessions.rows.every((s) => s['profile'] == profile), isTrue);
         await gateway.projects();
         final session = await gateway.createSession(title: 'Android QA draft');
         expect(session['info']['profile_name'], profile);

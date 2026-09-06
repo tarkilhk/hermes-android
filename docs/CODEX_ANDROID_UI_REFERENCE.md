@@ -48,8 +48,11 @@ the new profile's root. The implementation retains Hermes branding and its gold
 accent; it does not copy OpenAI account, voice, or pairing controls.
 
 The profile workspace now implements that tree, a full-projects view reached by
-See all, and local search over loaded rows. Pagination and server-wide search
-are not implied by this UI. Activity, project creation, refresh, and notification
+See all, and local search over loaded rows. All chats now requests another
+50-row REST page near the scroll end, with explicit load-more and retry controls.
+Project lists reveal the authoritative returned members in groups of 50; the
+stock project RPC has no offset or cursor. Server-wide search is not implied by
+this UI. Activity, project creation, refresh, and notification
 enablement remain available in the workspace menu.
 
 ## Visual evidence still needed for other screens
