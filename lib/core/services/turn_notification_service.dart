@@ -59,9 +59,12 @@ abstract class TurnNotificationSink {
 /// Default sink backed by `flutter_local_notifications`.
 class PluginTurnNotificationSink implements TurnNotificationSink {
   final FlutterLocalNotificationsPlugin _plugin;
+  final void Function(String payload)? onOpen;
 
-  PluginTurnNotificationSink({FlutterLocalNotificationsPlugin? plugin})
-    : _plugin = plugin ?? FlutterLocalNotificationsPlugin();
+  PluginTurnNotificationSink({
+    FlutterLocalNotificationsPlugin? plugin,
+    this.onOpen,
+  }) : _plugin = plugin ?? FlutterLocalNotificationsPlugin();
 
   @override
   Future<void> initialize() async {
@@ -78,7 +81,18 @@ class PluginTurnNotificationSink implements TurnNotificationSink {
       iOS: iosSettings,
     );
 
-    await _plugin.initialize(settings);
+    await _plugin.initialize(
+      settings,
+      onDidReceiveNotificationResponse: (response) {
+        final payload = response.payload;
+        if (payload != null) onOpen?.call(payload);
+      },
+    );
+    final launch = await _plugin.getNotificationAppLaunchDetails();
+    final payload = launch?.notificationResponse?.payload;
+    if (launch?.didNotificationLaunchApp == true && payload != null) {
+      onOpen?.call(payload);
+    }
   }
 
   @override

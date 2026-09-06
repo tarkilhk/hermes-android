@@ -77,6 +77,20 @@ class CredentialStorageException implements Exception {
   String toString() => message;
 }
 
+/// HTTP failure from an authenticated Dashboard API request.
+///
+/// Keeping the status code typed lets capability probes distinguish missing
+/// routes from authentication failures without parsing exception prose.
+class DashboardHttpException implements Exception {
+  final int statusCode;
+  final String endpoint;
+
+  const DashboardHttpException(this.statusCode, this.endpoint);
+
+  @override
+  String toString() => 'HTTP $statusCode';
+}
+
 class _ConnectionCredentials {
   final String apiKey;
   final String? dashboardPassword;
@@ -1197,6 +1211,15 @@ class DashboardClient {
   /// re-implementing the auth ladder and triggering a second password login.
   Future<Map<String, String>> authHeaders() => _authHeaders();
 
+  /// Select authentication by configured mode, never by retrying a rejected
+  /// ticket as a different auth mechanism. Local Desktop uses its session token.
+  Future<({String? token, String? ticket})> gatewayCredentials() async {
+    if (_usesPasswordAuth || _proxied) {
+      return (token: null, ticket: await mintWebSocketTicket());
+    }
+    return (token: await _getToken(), ticket: null);
+  }
+
   /// Mints the short-lived, single-use WebSocket ticket required by a secured
   /// Hermes Desktop gateway. The HTTP API cookie stays in this client; only the
   /// ticket is passed to the WebSocket URL.
@@ -1244,7 +1267,9 @@ class DashboardClient {
       _resetAuth();
       return apiGet(endpoint, queryParameters: queryParameters, retried: true);
     }
-    if (res.statusCode != 200) throw Exception('HTTP ${res.statusCode}');
+    if (res.statusCode != 200) {
+      throw DashboardHttpException(res.statusCode, endpoint);
+    }
     return _decodeMapResponse(res);
   }
 

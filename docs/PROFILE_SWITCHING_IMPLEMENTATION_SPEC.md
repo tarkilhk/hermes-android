@@ -4,6 +4,26 @@ Status: **Approved design target**
 Baseline: Hermes Android `v2.1.1` / `e1b94e2b4cef661174e3c6382407c05749087753`  
 Companion design note: [PROFILE_SWITCHING_DESIGN.md](PROFILE_SWITCHING_DESIGN.md)
 
+## Fork direction confirmed 2026-09-06
+
+The fork owner confirmed a clean target for modern profile-aware Hermes servers.
+This supersedes the legacy-client, old-server fallback, and compatibility-migration
+requirements below; they are historical design text, not approved implementation
+scope. Do not silently issue unscoped requests when a required capability is absent.
+
+Official Hermes Desktop is the reference for profile, project, session, and
+background-work behavior. The owner explicitly confirmed **Codex Remote in
+ChatGPT on Android** as the mobile UI and interaction reference. Its documented
+behavior is recorded in the reference note; exact visual details and mobile UI
+source availability remain unverified. The broader
+daily-driver and indispensable-product roadmaps inherited from upstream are not
+this fork owner's roadmap.
+
+See [Desktop behavior research](HERMES_DESKTOP_BEHAVIOR_REFERENCE.md) and
+[Codex Android UI research](CODEX_ANDROID_UI_REFERENCE.md) for the checked evidence
+and remaining gaps. The original specification below has not yet been fully
+reconciled against those references.
+
 ## 1. Purpose
 
 Add first-class Hermes profile selection to the active Android Workspace. Selecting a profile must reload that profile's projects and sessions in the same way users experience profile selection in official Hermes Desktop, without confusing a Hermes profile with an Android saved connection.

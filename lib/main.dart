@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'dart:convert';
 
 import 'package:flutter/material.dart';
 import 'package:shared_preferences/shared_preferences.dart';
@@ -10,7 +11,12 @@ import 'core/services/config_backup_service.dart';
 import 'core/services/connection_manager.dart';
 import 'core/services/gateway_turn_application_controller.dart';
 import 'core/services/text_size_preference.dart';
-import 'core/screens/workspace_screen.dart';
+import 'core/screens/profile_workspace_screen.dart';
+import 'core/services/profile_workspace_controller.dart';
+import 'core/services/profile_gateway.dart';
+import 'core/services/profiles_repository.dart';
+import 'core/models/hermes_profile.dart';
+import 'core/services/turn_notification_service.dart';
 import 'core/theme/hermes_theme.dart';
 import 'core/utils/responsive.dart';
 import 'core/widgets/config_backup_card.dart';
@@ -76,11 +82,98 @@ class HermesApp extends StatefulWidget {
 
 class HermesAppState extends State<HermesApp> {
   late final GatewayTurnApplicationController _turnApplicationController;
+  final _navigatorKey = GlobalKey<NavigatorState>();
+  final _profileControllers = <String, ProfileWorkspaceController>{};
+  late final PluginTurnNotificationSink _profileNotifications;
+  late final Future<void> _notificationsReady;
+
+  ProfileWorkspaceController profileController(SavedConnection connection) {
+    return _profileControllers.putIfAbsent(
+      connection.id,
+      () => ProfileWorkspaceController(
+        connection: connection,
+        preferences: widget.connManager.prefs,
+        onAttention: (chat, needsInput) async {
+          await _notificationsReady;
+          await _profileNotifications.show(
+            TurnNotification(
+              id: chat.key.hashCode & 0x7fffffff,
+              title:
+                  '${chat.key.workspace.profileName}: ${needsInput ? 'Needs attention' : 'Chat finished'}',
+              body: chat.title,
+              payload: jsonEncode(chat.key.toJson()),
+              channel: TurnNotificationService.turnChannel,
+            ),
+          );
+        },
+      ),
+    );
+  }
+
+  Future<void> enableProfileNotifications() async {
+    await _notificationsReady;
+    await _profileNotifications.requestPermission();
+  }
+
+  Future<void> _openProfileNotification(String payload) async {
+    try {
+      final key = ProfileSessionKey.fromJson(
+        jsonDecode(payload) as Map<String, dynamic>,
+      );
+      final connection = (await widget.connManager.loadConnectionsWithSecrets())
+          .where((c) => c.id == key.workspace.connectionId)
+          .firstOrNull;
+      if (!mounted) return;
+      if (connection == null) {
+        throw StateError('The original connection is unavailable');
+      }
+      final controller = profileController(connection);
+      if (controller.discovery == null) await controller.initialize();
+      await controller.openSession(key);
+      if (!mounted) return;
+      if (controller.current?.scope != key.workspace ||
+          controller.current?.chat?.key != key) {
+        throw StateError('The notification target is unavailable');
+      }
+      _navigatorKey.currentState?.push(
+        MaterialPageRoute(
+          builder: (_) => ProfileWorkspaceScreen(
+            controller: controller,
+            enableNotifications: enableProfileNotifications,
+          ),
+        ),
+      );
+    } catch (_) {
+      // Malformed or removed targets cannot be rerouted to a default profile.
+      final context = _navigatorKey.currentContext;
+      if (context != null && context.mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text(
+              'This chat is unavailable on its original host or profile.',
+            ),
+          ),
+        );
+      }
+    }
+  }
 
   @override
   void initState() {
     super.initState();
     _turnApplicationController = GatewayTurnApplicationController();
+    _profileNotifications = PluginTurnNotificationSink(
+      onOpen: (payload) {
+        unawaited(
+          WidgetsBinding.instance.endOfFrame.then(
+            (_) => _openProfileNotification(payload),
+          ),
+        );
+      },
+    );
+    _notificationsReady = _profileNotifications.initialize().catchError(
+      (Object _) {},
+    );
   }
 
   Future<void> setTextSizePreference(TextSizePreference preference) async {
@@ -91,6 +184,7 @@ class HermesAppState extends State<HermesApp> {
   @override
   Widget build(BuildContext context) {
     return MaterialApp(
+      navigatorKey: _navigatorKey,
       title: 'Hermes Agent',
       themeMode: HermesApp.getThemeMode(widget.connManager.prefs),
       theme: hermesTheme(Brightness.light),
@@ -108,6 +202,8 @@ class HermesAppState extends State<HermesApp> {
         );
       },
       home: HomeScreen(
+        profileController: profileController,
+        enableProfileNotifications: enableProfileNotifications,
         connManager: widget.connManager,
         turnApplicationController: _turnApplicationController,
         shareIntents: widget.shareIntents,
@@ -119,6 +215,9 @@ class HermesAppState extends State<HermesApp> {
   @override
   void dispose() {
     unawaited(_turnApplicationController.close());
+    for (final controller in _profileControllers.values) {
+      controller.dispose();
+    }
     super.dispose();
   }
 }
@@ -171,6 +270,8 @@ class HermesHeader extends StatelessWidget {
 }
 
 class HomeScreen extends StatefulWidget {
+  final ProfileWorkspaceController Function(SavedConnection)? profileController;
+  final Future<void> Function()? enableProfileNotifications;
   final ConnectionManager connManager;
   final GatewayTurnApplicationController turnApplicationController;
   final AndroidShareIntentService? shareIntents;
@@ -184,6 +285,8 @@ class HomeScreen extends StatefulWidget {
   importBackup;
 
   const HomeScreen({
+    this.profileController,
+    this.enableProfileNotifications,
     required this.connManager,
     required this.turnApplicationController,
     this.shareIntents,
@@ -253,19 +356,6 @@ class HomeScreenState extends State<HomeScreen> {
     ScaffoldMessenger.of(
       context,
     ).showSnackBar(SnackBar(content: Text(message)));
-  }
-
-  Future<void> _closeDialogAndRefresh(BuildContext dialogContext) async {
-    // Let editable controls detach from the IME before removing their route.
-    // Rebuilding HomeScreen while the dialog still owns focus can deactivate
-    // inherited dependencies out of order on Android.
-    FocusManager.instance.primaryFocus?.unfocus();
-    await WidgetsBinding.instance.endOfFrame;
-    if (!dialogContext.mounted) return;
-    Navigator.of(dialogContext).pop();
-    WidgetsBinding.instance.addPostFrameCallback((_) {
-      if (mounted) _refresh();
-    });
   }
 
   @override
@@ -347,9 +437,9 @@ class HomeScreenState extends State<HomeScreen> {
     Navigator.push(
       context,
       MaterialPageRoute(
-        builder: (_) => WorkspaceScreen(
-          connection: conn,
-          turnApplicationController: widget.turnApplicationController,
+        builder: (_) => ProfileWorkspaceScreen(
+          controller: widget.profileController!(conn),
+          enableNotifications: widget.enableProfileNotifications,
           initialSharedPayload: sharedPayload,
           initialQuickChat: initialQuickChat,
         ),
@@ -418,375 +508,6 @@ class HomeScreenState extends State<HomeScreen> {
     );
   }
 
-  void _showApiKeyDialog(SavedConnection conn) {
-    final ctrl = TextEditingController(text: conn.apiKey);
-    bool validating = false;
-    String? error;
-
-    showDialog(
-      context: context,
-      builder: (ctx) => StatefulBuilder(
-        builder: (ctx, setDialogState) => AlertDialog(
-          title: const Text('Update API Key'),
-          content: Column(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              if (error != null)
-                Container(
-                  width: double.infinity,
-                  padding: const EdgeInsets.all(10),
-                  margin: const EdgeInsets.only(bottom: 12),
-                  decoration: BoxDecoration(
-                    color: Colors.red.withValues(alpha: 0.1),
-                    borderRadius: BorderRadius.circular(8),
-                    border: Border.all(
-                      color: Colors.red.withValues(alpha: 0.3),
-                    ),
-                  ),
-                  child: Row(
-                    children: [
-                      const Icon(
-                        Icons.error_outline,
-                        color: Colors.red,
-                        size: 18,
-                      ),
-                      const SizedBox(width: 8),
-                      Expanded(
-                        child: Text(
-                          error!,
-                          style: const TextStyle(
-                            color: Colors.red,
-                            fontSize: 13,
-                          ),
-                        ),
-                      ),
-                    ],
-                  ),
-                ),
-              TextField(
-                controller: ctrl,
-                decoration: const InputDecoration(
-                  labelText: 'API Key',
-                  hintText: 'API_SERVER_KEY from ~/.hermes/.env',
-                ),
-                obscureText: true,
-                enabled: !validating,
-              ),
-            ],
-          ),
-          actions: [
-            TextButton(
-              onPressed: validating ? null : () => Navigator.pop(ctx),
-              child: const Text('Cancel'),
-            ),
-            FilledButton(
-              onPressed: validating
-                  ? null
-                  : () async {
-                      final key = ctrl.text.trim();
-                      if (key.isEmpty) return;
-
-                      setDialogState(() {
-                        validating = true;
-                        error = null;
-                      });
-
-                      try {
-                        final baseUrl = conn.baseUrl;
-                        final client = ApiClient(
-                          baseUrl: baseUrl,
-                          apiKey: key,
-                          pathPrefix: conn.gatewayPrefix ?? '',
-                        );
-                        final result = await client.checkHealth();
-                        client.close();
-
-                        if (!ctx.mounted) return;
-
-                        if (result.isHealthy) {
-                          await widget.connManager.updateApiKey(conn.id, key);
-                          if (!ctx.mounted) return;
-                          await _closeDialogAndRefresh(ctx);
-                        } else {
-                          setDialogState(() {
-                            error = result.userMessage(apiKeyProvided: true);
-                            validating = false;
-                          });
-                        }
-                      } on CredentialStorageException {
-                        if (!ctx.mounted) return;
-                        setDialogState(() {
-                          error = 'The API key could not be stored securely.';
-                          validating = false;
-                        });
-                      } catch (_) {
-                        if (!ctx.mounted) return;
-                        setDialogState(() {
-                          error = 'Cannot reach ${conn.host}:${conn.port}.';
-                          validating = false;
-                        });
-                      }
-                    },
-              child: validating
-                  ? const SizedBox(
-                      width: 18,
-                      height: 18,
-                      child: CircularProgressIndicator(
-                        strokeWidth: 2,
-                        color: Colors.white,
-                      ),
-                    )
-                  : const Text('Save'),
-            ),
-          ],
-        ),
-      ),
-    );
-  }
-
-  void _showDashboardAuthDialog(SavedConnection conn) {
-    final gatewayPrefixCtrl = TextEditingController(
-      text: conn.gatewayPrefix ?? '',
-    );
-    final dashboardPrefixCtrl = TextEditingController(
-      text: conn.dashboardPrefix ?? '',
-    );
-    final portCtrl = TextEditingController(
-      text: conn.dashboardPortOverride?.toString() ?? '',
-    );
-    final userCtrl = TextEditingController(text: conn.dashboardUsername ?? '');
-    final passCtrl = TextEditingController(text: conn.dashboardPassword ?? '');
-    var proxied = conn.dashboardProxied;
-    bool validating = false;
-    String? error;
-
-    showDialog(
-      context: context,
-      builder: (ctx) => StatefulBuilder(
-        builder: (ctx, setDialogState) => AlertDialog(
-          title: const Text('Dashboard / Proxy Settings'),
-          content: SingleChildScrollView(
-            child: Column(
-              mainAxisSize: MainAxisSize.min,
-              children: [
-                Padding(
-                  padding: const EdgeInsets.only(bottom: 12),
-                  child: Text(
-                    'Used for hosted path prefixes and for the Settings, '
-                    'Memory, Skills and Cron tabs. Leave username/password '
-                    'blank for an open dashboard, or enable proxied mode when '
-                    'your reverse proxy injects dashboard auth.',
-                    style: TextStyle(color: Colors.grey[600], fontSize: 12),
-                  ),
-                ),
-                if (error != null)
-                  Container(
-                    width: double.infinity,
-                    padding: const EdgeInsets.all(10),
-                    margin: const EdgeInsets.only(bottom: 12),
-                    decoration: BoxDecoration(
-                      color: Colors.red.withValues(alpha: 0.1),
-                      borderRadius: BorderRadius.circular(8),
-                      border: Border.all(
-                        color: Colors.red.withValues(alpha: 0.3),
-                      ),
-                    ),
-                    child: Row(
-                      children: [
-                        const Icon(
-                          Icons.error_outline,
-                          color: Colors.red,
-                          size: 18,
-                        ),
-                        const SizedBox(width: 8),
-                        Expanded(
-                          child: Text(
-                            error!,
-                            style: const TextStyle(
-                              color: Colors.red,
-                              fontSize: 13,
-                            ),
-                          ),
-                        ),
-                      ],
-                    ),
-                  ),
-                TextField(
-                  controller: gatewayPrefixCtrl,
-                  decoration: const InputDecoration(
-                    labelText: 'Gateway path prefix',
-                    hintText: 'e.g. /profile/peter',
-                  ),
-                  autocorrect: false,
-                  enabled: !validating,
-                ),
-                const SizedBox(height: 12),
-                TextField(
-                  controller: dashboardPrefixCtrl,
-                  decoration: const InputDecoration(
-                    labelText: 'Dashboard path prefix',
-                    hintText: 'e.g. /dashboard',
-                  ),
-                  autocorrect: false,
-                  enabled: !validating,
-                ),
-                const SizedBox(height: 8),
-                SwitchListTile(
-                  value: proxied,
-                  contentPadding: EdgeInsets.zero,
-                  title: const Text('Dashboard behind proxy'),
-                  subtitle: const Text(
-                    'Proxy injects auth; app sends clean requests',
-                  ),
-                  onChanged: validating
-                      ? null
-                      : (v) => setDialogState(() => proxied = v),
-                ),
-                const SizedBox(height: 8),
-                TextField(
-                  controller: portCtrl,
-                  decoration: const InputDecoration(
-                    labelText: 'Dashboard Port',
-                    hintText: 'Leave blank for default (9119)',
-                  ),
-                  keyboardType: TextInputType.number,
-                  enabled: !validating,
-                ),
-                const SizedBox(height: 12),
-                TextField(
-                  controller: userCtrl,
-                  decoration: const InputDecoration(
-                    labelText: 'Username (optional)',
-                  ),
-                  autocorrect: false,
-                  enabled: !validating,
-                ),
-                const SizedBox(height: 12),
-                TextField(
-                  controller: passCtrl,
-                  decoration: const InputDecoration(
-                    labelText: 'Password (optional)',
-                  ),
-                  obscureText: true,
-                  enabled: !validating,
-                ),
-              ],
-            ),
-          ),
-          actions: [
-            TextButton(
-              onPressed: validating ? null : () => Navigator.pop(ctx),
-              child: const Text('Cancel'),
-            ),
-            FilledButton(
-              onPressed: validating
-                  ? null
-                  : () async {
-                      final portText = portCtrl.text.trim();
-                      final port = portText.isEmpty
-                          ? null
-                          : int.tryParse(portText);
-                      if (portText.isNotEmpty && (port == null || port <= 0)) {
-                        setDialogState(() => error = 'Invalid port number.');
-                        return;
-                      }
-                      final user = userCtrl.text.trim();
-                      final pass = passCtrl.text.trim();
-                      final gatewayPrefix = gatewayPrefixCtrl.text.trim();
-                      final dashboardPrefix = dashboardPrefixCtrl.text.trim();
-
-                      setDialogState(() {
-                        validating = true;
-                        error = null;
-                      });
-
-                      if (gatewayPrefix != (conn.gatewayPrefix ?? '')) {
-                        final apiClient = ApiClient(
-                          baseUrl: conn.baseUrl,
-                          apiKey: conn.apiKey,
-                          pathPrefix: gatewayPrefix,
-                        );
-                        final result = await apiClient.checkHealth();
-                        apiClient.close();
-                        if (!ctx.mounted) return;
-                        if (!result.isHealthy) {
-                          setDialogState(() {
-                            error = result.userMessage(
-                              apiKeyProvided: conn.apiKey.isNotEmpty,
-                            );
-                            validating = false;
-                          });
-                          return;
-                        }
-                      }
-
-                      final client = DashboardClient(
-                        host: conn.host,
-                        port: port ?? conn.dashboardPort,
-                        useHttps: conn.useHttps,
-                        pathPrefix: dashboardPrefix,
-                        proxied: proxied,
-                        username: user.isEmpty ? null : user,
-                        password: pass.isEmpty ? null : pass,
-                      );
-                      try {
-                        await client.getModelInfo();
-                        client.close();
-                        if (!ctx.mounted) return;
-                        await widget.connManager.updateDashboardAuth(
-                          conn.id,
-                          dashboardPort: port,
-                          username: user,
-                          password: pass,
-                          gatewayPrefix: gatewayPrefix,
-                          dashboardPrefix: dashboardPrefix,
-                          dashboardProxied: proxied,
-                        );
-                        if (!ctx.mounted) return;
-                        await _closeDialogAndRefresh(ctx);
-                      } on CredentialStorageException {
-                        client.close();
-                        if (!ctx.mounted) return;
-                        setDialogState(() {
-                          error =
-                              'The dashboard credentials could not be stored securely.';
-                          validating = false;
-                        });
-                      } catch (_) {
-                        client.close();
-                        if (!ctx.mounted) return;
-                        setDialogState(() {
-                          error =
-                              'Could not reach/authenticate the dashboard at '
-                              '${conn.host}:${port ?? conn.dashboardPort}. '
-                              'Check the port and credentials.';
-                          validating = false;
-                        });
-                      }
-                    },
-              child: validating
-                  ? const SizedBox(
-                      width: 18,
-                      height: 18,
-                      child: CircularProgressIndicator(
-                        strokeWidth: 2,
-                        color: Colors.white,
-                      ),
-                    )
-                  : const Text('Save'),
-            ),
-          ],
-        ),
-      ),
-    ).whenComplete(() {
-      gatewayPrefixCtrl.dispose();
-      dashboardPrefixCtrl.dispose();
-      portCtrl.dispose();
-      userCtrl.dispose();
-      passCtrl.dispose();
-    });
-  }
-
   Widget _buildConnectionCard(SavedConnection conn) {
     return Card(
       margin: const EdgeInsets.symmetric(horizontal: 16, vertical: 4),
@@ -794,8 +515,7 @@ class HomeScreenState extends State<HomeScreen> {
         leading: const Icon(Icons.router, color: Color(0xFFD4AF37)),
         title: Text(conn.label),
         subtitle: Text(
-          '${conn.host}:${conn.port}${conn.gatewayPrefix != null && conn.gatewayPrefix!.isNotEmpty ? conn.gatewayPrefix! : ''}'
-          '  \u2022  Key: ${conn.apiKey.isNotEmpty ? "\u2713" : "\u2717"}',
+          '${conn.host}:${conn.dashboardPort}${conn.dashboardPrefix ?? ''}',
           style: TextStyle(color: Colors.grey[600]),
         ),
         trailing: PopupMenuButton<String>(
@@ -816,19 +536,10 @@ class HomeScreenState extends State<HomeScreen> {
               }
             } else if (v == 'edit') {
               _showEditConnectionDialog(conn);
-            } else if (v == 'apikey') {
-              _showApiKeyDialog(conn);
-            } else if (v == 'dashboard') {
-              _showDashboardAuthDialog(conn);
             }
           },
           itemBuilder: (_) => [
             const PopupMenuItem(value: 'edit', child: Text('Edit Connection')),
-            const PopupMenuItem(value: 'apikey', child: Text('Update API Key')),
-            const PopupMenuItem(
-              value: 'dashboard',
-              child: Text('Dashboard / Proxy Settings'),
-            ),
             const PopupMenuItem(
               value: 'delete',
               child: Text('Delete', style: TextStyle(color: Colors.red)),
@@ -877,7 +588,7 @@ class HomeScreenState extends State<HomeScreen> {
                   ),
                   const SizedBox(height: 8),
                   Text(
-                    'Tap + to add a remote Hermes Gateway\n(API Server, port 8642)',
+                    'Tap + to connect to a profile-aware Hermes gateway',
                     style: Theme.of(
                       context,
                     ).textTheme.bodyMedium?.copyWith(color: Colors.grey[600]),
@@ -950,8 +661,6 @@ class _AddDialogState extends State<_AddDialog> {
   late final TextEditingController _label;
   late final TextEditingController _host;
   late final TextEditingController _port;
-  late final TextEditingController _apiKey;
-  late final TextEditingController _gatewayPrefix;
   late final TextEditingController _dashboardPrefix;
   late final TextEditingController _dashPort;
   late final TextEditingController _dashUser;
@@ -976,9 +685,7 @@ class _AddDialogState extends State<_AddDialog> {
           ? 'https://${conn.host}'
           : conn.host,
     );
-    _port = TextEditingController(text: (conn?.port ?? 8642).toString());
-    _apiKey = TextEditingController(text: conn?.apiKey ?? '');
-    _gatewayPrefix = TextEditingController(text: conn?.gatewayPrefix ?? '');
+    _port = TextEditingController(text: (conn?.port ?? 9119).toString());
     _dashboardPrefix = TextEditingController(text: conn?.dashboardPrefix ?? '');
     _dashPort = TextEditingController(
       text: conn?.dashboardPortOverride?.toString() ?? '',
@@ -1007,121 +714,79 @@ class _AddDialogState extends State<_AddDialog> {
   Future<void> _validateAndSave() async {
     final label = _label.text.trim();
     final host = _host.text.trim();
-    final port = int.tryParse(_port.text.trim()) ?? 8642;
-    final apiKey = _apiKey.text.trim();
-    final gatewayPrefix = _gatewayPrefix.text.trim();
-    final dashboardPrefix = _dashboardPrefix.text.trim();
-
-    if (label.isEmpty || host.isEmpty || port <= 0) return;
-
+    final port = int.tryParse(_port.text.trim()) ?? 9119;
+    if (label.isEmpty || host.isEmpty || port <= 0 || port > 65535) return;
     setState(() {
       _validating = true;
       _error = null;
     });
-
+    ProfileGateway? probe;
     try {
       final normalized = SavedConnection.normalizeHostAndPort(host, port);
-      final baseUrl = SavedConnection(
-        id: '',
-        label: '',
-        host: normalized.host,
-        port: normalized.port,
-        apiKey: '',
-        useHttps: normalized.useHttps,
-      ).baseUrl;
-      final client = ApiClient(
-        baseUrl: baseUrl,
-        apiKey: apiKey,
-        pathPrefix: gatewayPrefix,
-      );
-      final result = await client.checkHealth();
-      client.close();
-
-      if (!mounted) return;
-
-      if (!result.isHealthy) {
-        setState(() {
-          _error = result.userMessage(apiKeyProvided: apiKey.isNotEmpty);
-          _validating = false;
-        });
-        return;
-      }
-
-      final dashPortText = _dashPort.text.trim();
+      final dashPort = int.tryParse(_dashPort.text.trim()) ?? normalized.port;
+      final uri = Uri.tryParse(host.contains('://') ? host : 'http://$host');
+      final prefix = _dashboardPrefix.text.trim().isNotEmpty
+          ? _dashboardPrefix.text.trim()
+          : uri?.path ?? '';
       final dashUser = _dashUser.text.trim();
       final dashPass = _dashPass.text.trim();
-      final desktopGatewayUrl = _desktopGatewayUrl.text.trim();
-      final dashPort = dashPortText.isEmpty ? null : int.tryParse(dashPortText);
-
-      // If the user supplied any dashboard details, validate them before saving
-      // (parity with the Dashboard Login dialog). The gateway is already known
-      // good at this point.
-      if (dashPortText.isNotEmpty ||
-          dashUser.isNotEmpty ||
-          dashPass.isNotEmpty ||
-          dashboardPrefix.isNotEmpty ||
-          _dashboardProxied) {
-        final dashClient = DashboardClient(
-          host: normalized.host,
-          port: SavedConnection(
-            id: '',
-            label: '',
-            host: normalized.host,
-            port: normalized.port,
-            apiKey: '',
-            useHttps: normalized.useHttps,
-            dashboardPortOverride: dashPort,
-          ).dashboardPort,
-          useHttps: normalized.useHttps,
-          pathPrefix: dashboardPrefix,
-          proxied: _dashboardProxied,
-          username: dashUser.isEmpty ? null : dashUser,
-          password: dashPass.isEmpty ? null : dashPass,
-        );
-        try {
-          await dashClient.getModelInfo();
-        } catch (_) {
-          dashClient.close();
-          if (!mounted) return;
-          setState(() {
-            _error =
-                'Gateway connected, but the dashboard could not be reached or '
-                'authenticated. Check the dashboard details, or clear them to skip.';
-            _validating = false;
-            _showDashboard = true;
-          });
-          return;
-        }
-        dashClient.close();
-        if (!mounted) return;
+      final gatewayUrl = _desktopGatewayUrl.text.trim();
+      final candidate = SavedConnection(
+        id: 'connection-probe',
+        label: label,
+        host: normalized.host,
+        port: normalized.port,
+        useHttps: normalized.useHttps,
+        apiKey: '',
+        dashboardPortOverride: dashPort,
+        dashboardPrefix: prefix,
+        dashboardUsername: dashUser.isEmpty ? null : dashUser,
+        dashboardPassword: dashPass.isEmpty ? null : dashPass,
+        dashboardProxied: _dashboardProxied,
+        desktopGatewayUrl: gatewayUrl.isEmpty ? null : gatewayUrl,
+      );
+      final repository = ProfilesRepository.forConnection(candidate);
+      late final ProfilesProbeResult discovery;
+      try {
+        discovery = await repository.probe();
+      } finally {
+        repository.close();
       }
-
+      if (discovery.discovery == null) {
+        throw StateError(discovery.message ?? 'Profile API unavailable');
+      }
+      probe = ProfileGateway.forConnection(
+        candidate,
+        WorkspaceScope(
+          connectionId: candidate.id,
+          profileName: discovery.discovery!.serverPreferred.name,
+        ),
+      );
+      await probe.connect();
+      await probe.sessions();
+      if (!mounted) return;
       await widget.onSave(
         label,
         host,
-        port,
-        apiKey,
-        gatewayPrefix: gatewayPrefix.isEmpty ? null : gatewayPrefix,
-        dashboardPrefix: dashboardPrefix.isEmpty ? null : dashboardPrefix,
+        normalized.port,
+        '',
+        dashboardPrefix: prefix.isEmpty ? null : prefix,
         dashboardProxied: _dashboardProxied,
-        desktopGatewayUrl: desktopGatewayUrl.isEmpty ? null : desktopGatewayUrl,
+        desktopGatewayUrl: gatewayUrl.isEmpty ? null : gatewayUrl,
         dashboardPort: dashPort,
         dashboardUsername: dashUser.isEmpty ? null : dashUser,
         dashboardPassword: dashPass.isEmpty ? null : dashPass,
       );
       if (mounted) Navigator.pop(context);
-    } on CredentialStorageException {
-      if (!mounted) return;
-      setState(() {
-        _error = 'The connection could not be stored securely.';
-        _validating = false;
-      });
-    } catch (_) {
-      if (!mounted) return;
-      setState(() {
-        _error = 'Cannot reach $host:$port. Check the host and port.';
-        _validating = false;
-      });
+    } catch (error) {
+      if (mounted) {
+        setState(() {
+          _error = 'Could not connect to the modern Hermes gateway. $error';
+          _validating = false;
+        });
+      }
+    } finally {
+      probe?.close();
     }
   }
 
@@ -1183,19 +848,11 @@ class _AddDialogState extends State<_AddDialog> {
               controller: _port,
               decoration: const InputDecoration(
                 labelText: 'Port',
-                hintText: '8642 (API Server)',
+                hintText: 'Hermes gateway port',
               ),
               keyboardType: TextInputType.number,
             ),
             const SizedBox(height: 12),
-            TextField(
-              controller: _apiKey,
-              decoration: const InputDecoration(
-                labelText: 'API Key',
-                hintText: 'API_SERVER_KEY from ~/.hermes/.env',
-              ),
-              obscureText: true,
-            ),
             const SizedBox(height: 4),
             InkWell(
               onTap: _validating
@@ -1221,15 +878,6 @@ class _AddDialogState extends State<_AddDialog> {
             ),
             if (_showDashboard) ...[
               const SizedBox(height: 8),
-              TextField(
-                controller: _gatewayPrefix,
-                decoration: const InputDecoration(
-                  labelText: 'Gateway path prefix',
-                  hintText:
-                      'e.g. /profile/peter (proxy path before /api/ and /v1/)',
-                ),
-                autocorrect: false,
-              ),
               const SizedBox(height: 12),
               TextField(
                 controller: _dashboardPrefix,
@@ -1252,8 +900,7 @@ class _AddDialogState extends State<_AddDialog> {
               Padding(
                 padding: const EdgeInsets.only(bottom: 4),
                 child: Text(
-                  'Optional. For the Memory/Cron/Skills/Settings tabs. Leave '
-                  'blank to use the default dashboard port (9119) with no login.',
+                  'Use the gateway address and authentication configured on your Hermes host.',
                   style: TextStyle(color: Colors.grey[600], fontSize: 12),
                 ),
               ),
@@ -1261,7 +908,7 @@ class _AddDialogState extends State<_AddDialog> {
                 controller: _dashPort,
                 decoration: const InputDecoration(
                   labelText: 'Dashboard Port',
-                  hintText: 'Leave blank for default (9119)',
+                  hintText: 'Leave blank to use the gateway port',
                 ),
                 keyboardType: TextInputType.number,
               ),
@@ -1324,8 +971,6 @@ class _AddDialogState extends State<_AddDialog> {
     _label.dispose();
     _host.dispose();
     _port.dispose();
-    _apiKey.dispose();
-    _gatewayPrefix.dispose();
     _dashboardPrefix.dispose();
     _dashPort.dispose();
     _dashUser.dispose();
