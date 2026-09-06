@@ -125,6 +125,27 @@ void main() {
     },
   );
 
+  testWidgets(
+    'profile chips have a compact face and retain 48 dp tap targets',
+    (tester) async {
+      await show(tester);
+      final chip = find.byKey(const ValueKey('profile-personal'));
+      final face = find.descendant(of: chip, matching: find.byType(Material));
+      expect(tester.getSize(face).height, 36);
+      expect(tester.getSize(chip).height, 48);
+      expect(
+        tester.getSize(find.byKey(const ValueKey('profile-selector'))).height,
+        48,
+      );
+      // The transparent padding remains tappable, outside the compact face.
+      final work = find.byKey(const ValueKey('profile-work'));
+      await tester.tapAt(tester.getTopLeft(work) + const Offset(12, 2));
+      await tester.pumpAndSettle();
+      expect(controller.current!.scope.profileName, 'work');
+      expect(tester.takeException(), isNull);
+    },
+  );
+
   testWidgets('large-text workspace and menus fit a narrow screen', (
     tester,
   ) async {

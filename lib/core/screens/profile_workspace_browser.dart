@@ -613,57 +613,60 @@ class _ProfileWorkspaceBrowserState extends State<ProfileWorkspaceBrowser> {
         body: Column(
           children: [
             SizedBox(
-              height: 52 + (MediaQuery.textScalerOf(context).scale(14) - 14),
+              key: const ValueKey('profile-selector'),
+              height: 48 + (MediaQuery.textScalerOf(context).scale(14) - 14),
               child: ListView(
                 scrollDirection: Axis.horizontal,
-                padding: const EdgeInsets.symmetric(
-                  horizontal: 16,
-                  vertical: 2,
-                ),
+                padding: const EdgeInsets.symmetric(horizontal: 16),
                 children: [
                   for (final profile in controller.discovery?.profiles ?? [])
                     Padding(
                       padding: const EdgeInsets.only(right: 8),
-                      child: TextButton(
-                        key: ValueKey('profile-${profile.name}'),
-                        style: TextButton.styleFrom(
-                          minimumSize: const Size(48, 48),
-                          padding: const EdgeInsets.symmetric(horizontal: 16),
-                          foregroundColor:
-                              resource?.scope.profileName == profile.name
-                              ? colors.primary
-                              : colors.onSurfaceVariant,
-                          backgroundColor:
-                              resource?.scope.profileName == profile.name
-                              ? colors.primaryContainer
-                              : Colors.transparent,
-                          shape: RoundedRectangleBorder(
-                            borderRadius: BorderRadius.circular(14),
-                          ),
-                        ),
-                        child: Semantics(
-                          selected: resource?.scope.profileName == profile.name,
-                          child: Text(
-                            profile.label,
-                            style: const TextStyle(
-                              fontWeight: FontWeight.w600,
-                              fontSize: 14,
+                      child: Center(
+                        child: TextButton(
+                          key: ValueKey('profile-${profile.name}'),
+                          style: TextButton.styleFrom(
+                            minimumSize: const Size(48, 36),
+                            tapTargetSize: MaterialTapTargetSize.padded,
+                            visualDensity: VisualDensity.standard,
+                            padding: const EdgeInsets.symmetric(horizontal: 12),
+                            foregroundColor:
+                                resource?.scope.profileName == profile.name
+                                ? colors.primary
+                                : colors.onSurfaceVariant,
+                            backgroundColor:
+                                resource?.scope.profileName == profile.name
+                                ? colors.primaryContainer
+                                : Colors.transparent,
+                            shape: RoundedRectangleBorder(
+                              borderRadius: BorderRadius.circular(10),
                             ),
                           ),
-                        ),
-                        onPressed: () {
-                          _searchDebounce?.cancel();
-                          _search.clear();
-                          setState(() {
-                            _query = '';
-                            _view = 'home';
-                          });
-                          unawaited(
-                            _run(
-                              () => controller.navigateProfile(profile.name),
+                          child: Semantics(
+                            selected:
+                                resource?.scope.profileName == profile.name,
+                            child: Text(
+                              profile.label,
+                              style: const TextStyle(
+                                fontWeight: FontWeight.w600,
+                                fontSize: 14,
+                              ),
                             ),
-                          );
-                        },
+                          ),
+                          onPressed: () {
+                            _searchDebounce?.cancel();
+                            _search.clear();
+                            setState(() {
+                              _query = '';
+                              _view = 'home';
+                            });
+                            unawaited(
+                              _run(
+                                () => controller.navigateProfile(profile.name),
+                              ),
+                            );
+                          },
+                        ),
                       ),
                     ),
                 ],

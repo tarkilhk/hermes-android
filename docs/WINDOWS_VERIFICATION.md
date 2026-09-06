@@ -528,3 +528,18 @@ Build/test evidence stays ignored in `build/personal-release.log`,
 `build/app/outputs/flutter-apk/app-arm64-v8a-release.apk` and
 `build/personal-symbols/`. Repeatable build and backup guidance is in
 [the release plan](ANDROID_RELEASE_PLAN.md).
+
+## Compact profile selector, 2026-09-06
+
+Reduced profile button faces from 48 to 36 dp and horizontal padding from 16 to
+12 dp. Centering the buttons stops the horizontal list from stretching their
+backgrounds. The selector takes 48 dp instead of 52 dp at normal text size, with
+48 dp padded tap targets and room for larger text. Profile behavior is unchanged.
+
+All 13 targeted design/browser tests passed, including the 36 dp face, 48 dp hit
+area, tapping outside the colored face, profile switching and 2x-text layout.
+Analysis is clean. The arm64 personal release passed signature/identity checks
+and installed successfully on the Samsung phone with `adb install -r`, preserving
+app data. No new phone screenshot was taken for this change. Ignored evidence:
+`build/compact-profile-tests.log`, `build/compact-profile-analyze.log` and
+`build/compact-profile-release.log`.
