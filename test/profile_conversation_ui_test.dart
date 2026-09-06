@@ -179,7 +179,11 @@ void main() {
       await tester.pumpWidget(
         MaterialApp(home: ProfileWorkspaceScreen(controller: controller)),
       );
-      await tester.pumpAndSettle();
+      if (controller.current!.chat!.busy) {
+        await tester.pump(const Duration(milliseconds: 300));
+      } else {
+        await tester.pumpAndSettle();
+      }
     }
 
     testWidgets('large text with a keyboard keeps the composer usable', (
@@ -277,7 +281,9 @@ void main() {
         expect(find.text('Draft your next message'), findsOneWidget);
         await tester.enterText(find.byType(TextField), 'For later');
         await tester.tap(find.byTooltip('Stop'));
-        await tester.pumpAndSettle();
+        // Interrupt acknowledgement is not a terminal event. The truthful
+        // working spinner keeps animating until the runtime confirms stopping.
+        await tester.pump(const Duration(milliseconds: 300));
         expect(host.calls.last.$2, 'session.interrupt');
         expect(host.calls.last.$3['profile'], 'personal');
         expect(chat.draft, 'For later');

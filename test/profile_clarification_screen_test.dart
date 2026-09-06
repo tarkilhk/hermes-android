@@ -40,7 +40,10 @@ void main() {
         'PROCESS_RECOVERY_QA',
       );
       await tester.tap(find.text('Continue'));
-      await tester.pumpAndSettle();
+      // Reply resumes work; let the dialog finish closing without waiting for
+      // the ongoing runtime indicator to stop animating.
+      await tester.pump(const Duration(milliseconds: 400));
+      await tester.pump(const Duration(milliseconds: 400));
       expect(tester.takeException(), isNull);
       expect(find.text('Reply to Hermes'), findsNothing);
       expect(host.calls.last.$3['question_id'], 'q0');

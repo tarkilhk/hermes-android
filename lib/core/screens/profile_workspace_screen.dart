@@ -6,6 +6,8 @@ import 'package:flutter/material.dart';
 import '../services/profile_workspace_controller.dart';
 import '../services/android_share_intent_service.dart';
 import '../widgets/profile_message.dart';
+import '../theme/profile_workspace_theme.dart';
+import '../widgets/profile_chat_indicator.dart';
 import 'profile_workspace_browser.dart';
 import 'profile_transcript.dart';
 
@@ -32,10 +34,14 @@ class _ProfileWorkspaceScreenState extends State<ProfileWorkspaceScreen>
   ProfileWorkspaceController get controller => widget.controller;
   final _composer = TextEditingController();
   ProfileSessionKey? _composerKey;
+  late WorkspaceAccent _accent;
 
   @override
   void initState() {
     super.initState();
+    _accent = WorkspaceAccent.fromName(
+      controller.preferences.getString(WorkspaceAccent.preferenceKey),
+    );
     WidgetsBinding.instance.addObserver(this);
     controller.visible = true;
     unawaited(_enter());
@@ -86,7 +92,12 @@ class _ProfileWorkspaceScreenState extends State<ProfileWorkspaceScreen>
   }
 
   @override
-  Widget build(BuildContext context) => ListenableBuilder(
+  Widget build(BuildContext context) => Theme(
+    data: profileWorkspaceTheme(Theme.of(context), accent: _accent),
+    child: Builder(builder: (context) => _buildWorkspace(context)),
+  );
+
+  Widget _buildWorkspace(BuildContext context) => ListenableBuilder(
     listenable: controller,
     builder: (context, _) {
       final current = controller.current;
@@ -104,6 +115,7 @@ class _ProfileWorkspaceScreenState extends State<ProfileWorkspaceScreen>
           controller: controller,
           newProject: _projectDialog,
           enableNotifications: widget.enableNotifications,
+          appearance: () => _chooseAccent(context),
         );
       }
       return PopScope(
@@ -156,6 +168,11 @@ class _ProfileWorkspaceScreenState extends State<ProfileWorkspaceScreen>
               ],
             ),
             actions: [
+              IconButton(
+                tooltip: 'Accent color',
+                icon: const Icon(Icons.palette_outlined, size: 21),
+                onPressed: () => _chooseAccent(context),
+              ),
               if (widget.enableNotifications != null)
                 IconButton(
                   tooltip: 'Enable completion notifications',
@@ -182,7 +199,7 @@ class _ProfileWorkspaceScreenState extends State<ProfileWorkspaceScreen>
                     ),
                   ],
                 ),
-              Expanded(child: _chat(chat)),
+              Expanded(child: _chat(chat, context)),
             ],
           ),
         ),
@@ -190,12 +207,14 @@ class _ProfileWorkspaceScreenState extends State<ProfileWorkspaceScreen>
     },
   );
 
-  Widget _chat(ProfileChat chat) => Column(
+  Widget _chat(ProfileChat chat, BuildContext context) => Column(
     children: [
       Padding(
         padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
         child: Row(
           children: [
+            ProfileChatIndicator(chat: chat, row: const {}),
+            const SizedBox(width: 8),
             Expanded(
               child: Text(
                 _status(chat),
@@ -206,12 +225,6 @@ class _ProfileWorkspaceScreenState extends State<ProfileWorkspaceScreen>
                 ),
               ),
             ),
-            if ({
-              ProfileTurnStatus.submitting,
-              ProfileTurnStatus.running,
-              ProfileTurnStatus.settling,
-            }.contains(chat.status))
-              const Icon(Icons.pending_outlined, size: 18),
           ],
         ),
       ),
@@ -229,13 +242,15 @@ class _ProfileWorkspaceScreenState extends State<ProfileWorkspaceScreen>
               ),
             if (chat.tool != null)
               ExpansionTile(
+                minTileHeight: 48,
+                shape: const Border(),
+                collapsedShape: const Border(),
                 leading: const Icon(Icons.terminal, size: 20),
                 title: Text(
                   'Using ${chat.tool!}',
                   maxLines: 1,
                   overflow: TextOverflow.ellipsis,
                 ),
-                subtitle: const Text('Tool activity'),
                 children: const [Text('Running on the connected Hermes host')],
               ),
             if (chat.error != null)
@@ -316,6 +331,13 @@ class _ProfileWorkspaceScreenState extends State<ProfileWorkspaceScreen>
               border: Border.all(
                 color: Theme.of(context).colorScheme.outlineVariant,
               ),
+              boxShadow: [
+                BoxShadow(
+                  color: Colors.black.withValues(alpha: 0.06),
+                  blurRadius: 20,
+                  offset: const Offset(0, 6),
+                ),
+              ],
             ),
             child: Padding(
               padding: const EdgeInsets.all(6),
@@ -396,6 +418,11 @@ class _ProfileWorkspaceScreenState extends State<ProfileWorkspaceScreen>
                       ),
                       const Spacer(),
                       IconButton.filled(
+                        style: IconButton.styleFrom(
+                          shape: RoundedRectangleBorder(
+                            borderRadius: BorderRadius.circular(14),
+                          ),
+                        ),
                         tooltip: chat.busy ? 'Stop' : 'Send',
                         icon: Icon(chat.busy ? Icons.stop : Icons.arrow_upward),
                         onPressed:
@@ -420,6 +447,65 @@ class _ProfileWorkspaceScreenState extends State<ProfileWorkspaceScreen>
       ),
     ],
   );
+
+  Future<void> _chooseAccent(BuildContext context) async {
+    final choice = await showDialog<WorkspaceAccent>(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: const Text('Accent color'),
+        content: SizedBox(
+          width: 300,
+          child: SingleChildScrollView(
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                const Text(
+                  'Personalize this device. Status colors stay consistent.',
+                ),
+                const SizedBox(height: 20),
+                Wrap(
+                  spacing: 8,
+                  runSpacing: 8,
+                  children: [
+                    for (final accent in WorkspaceAccent.values)
+                      ChoiceChip(
+                        key: ValueKey('accent-${accent.name}'),
+                        label: Text(accent.label),
+                        selected: _accent == accent,
+                        avatar: CircleAvatar(
+                          backgroundColor:
+                              Theme.of(context).brightness == Brightness.dark
+                              ? accent.dark
+                              : accent.light,
+                          radius: 9,
+                        ),
+                        onSelected: (_) => Navigator.pop(context, accent),
+                      ),
+                  ],
+                ),
+              ],
+            ),
+          ),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(context),
+            child: const Text('Cancel'),
+          ),
+        ],
+      ),
+    );
+    if (choice == null || !mounted) return;
+    await _run(() async {
+      final saved = await controller.preferences.setString(
+        WorkspaceAccent.preferenceKey,
+        choice.name,
+      );
+      if (!saved) throw StateError('Could not save accent color');
+      if (mounted) setState(() => _accent = choice);
+    });
+  }
 
   String _status(ProfileChat chat) => switch (chat.status) {
     ProfileTurnStatus.idle => 'Ready',

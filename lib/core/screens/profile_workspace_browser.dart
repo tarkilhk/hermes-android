@@ -5,6 +5,7 @@ import 'package:flutter/material.dart';
 import '../services/profile_workspace_controller.dart';
 import '../services/profile_gateway.dart';
 import '../theme/hermes_theme.dart';
+import '../theme/profile_workspace_theme.dart';
 import '../widgets/profile_chat_indicator.dart';
 import 'profile_row_actions.dart';
 
@@ -14,11 +15,13 @@ class ProfileWorkspaceBrowser extends StatefulWidget {
   final ProfileWorkspaceController controller;
   final Future<void> Function() newProject;
   final Future<void> Function()? enableNotifications;
+  final Future<void> Function()? appearance;
   const ProfileWorkspaceBrowser({
     super.key,
     required this.controller,
     required this.newProject,
     this.enableNotifications,
+    this.appearance,
   });
   @override
   State<ProfileWorkspaceBrowser> createState() =>
@@ -148,10 +151,10 @@ class _ProfileWorkspaceBrowserState extends State<ProfileWorkspaceBrowser> {
           child: Text(
             title,
             style: TextStyle(
-              fontSize: 13,
+              fontSize: 12,
               fontWeight: FontWeight.w700,
-              letterSpacing: 0.4,
-              color: Theme.of(context).colorScheme.primary,
+              letterSpacing: 1.0,
+              color: Theme.of(context).colorScheme.onSurfaceVariant,
             ),
           ),
         ),
@@ -160,100 +163,149 @@ class _ProfileWorkspaceBrowserState extends State<ProfileWorkspaceBrowser> {
     ),
   );
 
-  Widget _project(Map<String, dynamic> project) => ListTile(
-    key: ValueKey('project-${project['id']}'),
-    contentPadding: const EdgeInsets.symmetric(horizontal: 20),
-    minTileHeight: 52,
-    leading: Container(
-      width: 36,
-      height: 36,
-      decoration: BoxDecoration(
-        color: Theme.of(
-          context,
-        ).colorScheme.primaryContainer.withValues(alpha: 0.55),
-        borderRadius: BorderRadius.circular(11),
-      ),
-      child: Icon(
-        Icons.folder_outlined,
-        size: 22,
-        color: Theme.of(context).colorScheme.primary,
+  Widget _project(Map<String, dynamic> project) => Builder(
+    builder: (rowContext) => Padding(
+      padding: const EdgeInsets.fromLTRB(16, 0, 16, 6),
+      child: Material(
+        color: Theme.of(context).colorScheme.surfaceContainerLow,
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+        clipBehavior: Clip.antiAlias,
+        child: ListTile(
+          key: ValueKey('project-${project['id']}'),
+          contentPadding: const EdgeInsets.only(left: 14, right: 2),
+          minTileHeight: 56,
+          leading: Container(
+            width: 36,
+            height: 36,
+            decoration: BoxDecoration(
+              color: projectAccent(
+                context,
+                project['id'] as String,
+              ).withValues(alpha: 0.13),
+              borderRadius: BorderRadius.circular(10),
+            ),
+            child: Icon(
+              Icons.folder_outlined,
+              size: 22,
+              color: projectAccent(context, project['id'] as String),
+            ),
+          ),
+          minLeadingWidth: 22,
+          title: Text(
+            project['name'] as String,
+            maxLines: 1,
+            overflow: TextOverflow.ellipsis,
+            style: const TextStyle(fontSize: 15, fontWeight: FontWeight.w500),
+          ),
+          onTap: controller.switching
+              ? null
+              : () {
+                  _searchDebounce?.cancel();
+                  _search.clear();
+                  setState(() {
+                    _query = '';
+                    _view = 'home';
+                  });
+                  unawaited(_run(() => controller.selectProject(project)));
+                },
+          onLongPress: controller.switching
+              ? null
+              : () => _run(
+                  () => showProjectActions(rowContext, controller, project),
+                ),
+          trailing: IconButton(
+            tooltip: 'Project actions',
+            icon: const Icon(Icons.more_horiz, size: 20),
+            onPressed: controller.switching
+                ? null
+                : () => _run(
+                    () => showProjectActions(rowContext, controller, project),
+                  ),
+          ),
+        ),
       ),
     ),
-    minLeadingWidth: 22,
-    title: Text(
-      project['name'] as String,
-      maxLines: 1,
-      overflow: TextOverflow.ellipsis,
-      style: const TextStyle(fontSize: 16),
-    ),
-    onTap: controller.switching
-        ? null
-        : () {
-            _searchDebounce?.cancel();
-            _search.clear();
-            setState(() {
-              _query = '';
-              _view = 'home';
-            });
-            unawaited(_run(() => controller.selectProject(project)));
-          },
-    onLongPress: controller.switching
-        ? null
-        : () => _run(() => showProjectActions(context, controller, project)),
   );
 
   Widget _session(Map<String, dynamic> row) {
     final resource = controller.current!;
     final local = resource.chats[row['id']];
     final title = row['title']?.toString().trim();
-    return ListTile(
-      key: ValueKey('chat-${row['id']}'),
-      contentPadding: const EdgeInsets.symmetric(horizontal: 20),
-      minTileHeight: 52,
-      onLongPress:
-          controller.switching || resource.mutatingSessions.contains(row['id'])
-          ? null
-          : () => _run(() => showChatActions(context, controller, row)),
-      title: Text(
-        title?.isNotEmpty == true ? title! : 'Untitled chat',
-        maxLines: 1,
-        overflow: TextOverflow.ellipsis,
-        style: TextStyle(
-          fontSize: 16,
-          fontWeight: row['unread'] == true ? FontWeight.w600 : FontWeight.w400,
-        ),
-      ),
-      subtitle: row['snippet'] != null || row['archived'] == true
-          ? Text(
-              [
-                if (row['archived'] == true) 'Archived',
-                if (row['snippet'] != null) row['snippet'].toString(),
-              ].join(' · '),
+    return Builder(
+      builder: (rowContext) => Padding(
+        padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 2),
+        child: Material(
+          color: row['pinned'] == true
+              ? Theme.of(context).colorScheme.surfaceContainerLow
+              : Colors.transparent,
+          borderRadius: BorderRadius.circular(16),
+          clipBehavior: Clip.antiAlias,
+          child: ListTile(
+            key: ValueKey('chat-${row['id']}'),
+            contentPadding: const EdgeInsets.only(left: 14, right: 0),
+            minTileHeight: 60,
+            onLongPress:
+                controller.switching ||
+                    resource.mutatingSessions.contains(row['id'])
+                ? null
+                : () =>
+                      _run(() => showChatActions(rowContext, controller, row)),
+            title: Text(
+              title?.isNotEmpty == true ? title! : 'Untitled chat',
               maxLines: 2,
               overflow: TextOverflow.ellipsis,
-            )
-          : null,
-      trailing: Row(
-        mainAxisSize: MainAxisSize.min,
-        children: [
-          ProfileChatIndicator(chat: local, row: row),
-          const SizedBox(width: 8),
-          Text(
-            _age(row),
-            style: TextStyle(
-              fontSize: 13,
-              color: Theme.of(context).colorScheme.onSurfaceVariant,
-            ),
-          ),
-        ],
-      ),
-      onTap: controller.switching
-          ? null
-          : () => _run(
-              () => controller.openSession(
-                ProfileSessionKey(resource.scope, row['id'] as String),
+              style: TextStyle(
+                fontSize: 15,
+                fontWeight: row['unread'] == true
+                    ? FontWeight.w600
+                    : FontWeight.w400,
               ),
             ),
+            subtitle: row['snippet'] != null || row['archived'] == true
+                ? Text(
+                    [
+                      if (row['archived'] == true) 'Archived',
+                      if (row['snippet'] != null) row['snippet'].toString(),
+                    ].join(' · '),
+                    maxLines: 2,
+                    overflow: TextOverflow.ellipsis,
+                  )
+                : null,
+            trailing: Row(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                ProfileChatIndicator(chat: local, row: row),
+                const SizedBox(width: 6),
+                Text(
+                  _age(row),
+                  style: TextStyle(
+                    fontSize: 11,
+                    color: Theme.of(context).colorScheme.onSurfaceVariant,
+                  ),
+                ),
+                IconButton(
+                  tooltip: 'Chat actions',
+                  icon: const Icon(Icons.more_horiz, size: 18),
+                  onPressed:
+                      controller.switching ||
+                          resource.mutatingSessions.contains(row['id'])
+                      ? null
+                      : () => _run(
+                          () => showChatActions(rowContext, controller, row),
+                        ),
+                ),
+              ],
+            ),
+            onTap: controller.switching
+                ? null
+                : () => _run(
+                    () => controller.openSession(
+                      ProfileSessionKey(resource.scope, row['id'] as String),
+                    ),
+                  ),
+          ),
+        ),
+      ),
     );
   }
 
@@ -263,6 +315,109 @@ class _ProfileWorkspaceBrowserState extends State<ProfileWorkspaceBrowser> {
       text,
       style: TextStyle(color: Theme.of(context).colorScheme.onSurfaceVariant),
     ),
+  );
+
+  void _openProject(Map<String, dynamic> project) {
+    _searchDebounce?.cancel();
+    _search.clear();
+    setState(() {
+      _query = '';
+      _view = 'home';
+    });
+    unawaited(_run(() => controller.selectProject(project)));
+  }
+
+  Widget _projectOverview(List<Map<String, dynamic>> projects) => LayoutBuilder(
+    builder: (context, constraints) {
+      if (constraints.maxWidth < 350 ||
+          MediaQuery.textScalerOf(context).scale(14) > 20) {
+        return Column(children: projects.map(_project).toList());
+      }
+      return Column(
+        children: [
+          _project(projects.first),
+          for (var index = 1; index < projects.length; index += 2)
+            Padding(
+              padding: const EdgeInsets.fromLTRB(16, 0, 16, 8),
+              child: Row(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Expanded(child: _projectTile(projects[index])),
+                  const SizedBox(width: 8),
+                  Expanded(
+                    child: index + 1 < projects.length
+                        ? _projectTile(projects[index + 1])
+                        : const SizedBox.shrink(),
+                  ),
+                ],
+              ),
+            ),
+        ],
+      );
+    },
+  );
+
+  Widget _projectTile(Map<String, dynamic> project) => Builder(
+    builder: (context) {
+      final accent = projectAccent(context, project['id'] as String);
+      return Material(
+        color: Color.alphaBlend(
+          accent.withValues(alpha: 0.09),
+          Theme.of(context).colorScheme.surfaceContainerLow,
+        ),
+        borderRadius: BorderRadius.circular(18),
+        clipBehavior: Clip.antiAlias,
+        child: InkWell(
+          key: ValueKey('project-${project['id']}'),
+          onTap: controller.switching ? null : () => _openProject(project),
+          onLongPress: controller.switching
+              ? null
+              : () => _run(
+                  () => showProjectActions(context, controller, project),
+                ),
+          child: Padding(
+            padding: const EdgeInsets.fromLTRB(14, 0, 2, 12),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Row(
+                  children: [
+                    Icon(Icons.folder_outlined, size: 20, color: accent),
+                    const Spacer(),
+                    IconButton(
+                      tooltip: 'Project actions',
+                      icon: const Icon(Icons.more_horiz, size: 18),
+                      onPressed: controller.switching
+                          ? null
+                          : () => _run(
+                              () => showProjectActions(
+                                context,
+                                controller,
+                                project,
+                              ),
+                            ),
+                    ),
+                  ],
+                ),
+                Padding(
+                  padding: const EdgeInsets.only(right: 12),
+                  child: Text(
+                    project['name'] as String,
+                    maxLines: 2,
+                    overflow: TextOverflow.ellipsis,
+                    style: const TextStyle(
+                      fontSize: 14,
+                      height: 1.2,
+                      fontWeight: FontWeight.w600,
+                    ),
+                  ),
+                ),
+              ],
+            ),
+          ),
+        ),
+      );
+    },
   );
 
   List<Widget> _tree() {
@@ -387,7 +542,7 @@ class _ProfileWorkspaceBrowserState extends State<ProfileWorkspaceBrowser> {
         else if (resource.projects.isEmpty)
           _empty('No projects in this profile')
         else
-          ...resource.projects.take(5).map(_project),
+          _projectOverview(resource.projects.take(5).toList()),
       ],
       if (project != null && resource.projectSessionsLoading)
         const LinearProgressIndicator(),
@@ -459,7 +614,6 @@ class _ProfileWorkspaceBrowserState extends State<ProfileWorkspaceBrowser> {
     }
     final colors = Theme.of(context).colorScheme;
     final background = HermesTokens.of(context).surface;
-    final foreground = colors.onSurface;
     return PopScope(
       canPop:
           project == null && _view == 'home' && resource?.archivedOnly != true,
@@ -469,12 +623,13 @@ class _ProfileWorkspaceBrowserState extends State<ProfileWorkspaceBrowser> {
       child: Scaffold(
         backgroundColor: background,
         appBar: AppBar(
-          centerTitle: project == null,
+          centerTitle: false,
+          toolbarHeight: 80,
           backgroundColor: background,
           surfaceTintColor: Colors.transparent,
           leading: IconButton(
             tooltip: project == null ? 'Back' : 'Back to workspace',
-            icon: const Icon(Icons.arrow_back),
+            icon: const Icon(Icons.arrow_back_rounded, size: 22),
             onPressed: _back,
           ),
           title: Column(
@@ -490,12 +645,15 @@ class _ProfileWorkspaceBrowserState extends State<ProfileWorkspaceBrowser> {
                         ? 'Activity'
                         : 'Hermes'),
                 style: const TextStyle(
-                  fontWeight: FontWeight.w600,
-                  fontSize: 21,
+                  fontWeight: FontWeight.w700,
+                  fontSize: 28,
+                  letterSpacing: -1.0,
                 ),
               ),
               Text(
                 '${controller.connection.label}${project == null ? '' : ' · ${resource!.scope.profileName}'}',
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
                 style: TextStyle(
                   fontSize: 12,
                   color: Theme.of(context).colorScheme.onSurfaceVariant,
@@ -510,6 +668,7 @@ class _ProfileWorkspaceBrowserState extends State<ProfileWorkspaceBrowser> {
               onSelected: (value) {
                 if (value == 'refresh') unawaited(_run(controller.refresh));
                 if (value == 'new-project') unawaited(_run(widget.newProject));
+                if (value == 'appearance') unawaited(_run(widget.appearance!));
                 if (value == 'notifications') {
                   unawaited(_run(widget.enableNotifications!));
                 }
@@ -529,6 +688,11 @@ class _ProfileWorkspaceBrowserState extends State<ProfileWorkspaceBrowser> {
               },
               itemBuilder: (_) => [
                 const PopupMenuItem(value: 'refresh', child: Text('Refresh')),
+                if (widget.appearance != null)
+                  const PopupMenuItem(
+                    value: 'appearance',
+                    child: Text('Accent color'),
+                  ),
                 const PopupMenuItem(
                   value: 'new-project',
                   child: Text('New project'),
@@ -550,40 +714,45 @@ class _ProfileWorkspaceBrowserState extends State<ProfileWorkspaceBrowser> {
         body: Column(
           children: [
             SizedBox(
-              height: 54,
+              height: 52 + (MediaQuery.textScalerOf(context).scale(14) - 14),
               child: ListView(
                 scrollDirection: Axis.horizontal,
                 padding: const EdgeInsets.symmetric(
                   horizontal: 16,
-                  vertical: 8,
+                  vertical: 2,
                 ),
                 children: [
                   for (final profile in controller.discovery?.profiles ?? [])
                     Padding(
                       padding: const EdgeInsets.only(right: 8),
-                      child: ChoiceChip(
+                      child: TextButton(
                         key: ValueKey('profile-${profile.name}'),
-                        label: Text(profile.label),
-                        selected: resource?.scope.profileName == profile.name,
-                        showCheckmark: false,
-                        selectedColor: colors.primaryContainer,
-                        backgroundColor: colors.surfaceContainerLow,
-                        avatar: Icon(
-                          Icons.circle,
-                          size: 8,
-                          color: resource?.scope.profileName == profile.name
+                        style: TextButton.styleFrom(
+                          minimumSize: const Size(48, 48),
+                          padding: const EdgeInsets.symmetric(horizontal: 16),
+                          foregroundColor:
+                              resource?.scope.profileName == profile.name
                               ? colors.primary
-                              : colors.outline,
+                              : colors.onSurfaceVariant,
+                          backgroundColor:
+                              resource?.scope.profileName == profile.name
+                              ? colors.primaryContainer
+                              : Colors.transparent,
+                          shape: RoundedRectangleBorder(
+                            borderRadius: BorderRadius.circular(14),
+                          ),
                         ),
-                        labelStyle: TextStyle(
-                          color: resource?.scope.profileName == profile.name
-                              ? colors.onPrimaryContainer
-                              : foreground,
-                          fontWeight: FontWeight.w600,
+                        child: Semantics(
+                          selected: resource?.scope.profileName == profile.name,
+                          child: Text(
+                            profile.label,
+                            style: const TextStyle(
+                              fontWeight: FontWeight.w600,
+                              fontSize: 14,
+                            ),
+                          ),
                         ),
-                        shape: const StadiumBorder(side: BorderSide.none),
-                        side: BorderSide.none,
-                        onSelected: (_) {
+                        onPressed: () {
                           _searchDebounce?.cancel();
                           _search.clear();
                           setState(() {
@@ -645,57 +814,76 @@ class _ProfileWorkspaceBrowserState extends State<ProfileWorkspaceBrowser> {
                 top: false,
                 child: Padding(
                   padding: const EdgeInsets.fromLTRB(16, 8, 16, 12),
-                  child: Row(
-                    children: [
-                      Expanded(
-                        child: TextField(
-                          controller: _search,
-                          onChanged: _setQuery,
-                          decoration: InputDecoration(
-                            hintText: _view == 'projects'
-                                ? 'Search projects'
-                                : 'Search chats',
-                            prefixIcon: const Icon(Icons.search),
-                            filled: true,
-                            fillColor: colors.surfaceContainerLow,
-                            border: OutlineInputBorder(
-                              borderRadius: BorderRadius.circular(32),
-                              borderSide: BorderSide.none,
-                            ),
-                            enabledBorder: OutlineInputBorder(
-                              borderRadius: BorderRadius.circular(32),
-                              borderSide: BorderSide.none,
-                            ),
-                            contentPadding: const EdgeInsets.symmetric(
-                              vertical: 14,
+                  child: DecoratedBox(
+                    decoration: BoxDecoration(
+                      color: colors.surfaceContainerLow,
+                      borderRadius: BorderRadius.circular(24),
+                      border: Border.all(color: colors.outlineVariant),
+                      boxShadow: [
+                        BoxShadow(
+                          color: Colors.black.withValues(alpha: 0.08),
+                          blurRadius: 24,
+                          offset: const Offset(0, 8),
+                        ),
+                      ],
+                    ),
+                    child: Padding(
+                      padding: const EdgeInsets.all(6),
+                      child: Row(
+                        children: [
+                          Expanded(
+                            child: TextField(
+                              controller: _search,
+                              onChanged: _setQuery,
+                              decoration: InputDecoration(
+                                hintText: _view == 'projects'
+                                    ? 'Search projects'
+                                    : 'Search chats',
+                                prefixIcon: const Icon(Icons.search),
+                                filled: true,
+                                fillColor: Colors.transparent,
+                                border: OutlineInputBorder(
+                                  borderRadius: BorderRadius.circular(18),
+                                  borderSide: BorderSide.none,
+                                ),
+                                enabledBorder: OutlineInputBorder(
+                                  borderRadius: BorderRadius.circular(18),
+                                  borderSide: BorderSide.none,
+                                ),
+                                contentPadding: const EdgeInsets.symmetric(
+                                  vertical: 14,
+                                ),
+                              ),
                             ),
                           ),
-                        ),
-                      ),
-                      const SizedBox(width: 10),
-                      FilledButton.icon(
-                        style: FilledButton.styleFrom(
-                          padding: const EdgeInsets.symmetric(
-                            horizontal: 20,
-                            vertical: 15,
+                          const SizedBox(width: 10),
+                          FilledButton.icon(
+                            style: FilledButton.styleFrom(
+                              padding: const EdgeInsets.symmetric(
+                                horizontal: 14,
+                                vertical: 15,
+                              ),
+                              shape: RoundedRectangleBorder(
+                                borderRadius: BorderRadius.circular(18),
+                              ),
+                            ),
+                            onPressed: controller.switching || resource == null
+                                ? null
+                                : () => _run(() async {
+                                    if (_view == 'projects') {
+                                      await widget.newProject();
+                                    } else {
+                                      await controller.createChat();
+                                    }
+                                  }),
+                            icon: const Icon(Icons.add_rounded, size: 22),
+                            label: Text(
+                              _view == 'projects' ? 'Project' : 'New chat',
+                            ),
                           ),
-                          shape: const StadiumBorder(),
-                        ),
-                        onPressed: controller.switching || resource == null
-                            ? null
-                            : () => _run(() async {
-                                if (_view == 'projects') {
-                                  await widget.newProject();
-                                } else {
-                                  await controller.createChat();
-                                }
-                              }),
-                        icon: const Icon(Icons.edit_square, size: 21),
-                        label: Text(
-                          _view == 'projects' ? 'Project' : 'New chat',
-                        ),
+                        ],
                       ),
-                    ],
+                    ),
                   ),
                 ),
               ),

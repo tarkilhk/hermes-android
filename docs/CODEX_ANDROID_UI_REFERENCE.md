@@ -117,3 +117,27 @@ Unread rows have a dot. REST `is_active` means recent activity, not proof of an
 active turn. The stock `session.active_list` response has no profile ownership,
 so Android does not use it to assign precise states to unopened chats. Its
 potentially duplicate durable IDs cannot safely identify those owners.
+
+## Research-led workspace and conversation redesign, 2026-09-06
+
+The owner rejected the preceding menu treatment and requested a more distinctive
+design, conversation improvements, and a selectable accent. The implementation
+now supersedes the warm-gold/full-width-sheet description above. Research and
+its limitations are recorded in [Mobile AI design research](MOBILE_AI_DESIGN_RESEARCH.md).
+
+Management actions use compact, row-attached Flutter popup menus with a visible
+overflow alternative to long-press. Commands and production behavior are unchanged.
+The workspace has an ink-blue dark theme, a cool light theme, stronger typography,
+decorative project tiles and a unified search/compose dock. The five projects
+retain their order, with a vertical-list fallback for narrow or large-text layouts.
+
+Mint, Iris, Glacier, Coral and Gold accents are device-local preferences, available
+through workspace options or the conversation palette button. They do not alter
+semantic activity colors. Consecutive tool results share a collapsed disclosure;
+assistant prose, approvals and clarification requests remain outside that group.
+Expanded results stay selectable plain text. User bubbles use the selected accent.
+
+Light/dark authored conversations and menus were inspected on the emulator. The
+normal workspace and a safely dismissed chat menu were inspected on the owner's
+Samsung phone. This is a proposed visual direction, not a measured usability
+improvement or pixel copy of a current Codex conversation.

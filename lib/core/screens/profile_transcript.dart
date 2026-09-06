@@ -1,6 +1,7 @@
 import 'dart:async';
 import 'package:flutter/material.dart';
 import '../services/profile_workspace_controller.dart';
+import '../widgets/profile_tool_activity.dart';
 
 /// Reversed layout opens at the newest row. Older pages grow at the far end;
 /// a visible durable row anchors the viewport when streaming changes the tail.
@@ -89,8 +90,8 @@ class _ProfileTranscriptState extends State<ProfileTranscript> {
   Widget build(BuildContext context) {
     final chat = widget.chat;
     final tail = widget.tail.reversed.toList();
-    final rows = chat.messages.reversed.toList();
-    final activeIds = rows
+    final rows = groupTranscriptRows(chat.messages).reversed.toList();
+    final activeIds = chat.messages
         .where((r) => r['id'] != null)
         .map((r) => r['id'])
         .toSet();
@@ -128,12 +129,15 @@ class _ProfileTranscriptState extends State<ProfileTranscript> {
               if (index < tail.length) return tail[index];
               final rowIndex = index - tail.length;
               if (rowIndex < rows.length) {
-                final row = rows[rowIndex];
+                final group = rows[rowIndex];
+                final row = group.last;
                 return KeyedSubtree(
                   key: row['id'] == null
                       ? null
                       : _rows.putIfAbsent(row['id'], () => GlobalKey()),
-                  child: widget.messageBuilder(row),
+                  child: row['role'] == 'tool'
+                      ? ProfileToolActivity(messages: group)
+                      : widget.messageBuilder(row),
                 );
               }
               if (chat.historyLoading) {

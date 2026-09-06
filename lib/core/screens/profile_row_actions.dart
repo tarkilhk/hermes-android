@@ -7,45 +7,99 @@ Future<String?> _choose(
   String title,
   String scope,
   List<(String, String, IconData, bool)> actions,
-) => showModalBottomSheet<String>(
-  context: context,
-  showDragHandle: true,
-  isScrollControlled: true,
-  useSafeArea: true,
-  builder: (context) => SafeArea(
-    child: SingleChildScrollView(
-      child: Column(
-        mainAxisSize: MainAxisSize.min,
-        children: [
-          ListTile(
-            title: Text(title, maxLines: 2, overflow: TextOverflow.ellipsis),
-            subtitle: Text(scope),
-          ),
-          const Divider(),
-          for (final (id, label, icon, enabled) in actions)
-            ListTile(
-              enabled: enabled,
-              leading: Icon(
-                icon,
-                color: id == 'delete'
-                    ? Theme.of(context).colorScheme.error
-                    : null,
-              ),
-              title: Text(
-                label,
+) {
+  final theme = Theme.of(context);
+  final overlay =
+      Navigator.of(context).overlay!.context.findRenderObject()! as RenderBox;
+  final box = context.findRenderObject()! as RenderBox;
+  final rect = box.localToGlobal(Offset.zero, ancestor: overlay) & box.size;
+  HapticFeedback.selectionClick();
+  return showMenu<String>(
+    context: context,
+    semanticLabel: 'Actions for $title in $scope',
+    requestFocus: true,
+    position: RelativeRect.fromRect(
+      rect.deflate(12),
+      Offset.zero & overlay.size,
+    ),
+    constraints: const BoxConstraints(minWidth: 260, maxWidth: 300),
+    elevation: 12,
+    shadowColor: Colors.black45,
+    menuPadding: const EdgeInsets.symmetric(vertical: 8),
+    popUpAnimationStyle: MediaQuery.disableAnimationsOf(context)
+        ? AnimationStyle.noAnimation
+        : const AnimationStyle(duration: Duration(milliseconds: 160)),
+    items: [
+      PopupMenuItem<String>(
+        enabled: false,
+        child: Padding(
+          padding: const EdgeInsets.only(top: 4, bottom: 8),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Text(
+                title,
+                maxLines: 2,
+                overflow: TextOverflow.ellipsis,
                 style: TextStyle(
-                  color: id == 'delete'
-                      ? Theme.of(context).colorScheme.error
-                      : null,
+                  fontSize: 14,
+                  fontWeight: FontWeight.w600,
+                  color: theme.colorScheme.onSurface,
                 ),
               ),
-              onTap: () => Navigator.pop(context, id),
-            ),
-        ],
+              const SizedBox(height: 6),
+              Text(
+                scope,
+                style: TextStyle(
+                  fontSize: 12,
+                  color: theme.colorScheme.onSurfaceVariant,
+                ),
+              ),
+            ],
+          ),
+        ),
       ),
-    ),
-  ),
-);
+      const PopupMenuDivider(height: 9),
+      for (final (id, label, icon, enabled) in actions) ...[
+        if (id == 'archive' || id == 'delete')
+          const PopupMenuDivider(height: 9),
+        PopupMenuItem<String>(
+          key: ValueKey('action-$id'),
+          value: id,
+          enabled: enabled,
+          height: 48,
+          child: Row(
+            children: [
+              Icon(
+                icon,
+                size: 19,
+                color: !enabled
+                    ? theme.disabledColor
+                    : id == 'delete'
+                    ? theme.colorScheme.error
+                    : theme.colorScheme.onSurfaceVariant,
+              ),
+              const SizedBox(width: 14),
+              Expanded(
+                child: Text(
+                  label,
+                  style: TextStyle(
+                    fontSize: 14,
+                    color: !enabled
+                        ? theme.disabledColor
+                        : id == 'delete'
+                        ? theme.colorScheme.error
+                        : theme.colorScheme.onSurface,
+                  ),
+                ),
+              ),
+            ],
+          ),
+        ),
+      ],
+    ],
+  );
+}
 
 Future<void> showProjectActions(
   BuildContext context,

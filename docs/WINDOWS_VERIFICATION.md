@@ -397,3 +397,39 @@ current connection endpoint; do not store temporary pairing codes in the repo.
 The normal `lib/main.dart` APK was installed with `adb install -r` and launched
 on both the emulator and this phone. Saved app data was preserved. Neither
 device was left running a preview or integration-test APK.
+
+## Research-led design pass, 2026-09-06
+
+The profile workspace now uses compact contextual menus, a workspace-scoped
+light/dark palette, a featured project plus four ordered tiles, quieter chat
+rows and a unified search/compose dock. Narrow or large-text layouts retain a
+vertical project list. Five selectable accents persist locally. Consecutive tool
+results share one collapsed group; prose, approvals, questions and Stop remain
+available. No backend/protocol changes or compatibility behavior were added.
+
+Six new design tests cover all accent foreground/background contrast pairs in
+both themes, menu bounds/48 dp targets and safe dismissal, accent persistence,
+2x text, tool grouping chronology/anchor identity and disclosure content. Existing
+spinner tests now use bounded pumps while work is running. Full suite: 1,050
+passed, two opt-in live tests skipped. Flutter analysis found no issues. This
+does not claim a new live gateway mutation test or TalkBack certification.
+
+The authored emulator preview was inspected in light and dark mode, including
+the compact chat menu, collapsed/expanded tool results, Markdown/code controls,
+composer and accent picker. The normal build was installed on the owner's
+Samsung SM-S918B with data preserved. Its dark workspace and chat menu were
+visually checked; Back dismissed the menu without selecting any command. No
+production chats were opened, modified or prompted during this design check.
+
+Ignored evidence includes `build/design-full-tests-final.log`,
+`build/design-analyze-final.log`, `build/design-normal-apk.log`,
+`build/hermes-design-root.png`, `build/hermes-design-menu.png`,
+`build/hermes-design-chat.png`, `build/hermes-design-dark.png`,
+`build/hermes-design-accent.png`, `build/hermes-design-phone.png` and
+`build/hermes-design-phone-menu.png`. Phone captures contain private titles and
+must not be committed. The research report and implementation plan are in docs.
+
+After the preview checks, the normal `lib/main.dart` APK was restored on the
+emulator with `adb install -r` and launched successfully. Emulator night mode
+was returned to its earlier light setting. Both devices retain their saved app
+data; neither is left running an authored preview or integration-test APK.

@@ -4,6 +4,7 @@ import 'package:flutter_markdown/flutter_markdown.dart';
 import 'package:url_launcher/url_launcher.dart';
 
 import 'markdown_code_block.dart';
+import 'profile_tool_activity.dart';
 
 /// Remote content is display-only. Links require a tap, and images never fetch
 /// automatically or resolve a remote host path against the phone's filesystem.
@@ -58,29 +59,7 @@ class ProfileMessage extends StatelessWidget {
         .toString();
     if (content.isEmpty) return const SizedBox.shrink();
     if (role == 'tool') {
-      return Padding(
-        padding: const EdgeInsets.only(bottom: 8),
-        child: ExpansionTile(
-          key: ValueKey('tool-${message['id']}'),
-          leading: const Icon(Icons.terminal, size: 20),
-          title: Text(
-            message['tool_name']?.toString() ?? 'Tool result',
-            maxLines: 1,
-            overflow: TextOverflow.ellipsis,
-          ),
-          subtitle: const Text('Tap to inspect output'),
-          childrenPadding: const EdgeInsets.fromLTRB(16, 0, 16, 16),
-          expandedCrossAxisAlignment: CrossAxisAlignment.stretch,
-          children: [
-            SelectableText(
-              content,
-              style: theme.textTheme.bodySmall?.copyWith(
-                fontFamily: 'monospace',
-              ),
-            ),
-          ],
-        ),
-      );
+      return ProfileToolActivity(messages: [message]);
     }
     final user = role == 'user';
     return Padding(
@@ -93,11 +72,35 @@ class ProfileMessage extends StatelessWidget {
           if (!user)
             Padding(
               padding: const EdgeInsets.only(bottom: 8),
-              child: Text(
-                role == 'assistant' ? 'Hermes' : 'System',
-                style: theme.textTheme.labelMedium?.copyWith(
-                  color: theme.colorScheme.onSurfaceVariant,
-                ),
+              child: Row(
+                children: [
+                  Container(
+                    width: 24,
+                    height: 24,
+                    alignment: Alignment.center,
+                    decoration: BoxDecoration(
+                      color: theme.colorScheme.primaryContainer,
+                      borderRadius: BorderRadius.circular(8),
+                    ),
+                    child: Text(
+                      role == 'assistant' ? 'H' : 'S',
+                      style: TextStyle(
+                        fontSize: 12,
+                        fontWeight: FontWeight.w800,
+                        color: theme.colorScheme.onPrimaryContainer,
+                      ),
+                    ),
+                  ),
+                  const SizedBox(width: 8),
+                  Text(
+                    role == 'assistant' ? 'Hermes' : 'System',
+                    style: theme.textTheme.labelMedium?.copyWith(
+                      letterSpacing: 0.6,
+                      fontWeight: FontWeight.w600,
+                      color: theme.colorScheme.onSurfaceVariant,
+                    ),
+                  ),
+                ],
               ),
             ),
           Container(
@@ -105,14 +108,22 @@ class ProfileMessage extends StatelessWidget {
             padding: user ? const EdgeInsets.all(14) : EdgeInsets.zero,
             decoration: user
                 ? BoxDecoration(
-                    color: theme.colorScheme.surfaceContainerHigh,
-                    borderRadius: BorderRadius.circular(20),
+                    color: theme.colorScheme.primaryContainer,
+                    borderRadius: const BorderRadius.only(
+                      topLeft: Radius.circular(20),
+                      topRight: Radius.circular(20),
+                      bottomLeft: Radius.circular(20),
+                      bottomRight: Radius.circular(6),
+                    ),
                   )
                 : null,
             child: user
                 ? SelectableText(
                     content,
-                    style: theme.textTheme.bodyLarge?.copyWith(height: 1.45),
+                    style: theme.textTheme.bodyLarge?.copyWith(
+                      height: 1.45,
+                      color: theme.colorScheme.onPrimaryContainer,
+                    ),
                   )
                 : Column(
                     crossAxisAlignment: CrossAxisAlignment.stretch,

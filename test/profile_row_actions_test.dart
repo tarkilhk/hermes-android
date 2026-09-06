@@ -51,6 +51,8 @@ void main() {
           )
           .first,
     );
+    await Scrollable.ensureVisible(tester.element(row), alignment: 0.45);
+    await tester.pumpAndSettle();
     await tester.longPress(row);
     await tester.pumpAndSettle();
   }
