@@ -27,8 +27,37 @@ These are design recommendations derived from the owner's references, not claims
 
 Hermes Desktop defines Hermes profile, session and execution semantics. Codex on Android supplies the requested mobile interaction reference. Keep Hermes identity and existing modern profile-aware server contracts; copying the OpenAI account/pairing system or connecting to Codex is outside this direction.
 
-## Visual evidence still needed
+## Owner-supplied Android screenshots, 2026-09-06
 
-The fetched official Remote page documents behavior and desktop connection controls; it did not provide a verified Android screen sequence suitable for measuring navigation, spacing, typography, composer placement or gestures. No pixel-level Android resemblance is claimed here. Before a faithful UI pass, inspect the owner's actual Android reference or a first-party Android demonstration and record the version and screens. iOS-only releases or desktop screenshots must not silently stand in for Android evidence.
+The owner supplied `Screenshot_20260906_164646_ChatGPT.jpg` and
+`Screenshot_20260906_164703_ChatGPT.jpg` and explicitly prioritized this UI pass
+before pagination. The screenshots remain local references and are not copied
+into the repository because they contain the owner's conversation titles.
 
-A useful visual comparison should cover the session list, active conversation, composer, approval request, output viewer and return from a notification. Until then, the table above is a behavioral brief rather than a finished visual specification.
+The first shows a compact selector above one vertically scrolling list, with
+Projects, Pinned chats, and Recents sections. Rows are flat, with generous touch
+targets, folder outlines for projects, single-line chat titles, and trailing
+relative timestamps. Search and new-chat controls stay at the bottom. The second
+shows a project title, host context, a back control, and only that project's chats.
+
+The owner's requested adaptation uses Hermes profiles in the top selector, the
+five most recently active projects, pinned chats without duplicate recent rows,
+and recent chats sorted by activity. Entering a project uses authoritative Hermes
+project membership. Switching profiles reloads the entire tree and returns to
+the new profile's root. The implementation retains Hermes branding and its gold
+accent; it does not copy OpenAI account, voice, or pairing controls.
+
+The profile workspace now implements that tree, a full-projects view reached by
+See all, and local search over loaded rows. Pagination and server-wide search
+are not implied by this UI. Activity, project creation, refresh, and notification
+enablement remain available in the workspace menu.
+
+## Visual evidence still needed for other screens
+
+The supplied screenshots establish the root and project navigation reference,
+but not the conversation, approval, or output-viewer design. No pixel-level
+equivalence is claimed. iOS-only releases or desktop screenshots must not silently
+stand in for the missing Android screens.
+
+A further visual comparison should cover the active conversation, composer,
+approval request, output viewer and return from a notification.

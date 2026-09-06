@@ -5,6 +5,7 @@ import 'package:flutter/material.dart';
 
 import '../services/profile_workspace_controller.dart';
 import '../services/android_share_intent_service.dart';
+import 'profile_workspace_browser.dart';
 
 /// Phone workspace: host/profile stays visible above sessions or a conversation.
 /// Network work and drafts belong to the application controller.
@@ -29,7 +30,6 @@ class _ProfileWorkspaceScreenState extends State<ProfileWorkspaceScreen>
   ProfileWorkspaceController get controller => widget.controller;
   final _composer = TextEditingController();
   ProfileSessionKey? _composerKey;
-  int _tab = 0;
 
   @override
   void initState() {
@@ -96,20 +96,26 @@ class _ProfileWorkspaceScreenState extends State<ProfileWorkspaceScreen>
           selection: TextSelection.collapsed(offset: chat?.draft.length ?? 0),
         );
       }
+      if (chat == null) {
+        return ProfileWorkspaceBrowser(
+          key: ValueKey(current?.scope),
+          controller: controller,
+          newProject: _projectDialog,
+          enableNotifications: widget.enableNotifications,
+        );
+      }
       return PopScope(
-        canPop: chat == null,
+        canPop: false,
         onPopInvokedWithResult: (didPop, _) {
           if (!didPop) controller.showList();
         },
         child: Scaffold(
           appBar: AppBar(
-            leading: chat == null
-                ? null
-                : IconButton(
-                    icon: const Icon(Icons.arrow_back),
-                    tooltip: 'Back to sessions',
-                    onPressed: controller.showList,
-                  ),
+            leading: IconButton(
+              icon: const Icon(Icons.arrow_back),
+              tooltip: 'Back to sessions',
+              onPressed: controller.showList,
+            ),
             title: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
@@ -120,18 +126,12 @@ class _ProfileWorkspaceScreenState extends State<ProfileWorkspaceScreen>
                 PopupMenuButton<String>(
                   tooltip: 'Switch profile',
                   onSelected: (name) =>
-                      unawaited(controller.switchProfile(name)),
+                      unawaited(controller.navigateProfile(name)),
                   itemBuilder: (_) => [
                     for (final profile in controller.discovery?.profiles ?? [])
                       PopupMenuItem(
                         value: profile.name,
-                        child: Row(
-                          children: [
-                            if (profile.name == current?.scope.profileName)
-                              const Icon(Icons.check, size: 18),
-                            Flexible(child: Text(profile.label)),
-                          ],
-                        ),
+                        child: Text(profile.label),
                       ),
                   ],
                   child: Row(
@@ -139,7 +139,7 @@ class _ProfileWorkspaceScreenState extends State<ProfileWorkspaceScreen>
                     children: [
                       Flexible(
                         child: Text(
-                          current?.scope.profileName ?? 'Loading profiles',
+                          current!.scope.profileName,
                           overflow: TextOverflow.ellipsis,
                         ),
                       ),
@@ -176,186 +176,13 @@ class _ProfileWorkspaceScreenState extends State<ProfileWorkspaceScreen>
                     ),
                   ],
                 ),
-              Expanded(
-                child: current == null
-                    ? Center(
-                        child: controller.error == null
-                            ? const CircularProgressIndicator()
-                            : const Text('Workspace unavailable'),
-                      )
-                    : chat != null
-                    ? _chat(chat)
-                    : _workspace(),
-              ),
+              Expanded(child: _chat(chat)),
             ],
           ),
-          bottomNavigationBar: chat != null
-              ? null
-              : NavigationBar(
-                  selectedIndex: _tab,
-                  onDestinationSelected: (value) =>
-                      setState(() => _tab = value),
-                  destinations: const [
-                    NavigationDestination(
-                      icon: Icon(Icons.chat_bubble_outline),
-                      label: 'Chats',
-                    ),
-                    NavigationDestination(
-                      icon: Icon(Icons.folder_outlined),
-                      label: 'Projects',
-                    ),
-                    NavigationDestination(
-                      icon: Icon(Icons.bolt_outlined),
-                      label: 'Activity',
-                    ),
-                  ],
-                ),
-          floatingActionButton: chat != null || current == null || _tab == 2
-              ? null
-              : FloatingActionButton.extended(
-                  onPressed: controller.switching
-                      ? null
-                      : () => _run(() async {
-                          if (_tab == 1) {
-                            await _projectDialog();
-                          } else {
-                            await controller.createChat();
-                          }
-                        }),
-                  icon: const Icon(Icons.add),
-                  label: Text(_tab == 1 ? 'New project' : 'New chat'),
-                ),
         ),
       );
     },
   );
-
-  Widget _workspace() {
-    final resource = controller.current!;
-    if (_tab == 2) {
-      final activity = controller.activity.toList();
-      if (activity.isEmpty) return const Center(child: Text('No active work'));
-      return ListView(
-        children: [
-          for (final chat in activity)
-            ListTile(
-              title: Text(
-                chat.title,
-                maxLines: 1,
-                overflow: TextOverflow.ellipsis,
-              ),
-              subtitle: Text(
-                '${chat.key.workspace.profileName} · ${chat.status.name}',
-              ),
-              trailing: chat.busy
-                  ? IconButton(
-                      icon: const Icon(Icons.stop_circle_outlined),
-                      tooltip: 'Stop this chat',
-                      onPressed: () => _run(() => controller.stop(chat)),
-                    )
-                  : null,
-              onTap: () => _run(() => controller.openSession(chat.key)),
-            ),
-        ],
-      );
-    }
-    if (_tab == 1) {
-      if (resource.projectsError != null) {
-        return Center(child: Text(resource.projectsError!));
-      }
-      if (resource.projects.isEmpty) {
-        return const Center(child: Text('No projects in this profile'));
-      }
-      return ListView(
-        padding: const EdgeInsets.only(bottom: 100),
-        children: [
-          for (final project in resource.projects)
-            ListTile(
-              leading: const Icon(Icons.folder_outlined),
-              title: Text(project['name']?.toString() ?? 'Project'),
-              subtitle: Text(
-                project['primary_path']?.toString() ?? '',
-                maxLines: 1,
-                overflow: TextOverflow.ellipsis,
-              ),
-              onTap: () {
-                unawaited(controller.selectProject(project));
-                setState(() => _tab = 0);
-              },
-            ),
-        ],
-      );
-    }
-    final rows = resource.visibleSessions;
-    final local = resource.chats.values.where(
-      (c) =>
-          (resource.selectedProject == null ||
-              c.projectId == resource.selectedProject!['id']) &&
-          !rows.any((r) => r['id'] == c.key.sessionId),
-    );
-    return ListView(
-      padding: const EdgeInsets.only(bottom: 100),
-      children: [
-        if (resource.selectedProject != null)
-          ListTile(
-            leading: const Icon(Icons.folder_open),
-            title: Text(resource.selectedProject!['name'].toString()),
-            subtitle: const Text('Project chats · new chats use this folder'),
-            trailing: IconButton(
-              icon: const Icon(Icons.close),
-              tooltip: 'Leave project',
-              onPressed: () => controller.selectProject(null),
-            ),
-          ),
-        if (resource.projectSessionsLoading) const LinearProgressIndicator(),
-        if (resource.selectedProject != null &&
-            resource.projectSessionsError != null)
-          ListTile(
-            title: Text(resource.projectSessionsError!),
-            trailing: TextButton(
-              onPressed: () => _run(
-                () => controller.selectProject(resource.selectedProject),
-              ),
-              child: const Text('Retry'),
-            ),
-          ),
-        if (rows.isEmpty &&
-            local.isEmpty &&
-            !resource.projectSessionsLoading &&
-            resource.projectSessionsError == null)
-          const Padding(
-            padding: EdgeInsets.all(40),
-            child: Center(child: Text('No chats here yet')),
-          ),
-        for (final chat in local)
-          ListTile(
-            title: Text(chat.title, maxLines: 2),
-            subtitle: Text(chat.status.name),
-            onTap: () => _run(() => controller.openSession(chat.key)),
-          ),
-        for (final row in rows)
-          ListTile(
-            leading: const Icon(Icons.chat_bubble_outline),
-            title: Text(
-              row['title']?.toString().isNotEmpty == true
-                  ? row['title'].toString()
-                  : 'Untitled chat',
-              maxLines: 2,
-            ),
-            subtitle: Text(
-              resource.chats[row['id']]?.status.name ??
-                  row['source']?.toString() ??
-                  '',
-            ),
-            onTap: () => _run(
-              () => controller.openSession(
-                ProfileSessionKey(resource.scope, row['id'] as String),
-              ),
-            ),
-          ),
-      ],
-    );
-  }
 
   Widget _chat(ProfileChat chat) => Column(
     children: [

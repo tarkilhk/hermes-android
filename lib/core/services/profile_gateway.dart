@@ -167,8 +167,25 @@ class ProfileGateway {
     return rows;
   }
 
-  Future<List<Map<String, dynamic>>> projects() async =>
-      records((await call('projects.list'))['projects']);
+  Future<List<Map<String, dynamic>>> projects() async {
+    final rows = records(
+      (await call('projects.tree', {'preview_limit': 0}))['projects'],
+    );
+    final projects = <Map<String, dynamic>>[];
+    for (final row in rows) {
+      if (row['isNoProject'] == true) continue;
+      if (row['id'] is! String ||
+          row['label'] is! String ||
+          row['lastActive'] is! num) {
+        throw const FormatException('Invalid project overview');
+      }
+      projects.add({...row, 'name': row['label'], 'primary_path': row['path']});
+    }
+    projects.sort(
+      (a, b) => (b['lastActive'] as num).compareTo(a['lastActive'] as num),
+    );
+    return projects;
+  }
 
   Future<List<Map<String, dynamic>>> projectSessions(String projectId) async {
     await requireProfile();

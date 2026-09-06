@@ -84,7 +84,8 @@ Restore the normal APK built with `-t lib/main.dart` afterward.
   replacement cannot restore those owners after process death. Restoring the exact
   original endpoint/auth settings makes their separate journals eligible again.
 - Add session/history pagination and richer transcript/attachment rendering.
-- Compare real Codex Remote Android screenshots before claiming visual fidelity.
+- Root/project navigation now uses the owner's Android screenshots. Conversation,
+  approval, and output-viewer visual references remain to be supplied.
 - Stock Hermes can resolve a profile deleted between discovery and an RPC to the
   launch context. Android revalidates profiles before writes, but cannot close
   that server-side race. No compatibility fallback or local server patch is used,
@@ -151,3 +152,47 @@ same APK again. The checkpoint is written before submission so relaunch cannot
 create another prompt. A completed run ID cannot start a new turn. Each new run
 ID with `RUN_MODEL=true` authorizes one real model turn; do not loop indefinitely.
 Always restore the normal APK built with `-t lib/main.dart` afterward.
+
+## Screenshot-driven navigation pass, 2026-09-06
+
+The owner moved UI work ahead of pagination and supplied the actual Codex Remote
+Android root/project screenshots. The navigation pass replaces the separate
+Chats/Projects tabs with one tree: profile chips, five recently active projects,
+pinned chats, and recent chats. See all opens the complete loaded project list.
+Project entry shows only the server's project-session membership. The bottom bar
+contains search over loaded rows and new chat; the menu retains Activity, new
+project, refresh, and notification enablement. No voice button is imitated.
+
+Project recency comes directly from the modern `projects.tree` overview's
+`lastActive`, not from local folder guesses. The synthetic Home bucket is not
+shown as a project. No `projects.list` fallback is used. Chats use `last_active`
+and pinned rows are not repeated in Recents. Profile navigation refreshes the
+tree and resets old project/chat navigation while keeping active work owned by
+the application controller.
+
+Verification:
+
+- Full unit/widget suite: 998 passed, one opt-in live test skipped.
+- Final Flutter analysis found no issues. The normal debug APK was rebuilt,
+  installed with notification permission preserved, and launched on the emulator.
+- Five new widget tests cover project ordering/top-five display, section order,
+  project-only membership, Back, search, profile switching during a pending load,
+  and truthful project-read errors.
+- The opt-in no-model host contract test passed using the new tree RPC against
+  the unchanged local Hermes server.
+- The no-model emulator acceptance test passed through the redesigned screen:
+  project membership, attachment preparation, profile switching, reconnect and
+  edited-connection isolation. Device result: `00:08 +2: All tests passed!`.
+- Populated home/project views were inspected on the Android emulator using an
+  explicitly labelled authored-data preview. The preview is a separate debug
+  target, never imported by the production app and never connected to Hermes.
+  Spacing was tightened after the initial captures.
+- No model prompts or backend patches were used for this UI pass. Pagination
+  remains deferred; search covers loaded chats, not the entire server archive.
+
+Evidence is in ignored `build/ui-full-tests.log`, `build/ui-live-contract.log`,
+`build/ui-emulator-result.log`, and `build/ui-final-focused.log`. Initial preview
+captures are `build/hermes-ui-home.png` and `build/hermes-ui-project.png`.
+The normal app with real local gateway data is captured in `build/hermes-ui-live.png`.
+The preview can be rebuilt with `-t integration_test/profile_workspace_preview.dart`;
+always reinstall the normal `lib/main.dart` APK after inspecting it.

@@ -53,10 +53,15 @@ class Host {
       rpc: (method, params) async {
         calls.add((name, method, params));
         if (method == 'clarify.respond') return clarifyResult;
-        if (method == 'projects.list') {
+        if (method == 'projects.tree') {
           return {
             'projects': [
-              {'id': 'same', 'name': '$name project', 'primary_path': '/$name'},
+              {
+                'id': 'same',
+                'label': '$name project',
+                'path': '/$name',
+                'lastActive': 1,
+              },
             ],
           };
         }
@@ -162,6 +167,25 @@ void main() {
       ]),
     );
   });
+
+  test(
+    'completion refresh keeps the entered project bound to refreshed rows',
+    () async {
+      await controller.selectProject(controller.current!.projects.single);
+      final chat = await controller.createChat();
+      chat.draft = 'Project work';
+      await controller.send(chat);
+      host.event('a', 'message.complete');
+      await Future<void>.delayed(Duration.zero);
+      expect(chat.status, ProfileTurnStatus.completed);
+      expect(
+        controller.current!.selectedProject,
+        same(controller.current!.projects.single),
+      );
+      await controller.selectProject(controller.current!.selectedProject);
+      expect(controller.current!.projectSessionsError, isNull);
+    },
+  );
 
   test('A continues while B is visible; duplicate IDs stay separate', () async {
     final a = await controller.createChat();

@@ -14,8 +14,10 @@ scope. Do not silently issue unscoped requests when a required capability is abs
 Official Hermes Desktop is the reference for profile, project, session, and
 background-work behavior. The owner explicitly confirmed **Codex Remote in
 ChatGPT on Android** as the mobile UI and interaction reference. Its documented
-behavior is recorded in the reference note; exact visual details and mobile UI
-source availability remain unverified. The broader
+behavior is recorded in the reference note; mobile UI source availability remains
+unverified. Root/project navigation screenshots were
+supplied by the owner later on the same date; the UI reference note records the
+approved tree layout and its priority ahead of pagination. The broader
 daily-driver and indispensable-product roadmaps inherited from upstream are not
 this fork owner's roadmap.
 

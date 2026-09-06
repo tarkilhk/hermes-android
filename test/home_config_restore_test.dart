@@ -155,7 +155,7 @@ void main() {
     await tester.pump(const Duration(milliseconds: 400));
 
     expect(find.byType(ProfileWorkspaceScreen), findsOneWidget);
-    for (final destination in ['Chats', 'Projects', 'Activity']) {
+    for (final destination in ['Recents', 'Projects', 'New chat']) {
       expect(find.text(destination), findsWidgets);
     }
   });

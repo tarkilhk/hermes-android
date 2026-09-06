@@ -66,6 +66,7 @@ class ProfileChat {
   final ProfileSessionKey key;
   String runtimeId;
   String title;
+  double lastActive = DateTime.now().millisecondsSinceEpoch / 1000;
   final String? projectId;
   String draft = '';
   String streaming = '';
@@ -225,7 +226,10 @@ class ProfileWorkspaceController extends ChangeNotifier {
     }
   }
 
-  Future<bool> switchProfile(String name) async {
+  Future<bool> switchProfile(
+    String name, {
+    bool resetNavigation = false,
+  }) async {
     final generation = ++_generation;
     pendingProfile = name;
     error = null;
@@ -249,6 +253,14 @@ class ProfileWorkspaceController extends ChangeNotifier {
       target.sessions = sessions;
       target.projects = projects;
       target.projectsError = projectError;
+      if (resetNavigation) {
+        target.selectedSession = null;
+        target.selectedProject = null;
+        target.projectGeneration++;
+        target.projectSessions = [];
+        target.projectSessionsLoading = false;
+        target.projectSessionsError = null;
+      }
       final selectedId = target.selectedProject?['id'];
       if (selectedId != null) {
         final selected = projects
@@ -288,6 +300,12 @@ class ProfileWorkspaceController extends ChangeNotifier {
     }
     await switchProfile(resource.scope.profileName);
     if (_unrestoredPending.isNotEmpty) await _restorePending();
+  }
+
+  /// Profile navigation always enters that profile's root tree, never a stale
+  /// project or chat retained from an earlier visit. Running owners are kept.
+  Future<void> navigateProfile(String name) async {
+    await switchProfile(name, resetNavigation: true);
   }
 
   ProfileWorkspaceData _writable() {
@@ -450,6 +468,7 @@ class ProfileWorkspaceController extends ChangeNotifier {
       return;
     }
     final text = chat.draft.trim();
+    chat.lastActive = DateTime.now().millisecondsSinceEpoch / 1000;
     final files = List<AttachmentDraft>.of(chat.attachments);
     chat.status = ProfileTurnStatus.submitting;
     chat.error = null;
@@ -634,6 +653,21 @@ class ProfileWorkspaceController extends ChangeNotifier {
     try {
       chat.messages = await resource.gateway.history(chat.key.sessionId);
       resource.sessions = await resource.gateway.sessions();
+      try {
+        resource.projects = await resource.gateway.projects();
+        final selectedId = resource.selectedProject?['id'];
+        if (selectedId != null) {
+          resource.selectedProject =
+              resource.projects
+                  .where((project) => project['id'] == selectedId)
+                  .firstOrNull ??
+              resource.selectedProject;
+        }
+        resource.projectsError = null;
+      } catch (_) {
+        resource.projectsError =
+            'Projects could not be refreshed. Retry to reload.';
+      }
       final project = resource.selectedProject;
       if (project != null) await _loadProject(resource, project);
     } catch (_) {
