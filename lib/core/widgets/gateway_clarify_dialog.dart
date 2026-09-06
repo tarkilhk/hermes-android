@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_markdown/flutter_markdown.dart';
 
 import '../models/gateway_clarify.dart';
+import '../theme/profile_markdown_style.dart';
 
 typedef ClarifyResponder = Future<void> Function(String answer);
 
@@ -108,12 +109,13 @@ class _GatewayClarifyDialogState extends State<GatewayClarifyDialog>
           crossAxisAlignment: CrossAxisAlignment.stretch,
           children: [
             if (widget.inline)
-              MarkdownBody(
-                data: request.question,
-                selectable: true,
-                sizedImageBuilder: (_) => const Text('[Image omitted]'),
-                styleSheet: MarkdownStyleSheet.fromTheme(theme).copyWith(
-                  p: theme.textTheme.bodyMedium?.copyWith(height: 1.4),
+              Theme(
+                data: profileMarkdownTheme(theme),
+                child: MarkdownBody(
+                  data: request.question,
+                  selectable: true,
+                  sizedImageBuilder: (_) => const Text('[Image omitted]'),
+                  styleSheet: profileMarkdownStyle(theme, compact: true),
                 ),
               )
             else

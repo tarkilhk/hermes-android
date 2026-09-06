@@ -5,6 +5,7 @@ import 'package:url_launcher/url_launcher.dart';
 
 import 'markdown_code_block.dart';
 import 'profile_tool_activity.dart';
+import '../theme/profile_markdown_style.dart';
 
 /// Remote content is display-only. Links require a tap, and images never fetch
 /// automatically or resolve a remote host path against the phone's filesystem.
@@ -159,43 +160,31 @@ class ProfileMessage extends StatelessWidget {
                               if (segment is MarkdownCodeBlock)
                                 segment
                               else
-                                MarkdownBody(
-                                  data: segment as String,
-                                  selectable: true,
-                                  onTapLink: (_, href, _) {
-                                    if (href != null) _open(context, href);
-                                  },
-                                  sizedImageBuilder: (config) =>
-                                      OutlinedButton.icon(
-                                        onPressed: () => _open(
-                                          context,
-                                          config.uri.toString(),
+                                Theme(
+                                  data: profileMarkdownTheme(theme),
+                                  child: MarkdownBody(
+                                    data: segment as String,
+                                    selectable: true,
+                                    onTapLink: (_, href, _) {
+                                      if (href != null) _open(context, href);
+                                    },
+                                    sizedImageBuilder: (config) =>
+                                        OutlinedButton.icon(
+                                          onPressed: () => _open(
+                                            context,
+                                            config.uri.toString(),
+                                          ),
+                                          icon: const Icon(
+                                            Icons.image_outlined,
+                                          ),
+                                          label: Text(
+                                            config.alt ?? 'Open image link',
+                                            maxLines: 2,
+                                            overflow: TextOverflow.ellipsis,
+                                          ),
                                         ),
-                                        icon: const Icon(Icons.image_outlined),
-                                        label: Text(
-                                          config.alt ?? 'Open image link',
-                                          maxLines: 2,
-                                          overflow: TextOverflow.ellipsis,
-                                        ),
-                                      ),
-                                  styleSheet:
-                                      MarkdownStyleSheet.fromTheme(
-                                        theme,
-                                      ).copyWith(
-                                        p: theme.textTheme.bodyLarge?.copyWith(
-                                          height: 1.5,
-                                        ),
-                                        blockSpacing: 8,
-                                        code: theme.textTheme.bodyMedium
-                                            ?.copyWith(
-                                              fontFamily: 'monospace',
-                                              backgroundColor: theme
-                                                  .colorScheme
-                                                  .surfaceContainerHigh,
-                                            ),
-                                        tableColumnWidth:
-                                            const FlexColumnWidth(),
-                                      ),
+                                    styleSheet: profileMarkdownStyle(theme),
+                                  ),
                                 ),
                           ],
                         ),

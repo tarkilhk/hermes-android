@@ -650,3 +650,36 @@ package reports version 2.1.1/code 21412, update time 2026-09-06 23:44:32, and n
 DEBUGGABLE flag. No uninstall, data clear, or app launch was performed. Device
 installation is verified; the new question layout was inspected in authored
 renders, not against the owner's live pending question after installation.
+
+## Desktop-style Markdown, 2026-09-07
+
+The owner's screenshots showed a pale-blue blockquote with white text in dark
+mode. This was flutter_markdown's fixed default decoration. Both profile chat
+messages and inline questions now share an explicit Markdown stylesheet: quotes
+have no fill, a 3px left rule, compact indentation and muted italic text. Tables
+and horizontal rules use the workspace outline color, rules are 1px, and links
+use the chosen accent. Code remains selectable with the existing copy behavior.
+No source message content or backend behavior changed.
+
+The renderer also merges localized paragraph styles over quotes. A scoped
+Markdown typography theme enables inheritance, and a quote foreground preserves
+its color across paragraph merges. Rendered selectable spans are tested, not just
+stylesheet properties. Quote contrast passes 4.5:1 across all five accents in
+both themes. Four rendered-layout checks cover both themes at 1.0 and 1.6 text
+scales. Authored 390x844 previews include a quote, headings, lists, inline code,
+table and divider, using locally loaded fonts.
+
+Verification: 14 new checks passed; complete suite 1,086 passed and two opt-in
+live checks skipped. Static analysis passed. Previews inspected in
+`build/markdown-{light,dark}.png`. Logs are ignored under
+`build/quote-{preview,full-tests,analyze,release}.log`. No production content was
+changed or sent. Regenerate previews with the Markdown style test,
+`--update-goldens`, `--dart-define=MARKDOWN_PREVIEW=true`,
+`--dart-define=PREVIEW_FONT_ROOT=<flutter>/bin/cache/artifacts/material_fonts`,
+and optional `--dart-define=PREVIEW_MONO_FONT=<local monospace font file>`.
+
+Signed Personal certificate and package checks passed. The phone update via
+`adb install -r` returned Success. Package metadata confirms update time
+2026-09-07 00:06:30, version 2.1.1/code 21412 and no DEBUGGABLE flag. App data was
+not cleared. Appearance was verified using authored renders, not by opening the
+owner's production conversation after deployment.
