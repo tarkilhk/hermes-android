@@ -40,6 +40,7 @@ import '../utils/turn_recovery_fallback.dart';
 import 'files_screen.dart';
 import '../widgets/gateway_activity_card.dart';
 import '../widgets/chat_context_header.dart';
+import '../widgets/chat_intelligence_picker.dart';
 import '../widgets/markdown_code_block.dart';
 import '../widgets/attachment_draft_tile.dart';
 import '../widgets/chat_end_affordance.dart';
@@ -53,31 +54,6 @@ import '../widgets/voice_composer_controls.dart';
 /// contrast ratio keeps normal user-message text above WCAG AA.
 const hermesUserMessageBubbleBackground = Color(0xFFD4AF37);
 const hermesUserMessageForeground = Color(0xFF1C1B1F);
-
-class _ModelChoice {
-  final String provider;
-  final String model;
-
-  const _ModelChoice({required this.provider, required this.model});
-}
-
-class _ModelSelection {
-  final _ModelChoice choice;
-  final String reasoningEffort;
-
-  const _ModelSelection({required this.choice, required this.reasoningEffort});
-}
-
-const _reasoningEffortLabels = <String, String>{
-  'none': 'Off (no thinking)',
-  'minimal': 'Minimal',
-  'low': 'Low',
-  'medium': 'Medium',
-  'high': 'High',
-  'xhigh': 'Extra High',
-  'max': 'Max',
-  'ultra': 'Ultra',
-};
 
 enum _ResponseTransport { none, rest, desktop }
 
@@ -1324,113 +1300,19 @@ class _ChatScreenState extends State<ChatScreen> with WidgetsBindingObserver {
       }
       if (!mounted) return;
 
-      var selectedChoice = choices.firstWhere(
+      final selectedChoice = choices.firstWhere(
         (choice) =>
             choice.model == (_sessionModel ?? widget.session.model) &&
             (_sessionProvider == null || choice.provider == _sessionProvider),
         orElse: () => choices.first,
       );
-      var selectedEffort = currentEffort;
-      final selection = await showModalBottomSheet<_ModelSelection>(
+      final selection = await showChatIntelligencePicker(
         context: context,
-        showDragHandle: true,
-        isScrollControlled: true,
-        builder: (sheetContext) => StatefulBuilder(
-          builder: (context, setSheetState) => SafeArea(
-            child: ConstrainedBox(
-              constraints: const BoxConstraints(maxHeight: 640),
-              child: Column(
-                children: [
-                  ListTile(
-                    leading: const Icon(Icons.tune),
-                    title: const Text('Model and thinking for this chat'),
-                    subtitle: Text(
-                      'Profile default: ${modelInfo['model'] ?? 'unknown'}'
-                      '${modelInfo['provider'] == null ? '' : ' • ${modelInfo['provider']}'}',
-                    ),
-                  ),
-                  Padding(
-                    padding: const EdgeInsets.fromLTRB(16, 4, 16, 12),
-                    child: InputDecorator(
-                      decoration: const InputDecoration(
-                        labelText: 'Thinking effort',
-                        border: OutlineInputBorder(),
-                      ),
-                      child: DropdownButtonHideUnderline(
-                        child: DropdownButton<String>(
-                          isExpanded: true,
-                          value: selectedEffort,
-                          items: _reasoningEffortLabels.entries
-                              .map(
-                                (entry) => DropdownMenuItem(
-                                  value: entry.key,
-                                  child: Text(entry.value),
-                                ),
-                              )
-                              .toList(growable: false),
-                          onChanged: (value) {
-                            if (value == null) return;
-                            setSheetState(() => selectedEffort = value);
-                          },
-                        ),
-                      ),
-                    ),
-                  ),
-                  const Divider(height: 1),
-                  Expanded(
-                    child: ListView.builder(
-                      itemCount: choices.length,
-                      itemBuilder: (context, index) {
-                        final choice = choices[index];
-                        final selected =
-                            choice.model == selectedChoice.model &&
-                            choice.provider == selectedChoice.provider;
-                        return ListTile(
-                          leading: Icon(
-                            selected
-                                ? Icons.check_circle
-                                : Icons.smart_toy_outlined,
-                            color: selected
-                                ? Theme.of(context).colorScheme.primary
-                                : null,
-                          ),
-                          title: Text(choice.model),
-                          subtitle: Text(choice.provider),
-                          onTap: () =>
-                              setSheetState(() => selectedChoice = choice),
-                        );
-                      },
-                    ),
-                  ),
-                  const Divider(height: 1),
-                  Padding(
-                    padding: const EdgeInsets.fromLTRB(16, 10, 16, 12),
-                    child: Row(
-                      mainAxisAlignment: MainAxisAlignment.end,
-                      children: [
-                        TextButton(
-                          onPressed: () => Navigator.pop(sheetContext),
-                          child: const Text('Cancel'),
-                        ),
-                        const SizedBox(width: 8),
-                        FilledButton(
-                          onPressed: () => Navigator.pop(
-                            sheetContext,
-                            _ModelSelection(
-                              choice: selectedChoice,
-                              reasoningEffort: selectedEffort,
-                            ),
-                          ),
-                          child: const Text('Apply to this chat'),
-                        ),
-                      ],
-                    ),
-                  ),
-                ],
-              ),
-            ),
-          ),
-        ),
+        choices: choices,
+        initialChoice: selectedChoice,
+        initialReasoningEffort: currentEffort,
+        defaultModel: modelInfo['model']?.toString() ?? 'unknown',
+        defaultProvider: modelInfo['provider']?.toString(),
       );
       if (selection != null && mounted) {
         await _setSessionModel(selection);
@@ -1447,10 +1329,10 @@ class _ChatScreenState extends State<ChatScreen> with WidgetsBindingObserver {
     }
   }
 
-  List<_ModelChoice> _parseModelChoices(Map<String, dynamic> options) {
+  List<ChatModelChoice> _parseModelChoices(Map<String, dynamic> options) {
     final providers = options['providers'];
     if (providers is! List) return const [];
-    final choices = <_ModelChoice>[];
+    final choices = <ChatModelChoice>[];
     for (final rawProvider in providers) {
       if (rawProvider is! Map) continue;
       final provider =
@@ -1467,14 +1349,14 @@ class _ChatScreenState extends State<ChatScreen> with WidgetsBindingObserver {
                   ''
             : '';
         if (model.isNotEmpty) {
-          choices.add(_ModelChoice(provider: provider, model: model));
+          choices.add(ChatModelChoice(provider: provider, model: model));
         }
       }
     }
     return choices;
   }
 
-  Future<void> _setSessionModel(_ModelSelection selection) async {
+  Future<void> _setSessionModel(ChatIntelligenceSelection selection) async {
     final desktopGateway = _desktopGateway;
     if (desktopGateway == null || _changingModel) return;
     final choice = selection.choice;
@@ -1507,7 +1389,7 @@ class _ChatScreenState extends State<ChatScreen> with WidgetsBindingObserver {
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
           content: Text(
-            '${choice.model} • ${_reasoningEffortLabels[selection.reasoningEffort]} '
+            '${choice.model} • ${chatReasoningEffortLabel(selection.reasoningEffort)} '
             'now apply only to this chat.',
           ),
         ),
@@ -2393,7 +2275,9 @@ class _ChatScreenState extends State<ChatScreen> with WidgetsBindingObserver {
             (pending) => pending.request.identityKey == request.identityKey,
           );
       if (duplicate) continue;
-      _clarifyPromptQueue.add(_PendingClarifyPrompt(request, responseGeneration));
+      _clarifyPromptQueue.add(
+        _PendingClarifyPrompt(request, responseGeneration),
+      );
     }
     _drainClarifyPromptQueue();
   }
@@ -2793,48 +2677,6 @@ class _ChatScreenState extends State<ChatScreen> with WidgetsBindingObserver {
                   ],
                 ),
               ),
-            Align(
-              alignment: Alignment.centerLeft,
-              child: Padding(
-                padding: const EdgeInsets.fromLTRB(4, 2, 4, 4),
-                child: Semantics(
-                  label: 'Choose chat model',
-                  value: _sessionModel ?? widget.session.model,
-                  button: true,
-                  enabled:
-                      !(_sending ||
-                          _streaming ||
-                          _loadingModelOptions ||
-                          _changingModel),
-                  excludeSemantics: true,
-                  child: ConstrainedBox(
-                    constraints: const BoxConstraints(minHeight: 48),
-                    child: TextButton.icon(
-                      onPressed:
-                          (_sending ||
-                              _streaming ||
-                              _loadingModelOptions ||
-                              _changingModel)
-                          ? null
-                          : _showModelSelector,
-                      icon: _loadingModelOptions || _changingModel
-                          ? const SizedBox(
-                              width: 16,
-                              height: 16,
-                              child: CircularProgressIndicator(strokeWidth: 2),
-                            )
-                          : const Icon(Icons.tune, size: 18),
-                      label: Text(
-                        '${_sessionModel ?? widget.session.model} • '
-                        '${_sessionModelOverride ? 'this chat' : 'profile default'}',
-                        maxLines: 1,
-                        overflow: TextOverflow.ellipsis,
-                      ),
-                    ),
-                  ),
-                ),
-              ),
-            ),
             if (_attachmentDrafts.isNotEmpty)
               Container(
                 width: double.infinity,
@@ -2877,6 +2719,40 @@ class _ChatScreenState extends State<ChatScreen> with WidgetsBindingObserver {
                 onStop: () => unawaited(_voiceComposer.stop()),
                 onCancel: () => unawaited(_voiceComposer.cancel()),
               ),
+            Padding(
+              padding: const EdgeInsets.fromLTRB(4, 4, 4, 2),
+              child: Semantics(
+                label: 'Message',
+                textField: true,
+                child: TextField(
+                  key: const Key('chat-message-composer'),
+                  controller: _textController,
+                  decoration: InputDecoration(
+                    hintText: 'Message Hermes…',
+                    filled: true,
+                    fillColor: Theme.of(
+                      context,
+                    ).colorScheme.surfaceContainerHighest,
+                    border: OutlineInputBorder(
+                      borderRadius: BorderRadius.circular(20),
+                      borderSide: BorderSide.none,
+                    ),
+                    contentPadding: const EdgeInsets.symmetric(
+                      horizontal: 16,
+                      vertical: 12,
+                    ),
+                    isDense: true,
+                  ),
+                  minLines: 1,
+                  maxLines: 5,
+                  textCapitalization: TextCapitalization.sentences,
+                  keyboardType: TextInputType.multiline,
+                  textInputAction: TextInputAction.send,
+                  enabled: !_loading && !_streaming,
+                  onSubmitted: (_) => _sendMessage(),
+                ),
+              ),
+            ),
             Row(
               children: [
                 Semantics(
@@ -2896,35 +2772,6 @@ class _ChatScreenState extends State<ChatScreen> with WidgetsBindingObserver {
                     ),
                   ),
                 ),
-                Expanded(
-                  child: Semantics(
-                    label: 'Message',
-                    textField: true,
-                    child: TextField(
-                      key: const Key('chat-message-composer'),
-                      controller: _textController,
-                      decoration: InputDecoration(
-                        hintText: 'Message Hermes…',
-                        border: OutlineInputBorder(
-                          borderRadius: BorderRadius.circular(24),
-                        ),
-                        contentPadding: const EdgeInsets.symmetric(
-                          horizontal: 16,
-                          vertical: 8,
-                        ),
-                        isDense: true,
-                      ),
-                      minLines: 1,
-                      maxLines: 5,
-                      textCapitalization: TextCapitalization.sentences,
-                      keyboardType: TextInputType.multiline,
-                      textInputAction: TextInputAction.send,
-                      enabled: !_loading && !_streaming,
-                      onSubmitted: (_) => _sendMessage(),
-                    ),
-                  ),
-                ),
-                const SizedBox(width: 8),
                 if (!_voiceComposer.listening)
                   VoiceComposerStartButton(
                     enabled: !_loading && !_streaming && !_sending,
@@ -2953,6 +2800,21 @@ class _ChatScreenState extends State<ChatScreen> with WidgetsBindingObserver {
                       width: 48,
                       height: 48,
                     ),
+                  ),
+                ),
+                const SizedBox(width: 4),
+                Expanded(
+                  child: ChatIntelligenceButton(
+                    model: _sessionModel ?? widget.session.model,
+                    reasoningEffort: _sessionReasoningEffort ?? 'default',
+                    loading: _loadingModelOptions || _changingModel,
+                    onPressed:
+                        _sending ||
+                            _streaming ||
+                            _loadingModelOptions ||
+                            _changingModel
+                        ? null
+                        : _showModelSelector,
                   ),
                 ),
                 const SizedBox(width: 4),
