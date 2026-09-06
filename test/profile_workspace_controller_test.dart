@@ -157,6 +157,21 @@ void main() {
   });
   tearDown(() => controller.dispose());
 
+  test('a stale question panel cannot answer a newer request', () async {
+    final chat = await controller.createChat();
+    final old = <String, dynamic>{
+      'request_id': 'old',
+      'question': 'Old question',
+    };
+    chat.clarification = {'request_id': 'new', 'question': 'New question'};
+    await expectLater(
+      controller.clarify(chat, 'old answer', expectedRequest: old),
+      throwsStateError,
+    );
+    expect(host.calls.where((call) => call.$2 == 'clarify.respond'), isEmpty);
+    expect(chat.clarification!['request_id'], 'new');
+  });
+
   test(
     'failed profile navigation preserves the previous project load',
     () async {

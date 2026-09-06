@@ -607,3 +607,46 @@ deleted configuration. The signed Hermes Personal update was installed on the
 Samsung phone with `adb install -r`. Installation succeeded, and package metadata
 confirms version 2.1.1/code 21412 with no DEBUGGABLE flag. The phone app was not
 opened during this pass. Its existing data and other installed apps were preserved.
+
+## Inline clarification questions, 2026-09-06
+
+The owner confirmed that the production question arrived on Android, but its
+presentation was poor. No transport or backend change was needed. The profile
+screen rendered only the question text and a Reply button, omitting the supplied
+choices. A fake-gateway event regression failed with zero visible answer choices
+before the change and passed after connecting the existing question component.
+
+Questions now appear inline with normal-size Markdown, selectable answer rows,
+custom text, Skip, and an explicit confirmation button. Batch requests show
+question progress and advance using the server's per-question response contract.
+Selections do not submit automatically. Requests retain their profile, session,
+request and question identities; a stale panel cannot answer a replacement
+request. Failed sends keep the selection and show a generic retry error.
+Remote question images are not loaded and Markdown links have no action.
+Existing collapsed tool groups and the Input needed jump control are unchanged.
+
+Verification:
+
+- 42 focused tests passed, including incoming event rendering, free text,
+  multi-select, Skip, duplicate-submit blocking, errors and stale requests.
+- Full suite: 1,072 passed, two opt-in live tests skipped.
+- Static analysis passed with no issues.
+- Authored previews inspected at 390x844 in light and dark mode with real Roboto
+  and Material Icons fonts. Narrow 360px layouts also tested at 1.6 text scale.
+- No production question was answered, no model prompt was sent, and no backend
+  files or production chats were modified. Live response submission is not
+  claimed; submission tests use the fake gateway.
+
+Ignored evidence: `build/question-focused.log`, `build/question-full-tests.log`,
+`build/question-analyze.log`, `build/question-preview.log`,
+`build/question-{light,dark}.png`, and `build/question-release.log`.
+The opt-in authored previews can be regenerated with the question panel test,
+`--update-goldens`, `--dart-define=QUESTION_PREVIEW=true`, and
+`--dart-define=PREVIEW_FONT_ROOT=<flutter>/bin/cache/artifacts/material_fonts`.
+
+Signed release identity and certificate checks passed. Installed in place on the
+paired Samsung phone using `adb install -r`, which returned Success. The Personal
+package reports version 2.1.1/code 21412, update time 2026-09-06 23:44:32, and no
+DEBUGGABLE flag. No uninstall, data clear, or app launch was performed. Device
+installation is verified; the new question layout was inspected in authored
+renders, not against the owner's live pending question after installation.

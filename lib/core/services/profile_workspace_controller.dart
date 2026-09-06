@@ -1014,9 +1014,18 @@ class ProfileWorkspaceController extends ChangeNotifier {
     _changed();
   }
 
-  Future<void> clarify(ProfileChat chat, String answer) async {
+  Future<void> clarify(
+    ProfileChat chat,
+    String answer, {
+    Map<String, dynamic>? expectedRequest,
+  }) async {
     final resource = _owned(chat);
     final request = chat.clarification;
+    if (expectedRequest != null && !identical(expectedRequest, request)) {
+      throw StateError(
+        'This question has changed. Review the current question.',
+      );
+    }
     final question = chat.pendingQuestion;
     if (question == null) return;
     final result = await resource.gateway.call('clarify.respond', {

@@ -6,6 +6,8 @@ import 'package:flutter/material.dart';
 import '../services/profile_workspace_controller.dart';
 import '../services/android_share_intent_service.dart';
 import '../widgets/profile_message.dart';
+import '../models/gateway_clarify.dart';
+import '../widgets/gateway_clarify_dialog.dart';
 import '../theme/profile_workspace_theme.dart';
 import '../widgets/profile_chat_indicator.dart';
 import 'profile_workspace_browser.dart';
@@ -207,6 +209,30 @@ class _ProfileWorkspaceScreenState extends State<ProfileWorkspaceScreen>
     },
   );
 
+  Widget _questionPanel(ProfileChat chat) {
+    final payload = chat.clarification!;
+    final questions = GatewayClarifyRequest.fromEventDataList(payload);
+    final pending = chat.pendingQuestion!;
+    final index = questions.indexWhere(
+      (q) => q.questionId == pending['question_id'],
+    );
+    if (index < 0) {
+      return const Text(
+        'This question could not be displayed. Refresh to try again.',
+      );
+    }
+    final question = questions[index];
+    return GatewayClarifyDialog(
+      key: ValueKey((chat.key, question.requestId, question.questionId)),
+      inline: true,
+      request: question,
+      number: index + 1,
+      total: questions.length,
+      onRespond: (answer) =>
+          controller.clarify(chat, answer, expectedRequest: payload),
+    );
+  }
+
   Widget _chat(ProfileChat chat, BuildContext context) => Column(
     children: [
       if (chat.busy || chat.error != null)
@@ -297,27 +323,7 @@ class _ProfileWorkspaceScreenState extends State<ProfileWorkspaceScreen>
                   ),
                 ),
               ),
-            if (chat.clarification != null)
-              Card(
-                child: ListTile(
-                  title: Text(
-                    chat.pendingQuestion?['question']?.toString() ??
-                        'Input requested',
-                  ),
-                  trailing: TextButton(
-                    onPressed: () => _run(() async {
-                      final answer = await _textDialog(
-                        'Reply to Hermes',
-                        'Answer',
-                      );
-                      if (answer != null) {
-                        await controller.clarify(chat, answer);
-                      }
-                    }),
-                    child: const Text('Reply'),
-                  ),
-                ),
-              ),
+            if (chat.pendingQuestion != null) _questionPanel(chat),
           ],
         ),
       ),
