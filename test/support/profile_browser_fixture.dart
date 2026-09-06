@@ -158,11 +158,17 @@ class ProfileBrowserFixture {
         if (failSearch) throw StateError('Search offline');
         return {'results': rows};
       }
-      final rows = sessions(scope.profileName).toList()
-        ..sort(
-          (a, b) =>
-              (b['last_active'] as num).compareTo(a['last_active'] as num),
-        );
+      final rows =
+          sessions(scope.profileName)
+              .where(
+                (row) =>
+                    (row['archived'] == true) == (query['archived'] == 'only'),
+              )
+              .toList()
+            ..sort(
+              (a, b) =>
+                  (b['last_active'] as num).compareTo(a['last_active'] as num),
+            );
       final page = rows.skip(offset).take(limit).toList();
       final seen = page.map((row) => row['id']).toSet();
       page.addAll(

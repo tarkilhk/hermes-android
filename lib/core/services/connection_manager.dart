@@ -1353,6 +1353,27 @@ class DashboardClient {
     }
   }
 
+  Future<Map<String, dynamic>> apiPatch(
+    String endpoint, {
+    required Map<String, dynamic> body,
+    bool retried = false,
+  }) async {
+    final headers = await _authHeaders();
+    final res = await _http.patch(
+      Uri.parse('$_baseUrl/api/$endpoint'),
+      headers: headers,
+      body: jsonEncode(body),
+    );
+    if (res.statusCode == 401 && !retried) {
+      _resetAuth();
+      return apiPatch(endpoint, body: body, retried: true);
+    }
+    if (res.statusCode < 200 || res.statusCode >= 300) {
+      throw Exception('HTTP ${res.statusCode}');
+    }
+    return _decodeMapResponse(res);
+  }
+
   Future<Map<String, dynamic>> apiPut(
     String endpoint, {
     Map<String, dynamic>? body,

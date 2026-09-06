@@ -359,3 +359,41 @@ The normal `lib/main.dart` APK was rebuilt and restored with `adb install -r`.
 Saved connections and the granted notification permission were preserved. Neither
 the test APK nor the authored preview is left installed. Build evidence is in
 `build/conversation-normal-apk.log`.
+
+## Workspace color and row actions, 2026-09-06
+
+Implemented gold profile/folder accents, chat status icons, project New chat,
+and chat Rename, Pin/Unpin, Mark read/unread, Copy ID, Archive/Unarchive and
+confirmed Delete. Archived chats have an overflow-menu destination. Mutations
+use the stock profile-aware PATCH body and DELETE query parameter. No Hermes
+backend code or configuration was patched, and no compatibility fallback added.
+
+Eleven new unit/widget tests cover owner-scoped actions, failed writes, archive
+discovery, duplicate taps, delayed writes across profile changes, stale refreshes,
+project creation ownership, action sheets, delete cancellation, and status
+semantics. Final suite: 1,044 passed, two opt-in live tests skipped. Analysis found
+no issues. The separate opt-in local mutation test passed on the unchanged
+Desktop gateway using two newly imported disposable chats with the same ID in
+`android-qa-a` and `android-qa-b`. Pin, title, unread, archive/unarchive and delete
+affected only the intended profile. Both disposable chats were deleted during
+cleanup; their authored test history is not recoverable. No production chats
+were modified or prompts submitted.
+
+Deletion refuses a durable ID present in the stock global live-session list,
+which has no profile owner field. This is deliberately conservative when IDs
+collide. Precise running/input/completed indicators use owned app runtimes only;
+unopened rows do not acquire a guessed live status from that global list.
+
+The authored preview was inspected on the emulator in light mode and its chat
+action sheet in dark mode. Evidence stays ignored under `build/`:
+`hermes-actions-preview.png`, `hermes-actions-menu.png`, `actions-live.log`,
+`actions-tests-final.log`, `actions-full-tests-final.log`, and
+`actions-analyze-final.log`. The normal APK build is recorded in
+`actions-normal-apk.log`.
+
+The owner's Samsung SM-S918B is now paired over wireless ADB. This supersedes
+the earlier emulator-only note. Use `adb devices -l` or mDNS discovery for its
+current connection endpoint; do not store temporary pairing codes in the repo.
+The normal `lib/main.dart` APK was installed with `adb install -r` and launched
+on both the emulator and this phone. Saved app data was preserved. Neither
+device was left running a preview or integration-test APK.

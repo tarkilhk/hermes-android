@@ -19,6 +19,14 @@ typedef ScopedRpc =
       Map<String, dynamic> params,
     );
 
+typedef ScopedPatch =
+    Future<Map<String, dynamic>> Function(
+      String endpoint,
+      Map<String, dynamic> body,
+    );
+typedef ScopedDelete =
+    Future<void> Function(String endpoint, Map<String, String> query);
+
 /// The REST page may include extra pinned rows outside its offset window.
 class ProfileSessionPage {
   final List<Map<String, dynamic>> rows;
@@ -49,6 +57,8 @@ class ProfileGateway {
   final WorkspaceScope scope;
   final ScopedGet _get;
   final ScopedRpc _rpc;
+  final ScopedPatch? _patch;
+  final ScopedDelete? _delete;
   final Future<void> Function() _connect;
   final void Function() _close;
   final Future<ProfileDiscovery> Function() discover;
@@ -59,11 +69,15 @@ class ProfileGateway {
     required this.scope,
     required ScopedGet get,
     required ScopedRpc rpc,
+    ScopedPatch? patch,
+    ScopedDelete? delete,
     required this.discover,
     Future<void> Function()? connect,
     void Function()? close,
   }) : _get = get,
        _rpc = rpc,
+       _patch = patch,
+       _delete = delete,
        _connect = connect ?? _nothing,
        _close = close ?? _noop;
 
@@ -116,6 +130,14 @@ class ProfileGateway {
       scope: scope,
       get: (endpoint, query) => dashboard
           .apiGet(endpoint, queryParameters: query)
+          .timeout(const Duration(seconds: 20)),
+      patch: (endpoint, body) => dashboard
+          .apiPatch(endpoint, body: body)
+          .timeout(const Duration(seconds: 20)),
+      delete: (endpoint, query) => dashboard
+          .apiDelete(
+            Uri.parse(endpoint).replace(queryParameters: query).toString(),
+          )
           .timeout(const Duration(seconds: 20)),
       rpc: (method, params) async {
         final current = socket;
@@ -184,6 +206,7 @@ class ProfileGateway {
   Future<ProfileSessionPage> sessions({
     int offset = 0,
     int limit = sessionPageSize,
+    bool archivedOnly = false,
   }) async {
     if (offset < 0 || limit < 1 || limit > 100) {
       throw ArgumentError('Invalid session page');
@@ -192,6 +215,7 @@ class ProfileGateway {
       'limit': '$limit',
       'offset': '$offset',
       'order': 'recent',
+      if (archivedOnly) 'archived': 'only',
     });
     if (result['offset'] != offset ||
         result['limit'] != limit ||
@@ -367,6 +391,52 @@ class ProfileGateway {
       throw const FormatException('Missing project');
     }
     return Map<String, dynamic>.from(result['project']);
+  }
+
+  Future<Map<String, dynamic>> updateSession(
+    String id,
+    Map<String, dynamic> changes,
+  ) async {
+    if (id.isEmpty ||
+        changes.isEmpty ||
+        changes.keys.any(
+          (key) => !{'title', 'pinned', 'archived', 'unread'}.contains(key),
+        )) {
+      throw ArgumentError('Invalid session update');
+    }
+    await requireProfile();
+    final patch = _patch;
+    if (patch == null) {
+      throw StateError('Session mutation transport unavailable');
+    }
+    final result = await patch('sessions/${Uri.encodeComponent(id)}', {
+      ...changes,
+      'profile': scope.profileName,
+    });
+    if (result['ok'] != true) {
+      throw const FormatException('Session update not acknowledged');
+    }
+    return result;
+  }
+
+  Future<void> deleteSession(String id) async {
+    if (id.isEmpty) throw ArgumentError('Missing session');
+    await requireProfile();
+    // The stock live list omits profile ownership. Any identical live durable
+    // ID blocks deletion conservatively, rather than risking a running agent.
+    final live = records((await call('session.active_list'))['sessions']);
+    if (live.any((row) => row['session_key'] == id)) {
+      throw StateError(
+        'This chat is still open on Hermes. Close it before deleting.',
+      );
+    }
+    final remove = _delete;
+    if (remove == null) {
+      throw StateError('Session mutation transport unavailable');
+    }
+    await remove('sessions/${Uri.encodeComponent(id)}', {
+      'profile': scope.profileName,
+    });
   }
 
   static List<Map<String, dynamic>> records(Object? value) {

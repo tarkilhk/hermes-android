@@ -81,6 +81,7 @@ class ProfileChat {
   bool historyLoading = false;
   String? historyError;
   double historyScrollOffset = 0;
+  bool archived = false;
   final List<AttachmentDraft> attachments = [];
   ProfileTurnStatus status = ProfileTurnStatus.idle;
   ProfileChat({
@@ -126,6 +127,9 @@ class ProfileWorkspaceData {
   bool sessionsLoadingMore = false;
   String? sessionsPageError;
   int sessionGeneration = 0;
+  bool archivedOnly = false;
+  final Set<String> mutatingSessions = {};
+  final Set<String> deletedSessions = {};
   String searchQuery = '';
   List<Map<String, dynamic>> searchResults = [];
   bool searchLoading = false;
@@ -251,6 +255,7 @@ class ProfileWorkspaceController extends ChangeNotifier {
     if (current != null) _invalidateSessionLoad(current!);
     final target = _resource(name);
     if (target != current) _invalidateSessionLoad(target);
+    final sessionReadGeneration = target.sessionGeneration;
     pendingProfile = name;
     error = null;
     _changed();
@@ -260,7 +265,10 @@ class ProfileWorkspaceController extends ChangeNotifier {
         throw StateError('Profile $name is no longer available');
       }
       await target.gateway.connect();
-      final sessions = await target.gateway.sessions();
+      final archivedOnly = resetNavigation ? false : target.archivedOnly;
+      final sessions = await target.gateway.sessions(
+        archivedOnly: archivedOnly,
+      );
       List<Map<String, dynamic>> projects = [];
       String? projectError;
       try {
@@ -269,7 +277,11 @@ class ProfileWorkspaceController extends ChangeNotifier {
         projectError = 'Projects are unavailable for $name. Retry to reload.';
       }
       if (_closed || generation != _generation) return false;
+      if (sessionReadGeneration != target.sessionGeneration) {
+        throw StateError('Chats changed while loading. Refresh to reload.');
+      }
       _clearSearch(target);
+      target.archivedOnly = archivedOnly;
       _replaceSessions(target, sessions);
       target.projects = projects;
       target.projectsError = projectError;
@@ -515,7 +527,10 @@ class ProfileWorkspaceController extends ChangeNotifier {
         !switching &&
         generation == resource.sessionGeneration;
     try {
-      final page = await resource.gateway.sessions(offset: offset);
+      final page = await resource.gateway.sessions(
+        offset: offset,
+        archivedOnly: resource.archivedOnly,
+      );
       if (!valid()) return;
       resource.sessions = _mergeSessionRows(resource.sessions, page.rows);
       resource.nextSessionOffset = page.nextOffset;
@@ -534,7 +549,9 @@ class ProfileWorkspaceController extends ChangeNotifier {
   Future<void> _refreshSessions(ProfileWorkspaceData resource) async {
     _invalidateSessionLoad(resource);
     final generation = resource.sessionGeneration;
-    final page = await resource.gateway.sessions();
+    final page = await resource.gateway.sessions(
+      archivedOnly: resource.archivedOnly,
+    );
     if (!_closed && generation == resource.sessionGeneration) {
       _replaceSessions(resource, page);
     }
@@ -547,9 +564,18 @@ class ProfileWorkspaceController extends ChangeNotifier {
     return current!;
   }
 
-  Future<ProfileChat> createChat() async {
+  Future<ProfileChat> createChat({
+    Map<String, dynamic>? inProject,
+    WorkspaceScope? owner,
+  }) async {
     final resource = _writable();
-    final project = resource.selectedProject;
+    if (owner != null && owner != resource.scope) {
+      throw StateError('Profile changed. Open the menu again.');
+    }
+    final project = inProject ?? resource.selectedProject;
+    if (project != null && !resource.projects.contains(project)) {
+      throw ArgumentError('Wrong project owner');
+    }
     final response = await resource.gateway.createSession(
       cwd: project?['primary_path'] as String?,
     );
@@ -564,7 +590,7 @@ class ProfileWorkspaceController extends ChangeNotifier {
       projectId: project?['id'] as String?,
     );
     resource.chats[id] = chat;
-    resource.selectedSession = id;
+    if (current == resource && !switching) resource.selectedSession = id;
     _changed();
     return chat;
   }
@@ -578,6 +604,9 @@ class ProfileWorkspaceController extends ChangeNotifier {
       return;
     }
     final resource = _resource(key.workspace.profileName);
+    if (resource.deletedSessions.contains(key.sessionId)) {
+      throw StateError('Chat was deleted');
+    }
     _cancelOlderLoads();
     var chat = resource.chats[key.sessionId];
     if (chat == null) {
@@ -597,6 +626,15 @@ class ProfileWorkspaceController extends ChangeNotifier {
             'Chat',
       );
       resource.chats[key.sessionId] = chat;
+      chat.archived =
+          resource.archivedOnly ||
+          resource.searchResults.any(
+            (row) => row['id'] == key.sessionId && row['archived'] == true,
+          );
+      if (resource.deletedSessions.contains(key.sessionId)) {
+        resource.chats.remove(key.sessionId);
+        return;
+      }
       _hydrate(chat, response);
     }
     // The user may have navigated again while resume was in flight.
@@ -611,6 +649,111 @@ class ProfileWorkspaceController extends ChangeNotifier {
     _cancelOlderLoads();
     current?.selectedSession = null;
     _changed();
+  }
+
+  Future<void> showArchived(bool archived) async {
+    final resource = _writable();
+    final previous = resource.archivedOnly;
+    final rows = resource.sessions;
+    final offset = resource.nextSessionOffset;
+    resource.archivedOnly = archived;
+    resource.selectedProject = null;
+    resource.projectGeneration++;
+    resource.projectSessionsLoading = false;
+    _clearSearch(resource);
+    resource.sessions = [];
+    resource.nextSessionOffset = null;
+    _changed();
+    final archiveReadGeneration = resource.sessionGeneration + 1;
+    try {
+      await _refreshSessions(resource);
+    } catch (_) {
+      if (resource.sessionGeneration == archiveReadGeneration) {
+        resource.archivedOnly = previous;
+        resource.sessions = rows;
+        resource.nextSessionOffset = offset;
+      }
+      rethrow;
+    } finally {
+      _changed();
+    }
+  }
+
+  Future<void> mutateSession(
+    ProfileSessionKey key, {
+    Map<String, dynamic> changes = const {},
+    bool delete = false,
+  }) async {
+    final resource = _writable();
+    if (!owns(key) || resource.scope != key.workspace) {
+      throw StateError('Profile changed. Open the menu again.');
+    }
+    final id = key.sessionId;
+    if (resource.mutatingSessions.contains(id)) return;
+    final chat = resource.chats[id];
+    if ((delete || changes.containsKey('archived')) && chat?.busy == true) {
+      throw StateError(
+        'Wait for this chat to finish before archiving or deleting.',
+      );
+    }
+    resource.mutatingSessions.add(id);
+    _changed();
+    try {
+      Map<String, dynamic> updated = changes;
+      if (delete) {
+        await resource.gateway.deleteSession(id);
+      } else {
+        final result = await resource.gateway.updateSession(id, changes);
+        updated = {
+          ...changes,
+          if (changes.containsKey('title')) 'title': result['title'],
+        };
+      }
+      if (_closed) return;
+      _invalidateSessionLoad(resource);
+      if (delete || changes.containsKey('archived')) {
+        resource.nextSessionOffset = 0;
+      }
+      resource.projectGeneration++;
+      resource.projectSessionsLoading = false;
+      resource.searchGeneration++;
+      resource.searchLoading = false;
+      void apply(List<Map<String, dynamic>> rows, {bool search = false}) {
+        for (var index = 0; index < rows.length; index++) {
+          if (rows[index]['id'] == id) {
+            rows[index] = {...rows[index], ...updated};
+          }
+        }
+        rows.removeWhere(
+          (row) =>
+              row['id'] == id &&
+              (delete ||
+                  (!search &&
+                      changes.containsKey('archived') &&
+                      changes['archived'] != resource.archivedOnly)),
+        );
+      }
+
+      apply(resource.sessions);
+      apply(resource.projectSessions);
+      apply(resource.searchResults, search: true);
+      if (delete) {
+        resource.deletedSessions.add(id);
+        resource.chats.remove(id);
+      } else if (chat != null) {
+        if (updated['title'] is String) chat.title = updated['title'] as String;
+        if (updated['archived'] is bool) {
+          chat.archived = updated['archived'] as bool;
+        }
+      }
+      if (resource.selectedSession == id &&
+          (delete || changes['archived'] == true)) {
+        resource.selectedSession = null;
+      }
+    } finally {
+      resource.mutatingSessions.remove(id);
+      _changed();
+    }
   }
 
   Future<void> selectProject(Map<String, dynamic>? project) {

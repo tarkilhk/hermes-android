@@ -8,11 +8,11 @@ import 'package:hermes_android/core/screens/profile_workspace_screen.dart';
 import 'package:hermes_android/core/services/connection_manager.dart';
 import 'package:hermes_android/core/services/profile_workspace_controller.dart';
 import 'package:hermes_android/core/theme/hermes_theme.dart';
-import '../test/support/profile_browser_fixture.dart';
+import '../test/support/profile_actions_fixture.dart';
 
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
-  final fixture = ProfileBrowserFixture();
+  final fixture = ProfileActionsFixture();
   final controller = ProfileWorkspaceController(
     connection: SavedConnection(
       id: 'ui-preview',
@@ -26,6 +26,20 @@ void main() async {
     gatewayFactory: fixture.gateway,
   );
   await controller.initialize();
+  for (final (id, status) in [
+    ('pinned', ProfileTurnStatus.completed),
+    ('newest', ProfileTurnStatus.running),
+    ('pin-two', ProfileTurnStatus.attention),
+  ]) {
+    final row = controller.current!.sessions.firstWhere(
+      (row) => row['id'] == id,
+    );
+    controller.current!.chats[id] = ProfileChat(
+      key: ProfileSessionKey(controller.current!.scope, id),
+      runtimeId: 'preview-$id',
+      title: row['title'] as String,
+    )..status = status;
+  }
   runApp(
     MaterialApp(
       debugShowCheckedModeBanner: false,

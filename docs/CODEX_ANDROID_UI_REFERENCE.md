@@ -95,3 +95,25 @@ content for emulator visual inspection without connecting to Hermes. It is not
 imported by the normal app. This pass follows the approved mobile direction but
 does not claim pixel equivalence with a Codex conversation screenshot, which the
 owner has not supplied.
+
+## Color, row actions and activity, 2026-09-06
+
+The owner requested color accents and Desktop-inspired long-press actions.
+The workspace now uses warm gold profile selection and section labels, softly
+tinted folder icons, and the existing theme's rounded search and action controls.
+Light and dark themes retain the same layout and hierarchy.
+
+Long-pressing a project offers New chat in project. Chat sheets offer Rename,
+Pin/Unpin, Mark as read/unread, Copy ID, Archive/Unarchive, and confirmed Delete.
+Archived chats are reachable from the workspace overflow menu. The captured
+profile owns each action even if navigation changes before a request completes.
+Branch, Export, Move to project, Appearance, and Desktop's New window are not
+implemented by this pass.
+
+Known runtimes show a blue working spinner, amber input request, green completed
+check, red failure, or reconnect/stopped icon. Tooltips and accessibility labels
+identify states without relying on color; reduced motion disables spinning.
+Unread rows have a dot. REST `is_active` means recent activity, not proof of an
+active turn. The stock `session.active_list` response has no profile ownership,
+so Android does not use it to assign precise states to unopened chats. Its
+potentially duplicate durable IDs cannot safely identify those owners.

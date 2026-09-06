@@ -4,6 +4,9 @@ import 'package:flutter/material.dart';
 
 import '../services/profile_workspace_controller.dart';
 import '../services/profile_gateway.dart';
+import '../theme/hermes_theme.dart';
+import '../widgets/profile_chat_indicator.dart';
+import 'profile_row_actions.dart';
 
 /// The reference-inspired navigation tree. All rows come from its immutable
 /// profile owner; project membership remains the server's decision.
@@ -50,7 +53,11 @@ class _ProfileWorkspaceBrowserState extends State<ProfileWorkspaceBrowser> {
 
   void _loadMore() {
     final resource = controller.current;
-    if (controller.switching || resource == null || _view != 'home') return;
+    if (controller.switching ||
+        resource == null ||
+        !{'home', 'archived'}.contains(_view)) {
+      return;
+    }
     if (resource.selectedProject != null) {
       if (_projectHasMore && !resource.projectSessionsLoading) {
         setState(() => _projectVisibleCount += ProfileGateway.sessionPageSize);
@@ -82,11 +89,15 @@ class _ProfileWorkspaceBrowserState extends State<ProfileWorkspaceBrowser> {
   Future<void> _run(Future<void> Function() action) async {
     try {
       await action();
-    } catch (_) {
+    } catch (error) {
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(
-            content: Text('Could not complete that action. Please retry.'),
+          SnackBar(
+            content: Text(
+              error is StateError
+                  ? error.message.toString()
+                  : 'Could not complete that action. Please retry.',
+            ),
           ),
         );
       }
@@ -95,7 +106,10 @@ class _ProfileWorkspaceBrowserState extends State<ProfileWorkspaceBrowser> {
 
   void _back() {
     if (controller.switching) return;
-    if (controller.current?.selectedProject != null) {
+    if (controller.current?.archivedOnly == true) {
+      unawaited(_run(() => controller.showArchived(false)));
+      setState(() => _view = 'home');
+    } else if (controller.current?.selectedProject != null) {
       unawaited(controller.selectProject(null));
     } else if (_view != 'home') {
       setState(() => _view = 'home');
@@ -133,7 +147,12 @@ class _ProfileWorkspaceBrowserState extends State<ProfileWorkspaceBrowser> {
         Expanded(
           child: Text(
             title,
-            style: const TextStyle(fontSize: 15, fontWeight: FontWeight.w600),
+            style: TextStyle(
+              fontSize: 13,
+              fontWeight: FontWeight.w700,
+              letterSpacing: 0.4,
+              color: Theme.of(context).colorScheme.primary,
+            ),
           ),
         ),
         ?action,
@@ -145,7 +164,21 @@ class _ProfileWorkspaceBrowserState extends State<ProfileWorkspaceBrowser> {
     key: ValueKey('project-${project['id']}'),
     contentPadding: const EdgeInsets.symmetric(horizontal: 20),
     minTileHeight: 52,
-    leading: const Icon(Icons.folder_outlined, size: 23),
+    leading: Container(
+      width: 36,
+      height: 36,
+      decoration: BoxDecoration(
+        color: Theme.of(
+          context,
+        ).colorScheme.primaryContainer.withValues(alpha: 0.55),
+        borderRadius: BorderRadius.circular(11),
+      ),
+      child: Icon(
+        Icons.folder_outlined,
+        size: 22,
+        color: Theme.of(context).colorScheme.primary,
+      ),
+    ),
     minLeadingWidth: 22,
     title: Text(
       project['name'] as String,
@@ -164,6 +197,9 @@ class _ProfileWorkspaceBrowserState extends State<ProfileWorkspaceBrowser> {
             });
             unawaited(_run(() => controller.selectProject(project)));
           },
+    onLongPress: controller.switching
+        ? null
+        : () => _run(() => showProjectActions(context, controller, project)),
   );
 
   Widget _session(Map<String, dynamic> row) {
@@ -174,11 +210,18 @@ class _ProfileWorkspaceBrowserState extends State<ProfileWorkspaceBrowser> {
       key: ValueKey('chat-${row['id']}'),
       contentPadding: const EdgeInsets.symmetric(horizontal: 20),
       minTileHeight: 52,
+      onLongPress:
+          controller.switching || resource.mutatingSessions.contains(row['id'])
+          ? null
+          : () => _run(() => showChatActions(context, controller, row)),
       title: Text(
         title?.isNotEmpty == true ? title! : 'Untitled chat',
         maxLines: 1,
         overflow: TextOverflow.ellipsis,
-        style: const TextStyle(fontSize: 16),
+        style: TextStyle(
+          fontSize: 16,
+          fontWeight: row['unread'] == true ? FontWeight.w600 : FontWeight.w400,
+        ),
       ),
       subtitle: row['snippet'] != null || row['archived'] == true
           ? Text(
@@ -193,16 +236,8 @@ class _ProfileWorkspaceBrowserState extends State<ProfileWorkspaceBrowser> {
       trailing: Row(
         mainAxisSize: MainAxisSize.min,
         children: [
-          if (local?.busy == true)
-            Padding(
-              padding: const EdgeInsets.only(right: 8),
-              child: Icon(
-                local?.status == ProfileTurnStatus.attention
-                    ? Icons.help_outline
-                    : Icons.more_horiz,
-                size: 18,
-              ),
-            ),
+          ProfileChatIndicator(chat: local, row: row),
+          const SizedBox(width: 8),
           Text(
             _age(row),
             style: TextStyle(
@@ -261,7 +296,7 @@ class _ProfileWorkspaceBrowserState extends State<ProfileWorkspaceBrowser> {
       ];
     }
     final project = resource.selectedProject;
-    if (project == null && _query.isNotEmpty) {
+    if (project == null && !resource.archivedOnly && _query.isNotEmpty) {
       final pending = resource.searchQuery != _query || resource.searchLoading;
       final results = <String, Map<String, dynamic>>{
         for (final row in resource.sessions.where(
@@ -308,7 +343,8 @@ class _ProfileWorkspaceBrowserState extends State<ProfileWorkspaceBrowser> {
         },
     };
     for (final chat in resource.chats.values) {
-      if ((project == null || chat.projectId == project['id']) &&
+      if (chat.archived == resource.archivedOnly &&
+          (project == null || chat.projectId == project['id']) &&
           !rows.containsKey(chat.key.sessionId)) {
         rows[chat.key.sessionId] = {
           'id': chat.key.sessionId,
@@ -326,7 +362,7 @@ class _ProfileWorkspaceBrowserState extends State<ProfileWorkspaceBrowser> {
     final recent = matches.where((r) => r['pinned'] != true).toList();
     _projectHasMore = project != null && recent.length > _projectVisibleCount;
     return [
-      if (project == null && _query.isEmpty) ...[
+      if (project == null && !resource.archivedOnly && _query.isEmpty) ...[
         _heading(
           'Projects',
           action: resource.projects.length > 5
@@ -368,7 +404,11 @@ class _ProfileWorkspaceBrowserState extends State<ProfileWorkspaceBrowser> {
         ...pinned.map(_session),
       ],
       if (project == null || pinned.isNotEmpty)
-        _heading(_query.isEmpty ? 'Recents' : 'Search results'),
+        _heading(
+          _query.isEmpty
+              ? (resource.archivedOnly ? 'Archived chats' : 'Recents')
+              : 'Search results',
+        ),
       ...(project == null ? recent : recent.take(_projectVisibleCount)).map(
         _session,
       ),
@@ -417,11 +457,12 @@ class _ProfileWorkspaceBrowserState extends State<ProfileWorkspaceBrowser> {
       _enteredProject = projectId;
       _projectVisibleCount = ProfileGateway.sessionPageSize;
     }
-    final dark = Theme.of(context).brightness == Brightness.dark;
-    final background = dark ? const Color(0xff151515) : Colors.white;
-    final foreground = dark ? Colors.white : const Color(0xff171717);
+    final colors = Theme.of(context).colorScheme;
+    final background = HermesTokens.of(context).surface;
+    final foreground = colors.onSurface;
     return PopScope(
-      canPop: project == null && _view == 'home',
+      canPop:
+          project == null && _view == 'home' && resource?.archivedOnly != true,
       onPopInvokedWithResult: (didPop, _) {
         if (!didPop) _back();
       },
@@ -441,7 +482,9 @@ class _ProfileWorkspaceBrowserState extends State<ProfileWorkspaceBrowser> {
             children: [
               Text(
                 project?['name']?.toString() ??
-                    (_view == 'projects'
+                    (resource?.archivedOnly == true
+                        ? 'Archived chats'
+                        : _view == 'projects'
                         ? 'All projects'
                         : _view == 'activity'
                         ? 'Activity'
@@ -474,6 +517,15 @@ class _ProfileWorkspaceBrowserState extends State<ProfileWorkspaceBrowser> {
                   unawaited(controller.selectProject(null));
                   setState(() => _view = 'activity');
                 }
+                if (value == 'archived') {
+                  _search.clear();
+                  _searchDebounce?.cancel();
+                  setState(() {
+                    _query = '';
+                    _view = 'archived';
+                  });
+                  unawaited(_run(() => controller.showArchived(true)));
+                }
               },
               itemBuilder: (_) => [
                 const PopupMenuItem(value: 'refresh', child: Text('Refresh')),
@@ -482,6 +534,10 @@ class _ProfileWorkspaceBrowserState extends State<ProfileWorkspaceBrowser> {
                   child: Text('New project'),
                 ),
                 const PopupMenuItem(value: 'activity', child: Text('Activity')),
+                const PopupMenuItem(
+                  value: 'archived',
+                  child: Text('Archived chats'),
+                ),
                 if (widget.enableNotifications != null)
                   const PopupMenuItem(
                     value: 'notifications',
@@ -510,13 +566,18 @@ class _ProfileWorkspaceBrowserState extends State<ProfileWorkspaceBrowser> {
                         label: Text(profile.label),
                         selected: resource?.scope.profileName == profile.name,
                         showCheckmark: false,
-                        selectedColor: foreground,
-                        backgroundColor: dark
-                            ? const Color(0xff292929)
-                            : const Color(0xffeeeeee),
+                        selectedColor: colors.primaryContainer,
+                        backgroundColor: colors.surfaceContainerLow,
+                        avatar: Icon(
+                          Icons.circle,
+                          size: 8,
+                          color: resource?.scope.profileName == profile.name
+                              ? colors.primary
+                              : colors.outline,
+                        ),
                         labelStyle: TextStyle(
                           color: resource?.scope.profileName == profile.name
-                              ? background
+                              ? colors.onPrimaryContainer
                               : foreground,
                           fontWeight: FontWeight.w600,
                         ),
@@ -596,9 +657,7 @@ class _ProfileWorkspaceBrowserState extends State<ProfileWorkspaceBrowser> {
                                 : 'Search chats',
                             prefixIcon: const Icon(Icons.search),
                             filled: true,
-                            fillColor: dark
-                                ? const Color(0xff292929)
-                                : const Color(0xfff5f5f5),
+                            fillColor: colors.surfaceContainerLow,
                             border: OutlineInputBorder(
                               borderRadius: BorderRadius.circular(32),
                               borderSide: BorderSide.none,

@@ -1,0 +1,94 @@
+import 'package:flutter/material.dart';
+import '../services/profile_workspace_controller.dart';
+import '../theme/hermes_theme.dart';
+
+/// Precise state comes from an owned runtime. REST is_active is only a recent
+/// activity heuristic, never evidence that an unseen chat is still running.
+class ProfileChatIndicator extends StatelessWidget {
+  final ProfileChat? chat;
+  final Map<String, dynamic> row;
+  const ProfileChatIndicator({super.key, this.chat, required this.row});
+
+  @override
+  Widget build(BuildContext context) {
+    final tokens = HermesTokens.of(context);
+    final status = chat?.status;
+    final (label, color, icon, spinning) = switch (status) {
+      ProfileTurnStatus.attention => (
+        'Input needed',
+        tokens.blocked,
+        Icons.help_rounded,
+        false,
+      ),
+      ProfileTurnStatus.submitting ||
+      ProfileTurnStatus.running ||
+      ProfileTurnStatus.settling => (
+        'Working',
+        tokens.running,
+        Icons.pending_outlined,
+        true,
+      ),
+      ProfileTurnStatus.reconnecting => (
+        'Reconnecting',
+        tokens.warning,
+        Icons.wifi_off_rounded,
+        false,
+      ),
+      ProfileTurnStatus.failed => (
+        'Failed',
+        tokens.danger,
+        Icons.error_outline,
+        false,
+      ),
+      ProfileTurnStatus.completed => (
+        'Completed',
+        tokens.success,
+        Icons.check_circle_outline,
+        false,
+      ),
+      ProfileTurnStatus.cancelled => (
+        'Stopped',
+        tokens.muted,
+        Icons.stop_circle_outlined,
+        false,
+      ),
+      _ when row['unread'] == true => (
+        'Unread',
+        tokens.running,
+        Icons.circle,
+        false,
+      ),
+      _ when row['is_active'] == true => (
+        'Recent activity',
+        tokens.running,
+        Icons.more_horiz,
+        false,
+      ),
+      _ when row['ended_at'] != null => (
+        'Finished',
+        tokens.success,
+        Icons.check_circle_outline,
+        false,
+      ),
+      _ => ('', tokens.muted, Icons.circle_outlined, false),
+    };
+    if (label.isEmpty) return const SizedBox.shrink();
+    return Tooltip(
+      message: label,
+      child: Semantics(
+        label: label,
+        child: SizedBox(
+          width: 18,
+          height: 18,
+          child: spinning && !MediaQuery.disableAnimationsOf(context)
+              ? CircularProgressIndicator(
+                  strokeWidth: 2,
+                  color: color,
+                  semanticsLabel: label,
+                )
+              : Icon(icon, size: label == 'Unread' ? 8 : 18, color: color),
+        ),
+      ),
+    );
+  }
+}
