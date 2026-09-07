@@ -630,16 +630,33 @@ class _ProfileWorkspaceBrowserState extends State<ProfileWorkspaceBrowser> {
                             tapTargetSize: MaterialTapTargetSize.padded,
                             visualDensity: VisualDensity.standard,
                             padding: const EdgeInsets.symmetric(horizontal: 12),
-                            foregroundColor:
-                                resource?.scope.profileName == profile.name
-                                ? colors.primary
-                                : colors.onSurfaceVariant,
+                            foregroundColor: profileAccent(
+                              context,
+                              profile.name,
+                            ),
                             backgroundColor:
-                                resource?.scope.profileName == profile.name
-                                ? colors.primaryContainer
-                                : Colors.transparent,
+                                profileAccent(context, profile.name).withValues(
+                                  alpha:
+                                      resource?.scope.profileName ==
+                                          profile.name
+                                      ? 0.22
+                                      : 0.09,
+                                ),
+                            side: BorderSide(
+                              color: profileAccent(context, profile.name)
+                                  .withValues(
+                                    alpha:
+                                        resource?.scope.profileName ==
+                                            profile.name
+                                        ? 1
+                                        : 0.28,
+                                  ),
+                              width: resource?.scope.profileName == profile.name
+                                  ? 2
+                                  : 1,
+                            ),
                             shape: RoundedRectangleBorder(
-                              borderRadius: BorderRadius.circular(10),
+                              borderRadius: BorderRadius.circular(6),
                             ),
                           ),
                           child: Semantics(
