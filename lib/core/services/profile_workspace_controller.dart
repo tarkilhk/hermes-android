@@ -1095,10 +1095,11 @@ class ProfileWorkspaceController extends ChangeNotifier {
           .take(targetIndex + 1)
           .where(isBranchMessage)
           .toList();
-      final result = await resource.gateway.branch(
-        source.runtimeId,
-        target.branchCount,
+      final count = await resource.gateway.branchCountThrough(
+        source.key.sessionId,
+        selectedId,
       );
+      final result = await resource.gateway.branch(source.runtimeId, count);
       final id = result['stored_session_id'];
       if (id is! String ||
           id.isEmpty ||
