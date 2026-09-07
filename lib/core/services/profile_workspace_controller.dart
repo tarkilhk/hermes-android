@@ -1020,7 +1020,12 @@ class ProfileWorkspaceController extends ChangeNotifier {
     int index,
   ) async {
     final resource = _owned(chat);
-    if (chat.busy || chat.changingAnswer || chat.changingIntelligence || switching) return;
+    if (chat.busy ||
+        chat.changingAnswer ||
+        chat.changingIntelligence ||
+        switching) {
+      return;
+    }
     if (!resource.answerVersions.contains(group) ||
         !group.selections.containsKey(chat.key.sessionId) ||
         index < 0 ||
@@ -1046,7 +1051,12 @@ class ProfileWorkspaceController extends ChangeNotifier {
     bool regenerate = false,
   }) async {
     final resource = _owned(source);
-    if (source.busy || source.changingAnswer || source.changingIntelligence || switching) return null;
+    if (source.busy ||
+        source.changingAnswer ||
+        source.changingIntelligence ||
+        switching) {
+      return null;
+    }
     if (messageIndex < 0 || messageIndex >= source.messages.length) {
       throw ArgumentError('Unknown answer');
     }
@@ -1324,8 +1334,9 @@ class ProfileWorkspaceController extends ChangeNotifier {
         }
       }
     }
-    if (choices.isEmpty)
+    if (choices.isEmpty) {
       throw StateError('This profile returned no selectable models.');
+    }
     chat.model ??= defaults['model']?.toString();
     chat.provider ??= defaults['provider']?.toString();
     chat.reasoningEffort =
@@ -1362,8 +1373,9 @@ class ProfileWorkspaceController extends ChangeNotifier {
         result['confirm_message']?.toString() ?? 'Model needs confirmation.',
       );
     }
-    if (chat.runtimeId != runtime)
+    if (chat.runtimeId != runtime) {
       throw StateError('Chat reconnected. Try applying again.');
+    }
     chat.model = selection.choice.model;
     chat.provider = selection.choice.provider;
     // Save the acknowledged model even if the separate reasoning request fails.
@@ -1373,8 +1385,9 @@ class ProfileWorkspaceController extends ChangeNotifier {
       'key': 'reasoning',
       'value': selection.reasoningEffort,
     });
-    if (chat.runtimeId != runtime)
+    if (chat.runtimeId != runtime) {
       throw StateError('Chat reconnected. Try applying again.');
+    }
     chat.reasoningEffort = selection.reasoningEffort;
     await _saveIntelligence(chat);
     chat.intelligenceRuntime = runtime;

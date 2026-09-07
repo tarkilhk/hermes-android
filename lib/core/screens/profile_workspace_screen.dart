@@ -244,7 +244,11 @@ class _ProfileWorkspaceScreenState extends State<ProfileWorkspaceScreen>
         isBranchMessage(message);
     final group = controller.answerVersionsForMessage(chat, message);
     final selected = group?.selections[chat.key.sessionId] ?? 0;
-    final enabled = !chat.busy && !chat.changingAnswer && !chat.changingIntelligence && !controller.switching;
+    final enabled =
+        !chat.busy &&
+        !chat.changingAnswer &&
+        !chat.changingIntelligence &&
+        !controller.switching;
     return Column(
       crossAxisAlignment: CrossAxisAlignment.stretch,
       children: [
@@ -560,8 +564,10 @@ class _ProfileWorkspaceScreenState extends State<ProfileWorkspaceScreen>
       if (!mounted ||
           !context.mounted ||
           controller.current?.chat != chat ||
-          controller.switching)
+          controller.switching) {
         return;
+      }
+      setState(() => _loadingIntelligence = null);
       final choice = options.choices
           .where(
             (choice) =>
@@ -584,8 +590,9 @@ class _ProfileWorkspaceScreenState extends State<ProfileWorkspaceScreen>
         defaultModel: options.defaultModel,
         defaultProvider: options.defaultProvider,
       );
-      if (selection != null && mounted)
+      if (selection != null && mounted) {
         await controller.setIntelligence(chat, selection);
+      }
     } finally {
       if (mounted) setState(() => _loadingIntelligence = null);
     }

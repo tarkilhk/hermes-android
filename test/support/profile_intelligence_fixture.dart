@@ -33,10 +33,12 @@ class ProfileIntelligenceFixture extends ProfileBrowserFixture {
         if (method == 'config.get') return {'value': 'high'};
         if (method == 'config.set') {
           writes.add(Map.of(params));
-          if (params['key'] == 'model' && confirmModel)
+          if (params['key'] == 'model' && confirmModel) {
             return {'confirm_required': true};
-          if (params['key'] == 'reasoning' && failReasoning)
+          }
+          if (params['key'] == 'reasoning' && failReasoning) {
             throw StateError('Reasoning rejected');
+          }
           return {'status': 'ok'};
         }
         final result = await base.call(method, params);
