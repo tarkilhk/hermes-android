@@ -56,7 +56,12 @@ void main() {
         chat.messages.map((r) => r['id']).toList(),
         List.generate(620, (i) => i + 1),
       );
-      expect(host.calls.last.$3['omit_messages'], true);
+      expect(
+        host.calls
+            .lastWhere((call) => call.$2 == 'session.resume')
+            .$3['omit_messages'],
+        true,
+      );
       final reads = host.reads.where((r) => r.$1.endsWith('/messages'));
       expect(
         reads.every(

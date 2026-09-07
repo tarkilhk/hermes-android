@@ -17,7 +17,7 @@ import '../widgets/slash_command_suggestions.dart';
 import 'profile_workspace_browser.dart';
 import 'profile_transcript.dart';
 
-/// Phone workspace: host/profile stays visible above sessions or a conversation.
+/// Phone workspace with profile selection outside the conversation.
 /// Network work and drafts belong to the application controller.
 class ProfileWorkspaceScreen extends StatefulWidget {
   final ProfileWorkspaceController controller;
@@ -146,31 +146,19 @@ class _ProfileWorkspaceScreenState extends State<ProfileWorkspaceScreen>
                   overflow: TextOverflow.ellipsis,
                   style: Theme.of(context).textTheme.titleMedium,
                 ),
-                PopupMenuButton<String>(
-                  tooltip: 'Switch profile',
-                  enabled: !controller.switching,
-                  onSelected: (name) =>
-                      unawaited(controller.navigateProfile(name)),
-                  itemBuilder: (_) => [
-                    for (final profile in controller.discovery?.profiles ?? [])
-                      PopupMenuItem(
-                        value: profile.name,
-                        child: Text(profile.label),
+                Row(
+                  children: [
+                    const Icon(Icons.folder_outlined, size: 14),
+                    const SizedBox(width: 5),
+                    Flexible(
+                      child: Text(
+                        '${controller.connection.label} · ${controller.chatProjectLabel(chat)}',
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                        style: Theme.of(context).textTheme.labelMedium,
                       ),
+                    ),
                   ],
-                  child: Row(
-                    mainAxisSize: MainAxisSize.min,
-                    children: [
-                      Flexible(
-                        child: Text(
-                          '${controller.connection.label} · ${current!.scope.profileName}',
-                          overflow: TextOverflow.ellipsis,
-                          style: Theme.of(context).textTheme.labelMedium,
-                        ),
-                      ),
-                      const Icon(Icons.expand_more),
-                    ],
-                  ),
                 ),
               ],
             ),
