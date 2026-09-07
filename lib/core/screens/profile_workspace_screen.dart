@@ -189,7 +189,7 @@ class _ProfileWorkspaceScreenState extends State<ProfileWorkspaceScreen>
                   content: Text(controller.error!),
                   actions: [
                     TextButton(
-                      onPressed: () => _run(controller.refresh),
+                      onPressed: () => _run(controller.retry),
                       child: const Text('Retry'),
                     ),
                   ],

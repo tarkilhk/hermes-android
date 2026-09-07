@@ -693,7 +693,7 @@ class _ProfileWorkspaceBrowserState extends State<ProfileWorkspaceBrowser> {
               ListTile(
                 title: Text(controller.error!),
                 trailing: TextButton(
-                  onPressed: () => _run(controller.refresh),
+                  onPressed: () => _run(controller.retry),
                   child: const Text('Retry'),
                 ),
               ),
