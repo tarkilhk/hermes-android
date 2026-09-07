@@ -212,7 +212,7 @@ void main() {
                   .first
                   .widget
               as SelectableText;
-      final text = visible.data!;
+      final text = visible.data ?? visible.textSpan!.toPlainText();
       final before = tester.getTopLeft(find.text(text)).dy;
       await controller.loadOlderMessages(chat);
       await tester.pumpAndSettle();
