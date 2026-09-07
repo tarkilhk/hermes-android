@@ -36,6 +36,73 @@ void main() {
     );
   }
 
+  testWidgets('chat header shows gateway and project without a switcher', (
+    tester,
+  ) async {
+    final chat = await controller.createChat(
+      inProject: controller.current!.projects.first,
+    );
+    await show(tester);
+    await tester.pumpAndSettle();
+    final header = find.descendant(
+      of: find.byType(AppBar),
+      matching: find.text('Prestige · Mobile app'),
+    );
+    expect(header, findsOneWidget);
+    expect(find.byTooltip('Switch profile'), findsNothing);
+    expect(
+      find.descendant(
+        of: find.byType(AppBar),
+        matching: find.byIcon(Icons.folder_outlined),
+      ),
+      findsOneWidget,
+    );
+    await tester.tap(header);
+    await tester.pumpAndSettle();
+    expect(controller.current!.chat, same(chat));
+    expect(find.text('work'), findsNothing);
+    await tester.tap(find.byTooltip('Back to sessions'));
+    await tester.pumpAndSettle();
+    expect(find.byKey(const ValueKey('profile-work')), findsOneWidget);
+  });
+
+  testWidgets('reopened chat resolves its project from server membership', (
+    tester,
+  ) async {
+    await controller.openSession(
+      ProfileSessionKey(controller.current!.scope, 'project-only'),
+    );
+    await show(tester);
+    await tester.pumpAndSettle();
+    expect(find.text('Prestige · Mobile app'), findsOneWidget);
+    expect(controller.current!.chat!.projectId, 'p2');
+  });
+
+  testWidgets('unassigned chat does not inherit the selected project', (
+    tester,
+  ) async {
+    await controller.selectProject(controller.current!.projects.first);
+    await controller.openSession(
+      ProfileSessionKey(controller.current!.scope, 'newest'),
+    );
+    await show(tester);
+    await tester.pumpAndSettle();
+    expect(find.text('Prestige · Unassigned'), findsOneWidget);
+  });
+
+  testWidgets('project lookup failure keeps the chat accessible', (
+    tester,
+  ) async {
+    controller.current!.projectsError = 'Projects unavailable';
+    await controller.openSession(
+      ProfileSessionKey(controller.current!.scope, 'newest'),
+    );
+    await show(tester);
+    await tester.pumpAndSettle();
+    expect(find.text('Prestige · Project unavailable'), findsOneWidget);
+    expect(find.byTooltip('Back to sessions'), findsOneWidget);
+  });
+
   testWidgets(
     'root shows five recent projects, then distinct pinned and recent chats',
     (tester) async {

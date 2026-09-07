@@ -72,6 +72,8 @@ class ProfileChat {
   String title;
   double lastActive = DateTime.now().millisecondsSinceEpoch / 1000;
   String? projectId;
+  bool projectLoading = false;
+  bool projectLookupFailed = false;
   String? model;
   String? provider;
   String? reasoningEffort;
@@ -667,7 +669,63 @@ class ProfileWorkspaceController extends ChangeNotifier {
       resource.selectedSession = key.sessionId;
     }
     _changed();
-    if (current?.chat == chat) await refreshHistory(chat);
+    if (current?.chat == chat) {
+      if (chat.projectId == null) unawaited(_loadChatProject(resource, chat));
+      await refreshHistory(chat);
+    }
+  }
+
+  String chatProjectLabel(ProfileChat chat) {
+    final resource = _owned(chat);
+    if (chat.projectId != null) {
+      return resource.projects
+                  .where((project) => project['id'] == chat.projectId)
+                  .firstOrNull?['name']
+              as String? ??
+          'Project unavailable';
+    }
+    if (chat.projectLoading) return 'Loading project';
+    if (chat.projectLookupFailed) return 'Project unavailable';
+    return 'Unassigned';
+  }
+
+  Future<void> _loadChatProject(
+    ProfileWorkspaceData resource,
+    ProfileChat chat,
+  ) async {
+    if (chat.projectLoading) return;
+    if (resource.selectedProject != null &&
+        resource.projectSessions.any(
+          (row) => row['id'] == chat.key.sessionId,
+        )) {
+      chat.projectId = resource.selectedProject!['id'] as String;
+      _changed();
+      return;
+    }
+    chat.projectLoading = true;
+    chat.projectLookupFailed = false;
+    _changed();
+    try {
+      if (resource.projectsError != null) {
+        throw StateError('Projects unavailable');
+      }
+      // Ask the server for membership, including chats outside recent previews.
+      for (final project in resource.projects) {
+        final rows = await resource.gateway.projectSessions(
+          project['id'] as String,
+        );
+        if (_closed || chat.projectId != null) return;
+        if (rows.any((row) => row['id'] == chat.key.sessionId)) {
+          chat.projectId = project['id'] as String;
+          return;
+        }
+      }
+    } catch (_) {
+      chat.projectLookupFailed = true;
+    } finally {
+      chat.projectLoading = false;
+      _changed();
+    }
   }
 
   void showList() {
