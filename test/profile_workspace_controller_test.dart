@@ -1,5 +1,7 @@
 import 'dart:async';
+import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:hermes_android/core/screens/profile_workspace_screen.dart';
 import 'package:hermes_android/core/models/hermes_profile.dart';
 import 'package:hermes_android/core/services/connection_manager.dart';
 import 'package:hermes_android/core/services/profile_gateway.dart';
@@ -18,6 +20,9 @@ class Host {
   final closed = <String>[];
   List<String> profiles = ['a', 'b'];
   bool running = true;
+  int connectFailures = 0;
+  int connectCalls = 0;
+  int resumeFailures = 0;
   Map<String, dynamic>? inflight;
   Completer<void>? projectDelay;
   bool wrongProjectOwner = false;
@@ -32,6 +37,13 @@ class Host {
     return gateways[name] = ProfileGateway(
       scope: scope,
       discover: discover,
+      connect: () async {
+        connectCalls++;
+        if (connectFailures > 0) {
+          connectFailures--;
+          throw StateError('Network is waking up');
+        }
+      },
       close: () => closed.add(name),
       get: (path, query) async {
         reads.add((path, query));
@@ -62,6 +74,10 @@ class Host {
       },
       rpc: (method, params) async {
         calls.add((name, method, params));
+        if (method == 'session.resume' && resumeFailures > 0) {
+          resumeFailures--;
+          throw TimeoutException('Session resume temporarily unavailable');
+        }
         if (method == 'clarify.respond') return clarifyResult;
         if (method == 'projects.tree') {
           return {
@@ -415,6 +431,148 @@ void main() {
       expect(host.calls.where((c) => c.$2 == 'prompt.submit').length, 1);
     },
   );
+
+  testWidgets('idle chat recovers after a transient reconnect failure', (
+    tester,
+  ) async {
+    final chat = await controller.createChat();
+    host.running = false;
+    host.connectFailures = 1;
+    host.gateways['a']!.onConnectionChanged!(false);
+    await tester.pump(const Duration(seconds: 1));
+    expect(controller.error, isNull);
+    await tester.pump(const Duration(seconds: 2));
+    await tester.runAsync(() => Future<void>.delayed(Duration.zero));
+    await tester.pump();
+
+    expect(host.calls.where((c) => c.$2 == 'session.resume'), hasLength(1));
+    expect(controller.error, isNull);
+    expect(chat.status, ProfileTurnStatus.idle);
+    expect(host.calls.where((c) => c.$2 == 'prompt.submit'), isEmpty);
+  });
+
+  testWidgets('successful automatic recovery clears the reconnect banner', (
+    tester,
+  ) async {
+    final chat = await controller.createChat();
+    chat.draft = 'once';
+    await tester.runAsync(() => controller.send(chat));
+    host.connectFailures = 1;
+    host.gateways['a']!.onConnectionChanged!(false);
+    await tester.pump(const Duration(seconds: 1));
+    await tester.pump(const Duration(seconds: 2));
+    await tester.runAsync(() => Future<void>.delayed(Duration.zero));
+    await tester.pump();
+
+    expect(chat.status, ProfileTurnStatus.running);
+    expect(controller.error, isNull);
+    expect(host.calls.where((c) => c.$2 == 'prompt.submit'), hasLength(1));
+  });
+
+  testWidgets('idle chat retries a transient session resume failure', (
+    tester,
+  ) async {
+    final chat = await controller.createChat();
+    host.running = false;
+    host.resumeFailures = 1;
+    await controller.reconnect(chat.key.workspace);
+    await tester.pump(const Duration(seconds: 1));
+    await tester.runAsync(() => Future<void>.delayed(Duration.zero));
+    await tester.pump();
+    expect(host.calls.where((c) => c.$2 == 'session.resume'), hasLength(2));
+    expect(controller.error, isNull);
+    expect(controller.current!.retry, isNull);
+  });
+
+  testWidgets('reconnect exhausts its budget and Retry restores the chat', (
+    tester,
+  ) async {
+    final chat = await controller.createChat();
+    host.running = false;
+    host.connectFailures = 5;
+    await tester.pumpWidget(
+      MaterialApp(home: ProfileWorkspaceScreen(controller: controller)),
+    );
+    final before = host.connectCalls;
+    host.gateways['a']!.onConnectionChanged!(false);
+    for (final seconds in [1, 2, 4, 8]) {
+      await tester.pump(Duration(seconds: seconds));
+      expect(controller.error, isNull);
+      expect(find.byType(MaterialBanner), findsNothing);
+    }
+    await tester.pump(const Duration(seconds: 16));
+    expect(controller.error, contains('Could not reconnect to a'));
+    expect(find.byType(MaterialBanner), findsOneWidget);
+    expect(host.connectCalls - before, 5);
+    await tester.pump(const Duration(minutes: 1));
+    expect(host.connectCalls - before, 5);
+
+    // The first manual attempt may also hit a transient error. It must get a
+    // fresh retry budget after the previous outage exhausted automatic retry.
+    host.connectFailures = 1;
+    await tester.tap(find.text('Retry'));
+    await tester.pump();
+    await tester.pump(const Duration(seconds: 1));
+    await tester.runAsync(() => Future<void>.delayed(Duration.zero));
+    await tester.pump();
+    expect(controller.error, isNull);
+    expect(find.byType(MaterialBanner), findsNothing);
+    expect(host.calls.where((c) => c.$2 == 'session.resume'), hasLength(1));
+    expect(chat.status, ProfileTurnStatus.idle);
+    expect(host.calls.where((c) => c.$2 == 'prompt.submit'), isEmpty);
+  });
+
+  testWidgets('manual reconnect cancels a pending automatic retry', (
+    tester,
+  ) async {
+    await controller.createChat();
+    host.running = false;
+    host.gateways['a']!.onConnectionChanged!(false);
+    await tester.runAsync(
+      () => controller.reconnect(controller.current!.scope),
+    );
+    final before = host.connectCalls;
+    await tester.pump(const Duration(minutes: 1));
+    expect(host.connectCalls, before);
+    expect(controller.current!.retry, isNull);
+  });
+
+  test(
+    'refresh resumes the selected chat and keeps unrelated errors',
+    () async {
+      final chat = await controller.createChat();
+      host.running = false;
+      await controller.refresh();
+      expect(host.calls.where((c) => c.$2 == 'session.resume'), hasLength(1));
+      expect(chat.status, ProfileTurnStatus.idle);
+
+      controller.error = 'An unrelated operation failed';
+      await controller.reconnect(chat.key.workspace);
+      expect(controller.error, 'An unrelated operation failed');
+    },
+  );
+
+  testWidgets('background reconnect errors stay with their profile', (
+    tester,
+  ) async {
+    final a = controller.current!;
+    await controller.switchProfile('b');
+    host.connectFailures = 5;
+    host.gateways['a']!.onConnectionChanged!(false);
+    for (final seconds in [1, 2, 4, 8, 16]) {
+      await tester.pump(Duration(seconds: seconds));
+    }
+    expect(a.reconnectError, contains('Could not reconnect to a'));
+    expect(controller.error, isNull);
+    await tester.runAsync(
+      () => controller.reconnect(controller.current!.scope),
+    );
+    expect(a.reconnectError, isNotNull);
+    await controller.switchProfile('a');
+    expect(controller.error, contains('Could not reconnect to a'));
+    await tester.runAsync(controller.retry);
+    expect(controller.error, isNull);
+  });
 
   test('background approval stays with its owning profile', () async {
     final a = await controller.createChat();

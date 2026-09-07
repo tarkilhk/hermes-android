@@ -160,6 +160,7 @@ class ProfileWorkspaceData {
   int reconnectAttempt = 0;
   Timer? retry;
   bool reconnecting = false;
+  String? reconnectError;
   List<AnswerVersionGroup> answerVersions = [];
   ProfileWorkspaceData(this.gateway);
   WorkspaceScope get scope => gateway.scope;
@@ -186,7 +187,9 @@ class ProfileWorkspaceController extends ChangeNotifier {
   ProfileDiscovery? discovery;
   ProfileWorkspaceData? current;
   String? pendingProfile;
-  String? error;
+  String? _error;
+  String? get error => _error ?? current?.reconnectError;
+  set error(String? value) => _error = value;
   bool visible = false;
   int _generation = 0;
   int _navigationGeneration = 0;
@@ -349,8 +352,19 @@ class ProfileWorkspaceController extends ChangeNotifier {
       return;
     }
     resource.commandCatalog = null;
-    await switchProfile(resource.scope.profileName);
+    if (await switchProfile(resource.scope.profileName)) {
+      await reconnect(resource.scope);
+    }
     if (_unrestoredPending.isNotEmpty) await _restorePending();
+  }
+
+  Future<void> retry() async {
+    final resource = current;
+    if (_error == null && resource?.reconnectError != null) {
+      await reconnect(resource!.scope);
+    } else {
+      await refresh();
+    }
   }
 
   /// Profile navigation always enters that profile's root tree, never a stale
@@ -2014,7 +2028,7 @@ class ProfileWorkspaceController extends ChangeNotifier {
       Duration(seconds: 1 << resource.reconnectAttempt++),
       () {
         resource.retry = null;
-        unawaited(reconnect(resource.scope));
+        unawaited(_reconnect(resource));
       },
     );
   }
@@ -2022,7 +2036,19 @@ class ProfileWorkspaceController extends ChangeNotifier {
   Future<void> reconnect(WorkspaceScope scope) async {
     final resource = _resources[scope];
     if (resource == null || resource.reconnecting || _closed) return;
+    // A user retry or app resume starts a fresh, bounded recovery window.
+    resource.retry?.cancel();
+    resource.retry = null;
+    resource.reconnectAttempt = 0;
+    resource.reconnectError = null;
+    await _reconnect(resource);
+  }
+
+  Future<void> _reconnect(ProfileWorkspaceData resource) async {
+    if (resource.reconnecting || _closed) return;
     resource.reconnecting = true;
+    _changed();
+    var failed = false;
     try {
       await resource.gateway.connect();
       for (final chat in resource.chats.values.toList()) {
@@ -2034,17 +2060,26 @@ class ProfileWorkspaceController extends ChangeNotifier {
           _notify(chat, chat.status == ProfileTurnStatus.failed);
         }
       }
-      resource.reconnectAttempt = 0;
       await _journal();
+      resource.reconnectAttempt = 0;
+      resource.reconnectError = null;
     } catch (_) {
-      error =
-          'Could not reconnect to ${scope.profileName}. No prompts were resent.';
+      failed = true;
+      // Short network interruptions are normal when Android wakes up. Report
+      // failure only once automatic recovery has exhausted its retry window.
+      if (resource.reconnectAttempt >= 5) {
+        resource.reconnectError =
+            'Could not reconnect to ${resource.scope.profileName}. No prompts were resent.';
+      }
     } finally {
       resource.reconnecting = false;
       _changed();
-      if (resource.chats.values.any(
-        (c) => c.status == ProfileTurnStatus.reconnecting,
-      )) {
+      // Idle conversations and the session list also need recovery. A failed
+      // connection must not depend on whether a prompt happens to be running.
+      if (failed ||
+          resource.chats.values.any(
+            (c) => c.status == ProfileTurnStatus.reconnecting,
+          )) {
         _scheduleReconnect(resource);
       }
     }
