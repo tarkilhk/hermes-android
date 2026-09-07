@@ -218,7 +218,7 @@ void main() {
     });
 
     testWidgets(
-      'single-line composer uses one compact row with full tap targets',
+      'composer keeps text above model controls with full tap targets',
       (tester) async {
         tester.view.physicalSize = const Size(360, 800);
         tester.view.devicePixelRatio = 1;
@@ -228,7 +228,17 @@ void main() {
           tester
               .getSize(find.byKey(const ValueKey('conversation-composer')))
               .height,
-          lessThanOrEqualTo(72),
+          lessThanOrEqualTo(120),
+        );
+        expect(
+          tester
+              .getBottomLeft(find.byKey(const Key('profile-message-composer')))
+              .dy,
+          lessThanOrEqualTo(
+            tester
+                .getTopLeft(find.byKey(const Key('chat-intelligence-button')))
+                .dy,
+          ),
         );
         for (final tooltip in ['Attach file', 'Send']) {
           expect(
