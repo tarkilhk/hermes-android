@@ -1,0 +1,93 @@
+import 'package:flutter/foundation.dart';
+import 'package:flutter_test/flutter_test.dart';
+import 'package:integration_test/integration_test.dart';
+import 'package:shared_preferences/shared_preferences.dart';
+
+import 'package:hermes_android/main.dart';
+import 'package:hermes_android/core/screens/profile_workspace_screen.dart';
+import 'package:hermes_android/core/services/connection_manager.dart';
+import 'package:hermes_android/core/services/profile_selection_store.dart';
+import 'package:hermes_android/core/services/profile_connection_identity.dart';
+import 'package:hermes_android/core/services/profile_workspace_controller.dart';
+
+/// No model call. Build this target, install with adb install -r to preserve the
+/// user's notification grant, and launch it. Tap the QA notification when posted.
+/// This exercises the production native notification sink and navigation handler.
+void main() {
+  IntegrationTestWidgetsFlutterBinding.ensureInitialized();
+  const port = int.fromEnvironment('HERMES_TEST_PORT');
+  testWidgets(
+    'native notification returns B to the original A session',
+    (tester) async {
+      expect(port, greaterThan(0));
+      final preferences = await SharedPreferences.getInstance();
+      final manager = await ConnectionManager.create(preferences);
+      final connection = SavedConnection(
+        id: 'prestige-notification-qa',
+        label: 'Prestige notification QA',
+        host: '127.0.0.1',
+        port: port,
+        dashboardPortOverride: port,
+        apiKey: '',
+      );
+      await manager.importConnections([connection], replaceExisting: false);
+      await preferences.setString('last_connection_id', connection.id);
+      await ProfileSelectionStore(preferences).write(
+        await ProfileConnectionIdentity().resolve(connection),
+        'android-qa-a',
+      );
+      await tester.pumpWidget(HermesApp(connManager: manager));
+      Future<void> until(bool Function() condition, {int seconds = 30}) async {
+        final deadline = DateTime.now().add(Duration(seconds: seconds));
+        while (!condition() && DateTime.now().isBefore(deadline)) {
+          await tester.pump(const Duration(milliseconds: 200));
+        }
+        expect(condition(), isTrue);
+      }
+
+      await until(
+        () => find.byType(ProfileWorkspaceScreen).evaluate().isNotEmpty,
+      );
+      final controller = tester
+          .widget<ProfileWorkspaceScreen>(find.byType(ProfileWorkspaceScreen))
+          .controller;
+      await until(() => controller.current != null || controller.error != null);
+      expect(controller.error, isNull);
+      final resource = controller.current!;
+      expect(
+        resource.sessions,
+        isNotEmpty,
+        reason: 'Run the bounded live chat test first',
+      );
+      final key = ProfileSessionKey(
+        resource.scope,
+        resource.sessions.first['id'] as String,
+      );
+      await controller.openSession(key);
+      final chat = controller.current!.chat!;
+      chat.title = 'Notification QA: tap to reopen profile A';
+      expect(await controller.switchProfile('android-qa-b'), isTrue);
+      await tester.pumpAndSettle();
+      await controller.onAttention!(chat, false);
+      debugPrint(
+        '[notification-qa] Posted QA notification while profile B is visible. Tap it now.',
+      );
+      await until(
+        () =>
+            controller.current?.scope.profileName == 'android-qa-a' &&
+            controller.current?.chat?.key == key,
+        seconds: 120,
+      );
+      await tester.pumpAndSettle();
+      expect(controller.current!.chat!.key, key);
+      expect(
+        find.text('Notification QA: tap to reopen profile A'),
+        findsWidgets,
+      );
+      debugPrint(
+        '[notification-qa] PASS: native tap reopened the original profile A session.',
+      );
+    },
+    timeout: const Timeout(Duration(minutes: 3)),
+  );
+}

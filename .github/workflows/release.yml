@@ -176,6 +176,15 @@ jobs:
               [str(aapt_paths[-1]), "dump", "badging", apk_paths[0]],
               text=True,
           )
+          expected_package = (
+              "com.tarkilhk.hermes.android"
+              if os.environ.get("HAS_RELEASE_KEYSTORE") == "true"
+              else "com.hermesagent.hermes_android.dev"
+          )
+          if f"package: name='{expected_package}'" not in badging:
+              raise SystemExit("APK has the wrong application identity")
+          if os.environ.get("HAS_RELEASE_KEYSTORE") == "true" and "application-debuggable" in badging:
+              raise SystemExit("Signed release must not be debuggable")
           packaged_match = re.search(r"versionCode='(\d+)'", badging)
           if not packaged_match:
               raise SystemExit("arm64 APK versionCode was not readable")
@@ -236,6 +245,9 @@ jobs:
                   raise SystemExit(
                       f"Release APK {apk_path} carries no signing certificates"
                   )
+              expected_certificate = pathlib.Path("android/personal-release-certificate.sha256").read_text().strip()
+              if f"Signer #1 certificate SHA-256 digest: {expected_certificate}" not in verified.stdout:
+                  raise SystemExit("APK was signed with the wrong personal release key")
           print(f"Verified {len(apk_paths)} signed release APK(s)")
           PY
 

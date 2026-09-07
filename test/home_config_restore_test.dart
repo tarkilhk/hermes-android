@@ -1,15 +1,18 @@
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
-import 'package:hermes_android/core/screens/chat_screen.dart';
-import 'package:hermes_android/core/screens/session_list_screen.dart';
-import 'package:hermes_android/core/screens/workspace_screen.dart';
+import 'package:hermes_android/core/screens/profile_workspace_screen.dart';
+import 'package:hermes_android/core/models/hermes_profile.dart';
+import 'package:hermes_android/core/services/profile_gateway.dart';
+import 'package:hermes_android/core/services/profiles_repository.dart';
+import 'package:hermes_android/core/services/profile_workspace_controller.dart';
+import 'package:hermes_android/core/services/attachment_draft_service.dart';
+import 'package:hermes_android/core/models/attachment_draft.dart';
 import 'package:hermes_android/core/services/android_launch_intent_service.dart';
 import 'package:hermes_android/core/services/android_share_intent_service.dart';
 import 'package:hermes_android/core/services/config_backup_service.dart';
 import 'package:hermes_android/core/services/connection_manager.dart';
 import 'package:hermes_android/core/services/gateway_turn_application_controller.dart';
-import 'package:hermes_android/core/widgets/hermes_shell.dart';
 import 'package:hermes_android/main.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
@@ -45,6 +48,20 @@ class _MemoryCredentialStore implements CredentialStore {
   }
 }
 
+class _MissingFileService extends AttachmentDraftService {
+  @override
+  Future<AttachmentDraft> prepareGenericFile({
+    required String sourcePath,
+    required String displayName,
+    String mediaType = 'application/octet-stream',
+    required Iterable<AttachmentDraft> existingDrafts,
+  }) async {
+    throw const AttachmentDraftException(
+      'The selected file is empty or unreadable.',
+    );
+  }
+}
+
 Future<ConnectionManager> buildManager() async {
   SharedPreferences.setMockInitialValues(<String, Object>{});
   final prefs = await SharedPreferences.getInstance();
@@ -52,6 +69,41 @@ Future<ConnectionManager> buildManager() async {
     prefs,
     credentialStore: _MemoryCredentialStore(),
   );
+}
+
+ProfileWorkspaceController profileController(
+  SavedConnection connection,
+  SharedPreferences prefs,
+) {
+  final controller = ProfileWorkspaceController(
+    connectionIdentity: 'test-settings-${connection.id}',
+    attachmentService: _MissingFileService(),
+    connection: connection,
+    preferences: prefs,
+    gatewayFactory: (scope) => ProfileGateway(
+      scope: scope,
+      discover: () async => const ProfileDiscovery(
+        profiles: [HermesProfile(name: 'default')],
+        currentName: 'default',
+        activeName: 'default',
+      ),
+      get: (_, query) async => {
+        'sessions': <Map<String, dynamic>>[],
+        'offset': int.parse(query['offset']!),
+        'limit': int.parse(query['limit']!),
+        'total': 0,
+      },
+      rpc: (method, _) async => method == 'session.create'
+          ? {
+              'session_id': 'runtime',
+              'stored_session_id': 'stored',
+              'info': {'profile_name': 'default'},
+            }
+          : {'projects': <Map<String, dynamic>>[]},
+    ),
+  );
+  addTearDown(controller.dispose);
+  return controller;
 }
 
 Future<void> pumpHome(
@@ -66,6 +118,7 @@ Future<void> pumpHome(
   await tester.pumpWidget(
     MaterialApp(
       home: HomeScreen(
+        profileController: (conn) => profileController(conn, manager.prefs),
         connManager: manager,
         turnApplicationController: GatewayTurnApplicationController(
           sessionFactory: (_) => InertTurnApplicationSession(),
@@ -106,10 +159,9 @@ void main() {
     await tester.pump();
     await tester.pump(const Duration(milliseconds: 400));
 
-    expect(find.byType(WorkspaceScreen), findsOneWidget);
-    expect(find.byType(SessionListScreen), findsNothing);
-    for (final destination in HermesDestination.values) {
-      expect(find.text(destination.label), findsWidgets);
+    expect(find.byType(ProfileWorkspaceScreen), findsOneWidget);
+    for (final destination in ['Recents', 'Projects', 'New chat']) {
+      expect(find.text(destination), findsWidgets);
     }
   });
 
@@ -133,8 +185,8 @@ void main() {
     await pumpHome(tester, manager, launchIntents: launchIntents);
     await tester.pump(const Duration(milliseconds: 500));
 
-    expect(find.byType(ChatScreen), findsOneWidget);
-    expect(find.text('New chat'), findsNothing);
+    expect(find.byType(ProfileWorkspaceScreen), findsOneWidget);
+    expect(find.byKey(const Key('profile-message-composer')), findsOneWidget);
     expect(launchIntents.pendingQuickChat.value, isFalse);
   });
 
@@ -161,6 +213,7 @@ void main() {
     await tester.pumpWidget(
       MaterialApp(
         home: HomeScreen(
+          profileController: (conn) => profileController(conn, manager.prefs),
           connManager: manager,
           turnApplicationController: GatewayTurnApplicationController(
             sessionFactory: (_) => InertTurnApplicationSession(),
@@ -172,64 +225,68 @@ void main() {
     await tester.pump();
     await tester.pump(const Duration(milliseconds: 500));
 
-    expect(find.text('Share to Hermes'), findsOneWidget);
-    await tester.pumpAndSettle();
-    await tester.tap(find.text('Continue'));
-    await tester.pump();
-    await tester.pump(const Duration(seconds: 2));
-
-    expect(find.byType(ChatScreen), findsOneWidget);
-    expect(find.byKey(const Key('chat-message-composer')), findsOneWidget);
+    expect(find.byType(ProfileWorkspaceScreen), findsOneWidget);
+    expect(find.byKey(const Key('profile-message-composer')), findsOneWidget);
+    expect(
+      tester
+          .widget<TextField>(find.byKey(const Key('profile-message-composer')))
+          .controller!
+          .text,
+      'Summarize https://example.com/shared',
+    );
     expect(shareIntents.pendingShare.value, isNull);
   });
 
-  testWidgets('a cold-start file-only share opens the review sheet', (
-    tester,
-  ) async {
-    const channel = MethodChannel(AndroidShareIntentService.channelName);
-    TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger
-        .setMockMethodCallHandler(
-          channel,
-          (_) async => {
-            'files': [
-              {
-                'path': '/cache/shared/report.pdf',
-                'name': 'report.pdf',
-                'mediaType': 'application/pdf',
-                'byteLength': 42,
-              },
-            ],
-          },
-        );
-    addTearDown(
-      () => TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger
-          .setMockMethodCallHandler(channel, null),
-    );
+  testWidgets(
+    'a file-only share opens scoped composer and reports missing source',
+    (tester) async {
+      const channel = MethodChannel(AndroidShareIntentService.channelName);
+      TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger
+          .setMockMethodCallHandler(
+            channel,
+            (_) async => {
+              'files': [
+                {
+                  'path': '/cache/shared/report.pdf',
+                  'name': 'report.pdf',
+                  'mediaType': 'application/pdf',
+                  'byteLength': 42,
+                },
+              ],
+            },
+          );
+      addTearDown(
+        () => TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger
+            .setMockMethodCallHandler(channel, null),
+      );
 
-    final shareIntents = AndroidShareIntentService();
-    await shareIntents.initialize();
-    addTearDown(shareIntents.dispose);
-    final manager = await buildManager();
-    await manager.saveConnection('Miniserver', 'host', 8642, 'key');
+      final shareIntents = AndroidShareIntentService();
+      await shareIntents.initialize();
+      addTearDown(shareIntents.dispose);
+      final manager = await buildManager();
+      await manager.saveConnection('Miniserver', 'host', 8642, 'key');
 
-    await tester.pumpWidget(
-      MaterialApp(
-        home: HomeScreen(
-          connManager: manager,
-          turnApplicationController: GatewayTurnApplicationController(
-            sessionFactory: (_) => InertTurnApplicationSession(),
+      await tester.pumpWidget(
+        MaterialApp(
+          home: HomeScreen(
+            profileController: (conn) => profileController(conn, manager.prefs),
+            connManager: manager,
+            turnApplicationController: GatewayTurnApplicationController(
+              sessionFactory: (_) => InertTurnApplicationSession(),
+            ),
+            shareIntents: shareIntents,
           ),
-          shareIntents: shareIntents,
         ),
-      ),
-    );
-    await tester.pump();
-    await tester.pump(const Duration(milliseconds: 500));
+      );
+      await tester.pump();
+      await tester.pump(const Duration(milliseconds: 500));
 
-    expect(find.text('Share to Hermes'), findsOneWidget);
-    expect(find.text('report.pdf'), findsOneWidget);
-    expect(shareIntents.pendingShare.value, isNull);
-  });
+      expect(find.byType(ProfileWorkspaceScreen), findsOneWidget);
+      expect(find.byKey(const Key('profile-message-composer')), findsOneWidget);
+      expect(find.textContaining('empty or unreadable'), findsOneWidget);
+      expect(shareIntents.pendingShare.value, isNull);
+    },
+  );
 
   testWidgets('restore stays reachable once connections exist', (tester) async {
     final manager = await buildManager();

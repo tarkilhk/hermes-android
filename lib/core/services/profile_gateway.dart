@@ -1,0 +1,493 @@
+// Named transport seams keep request functions injectable.
+// ignore_for_file: prefer_initializing_formals
+
+import 'dart:async';
+
+import '../models/hermes_profile.dart';
+import 'connection_manager.dart';
+import 'profiles_repository.dart';
+import 'ws_client.dart';
+
+typedef ScopedGet =
+    Future<Map<String, dynamic>> Function(
+      String endpoint,
+      Map<String, String> query,
+    );
+typedef ScopedRpc =
+    Future<Map<String, dynamic>> Function(
+      String method,
+      Map<String, dynamic> params,
+    );
+
+typedef ScopedPatch =
+    Future<Map<String, dynamic>> Function(
+      String endpoint,
+      Map<String, dynamic> body,
+    );
+typedef ScopedDelete =
+    Future<void> Function(String endpoint, Map<String, String> query);
+
+/// The REST page may include extra pinned rows outside its offset window.
+class ProfileSessionPage {
+  final List<Map<String, dynamic>> rows;
+  final int offset;
+  final int limit;
+  final int total;
+  const ProfileSessionPage({
+    required this.rows,
+    required this.offset,
+    required this.limit,
+    required this.total,
+  });
+  int? get nextOffset => offset + limit < total ? offset + limit : null;
+}
+
+class ProfileHistoryPage {
+  final String sessionId;
+  final List<Map<String, dynamic>> rows;
+  final int offset;
+  final int limit;
+  const ProfileHistoryPage(this.sessionId, this.rows, this.offset, this.limit);
+  int? get nextOffset => rows.length == limit ? offset + rows.length : null;
+}
+
+/// The stock modern Hermes contract. All profile-owned traffic passes through
+/// this immutable scope. There is no unscoped or experimental-recovery fallback.
+class ProfileGateway {
+  final WorkspaceScope scope;
+  final ScopedGet _get;
+  final ScopedRpc _rpc;
+  final ScopedPatch? _patch;
+  final ScopedDelete? _delete;
+  final Future<void> Function() _connect;
+  final void Function() _close;
+  final Future<ProfileDiscovery> Function() discover;
+  StreamCallback? onEvent;
+  ConnectionCallback? onConnectionChanged;
+
+  ProfileGateway({
+    required this.scope,
+    required ScopedGet get,
+    required ScopedRpc rpc,
+    ScopedPatch? patch,
+    ScopedDelete? delete,
+    required this.discover,
+    Future<void> Function()? connect,
+    void Function()? close,
+  }) : _get = get,
+       _rpc = rpc,
+       _patch = patch,
+       _delete = delete,
+       _connect = connect ?? _nothing,
+       _close = close ?? _noop;
+
+  static Future<void> _nothing() async {}
+  static void _noop() {}
+
+  factory ProfileGateway.forConnection(
+    SavedConnection connection,
+    WorkspaceScope scope,
+  ) {
+    if (scope.connectionId != connection.id) {
+      throw ArgumentError('Connection does not own this workspace');
+    }
+    final dashboard = DashboardClient(
+      host: connection.host,
+      port: connection.dashboardPort,
+      useHttps: connection.useHttps,
+      pathPrefix: connection.dashboardPrefix ?? '',
+      proxied: connection.dashboardProxied,
+      username: connection.dashboardUsername,
+      password: connection.dashboardPassword,
+    );
+    WsClient? socket;
+    var connected = false;
+    Future<void>? connecting;
+    late final ProfileGateway gateway;
+    Future<void> open() async {
+      final credentials = await dashboard.gatewayCredentials();
+      final candidate = WsClient(
+        connection.desktopGatewayUrl ?? dashboard.baseUrl,
+        token: credentials.token,
+        ticket: credentials.ticket,
+      );
+      candidate.onStreamEvent = (event) => gateway.onEvent?.call(event);
+      candidate.onConnectionChanged = (value) {
+        connected = value;
+        gateway.onConnectionChanged?.call(value);
+      };
+      try {
+        await candidate.connect();
+        await candidate.waitForGatewayReady();
+        socket = candidate;
+      } catch (_) {
+        candidate.close();
+        rethrow;
+      }
+    }
+
+    gateway = ProfileGateway(
+      scope: scope,
+      get: (endpoint, query) => dashboard
+          .apiGet(endpoint, queryParameters: query)
+          .timeout(const Duration(seconds: 20)),
+      patch: (endpoint, body) => dashboard
+          .apiPatch(endpoint, body: body)
+          .timeout(const Duration(seconds: 20)),
+      delete: (endpoint, query) => dashboard
+          .apiDelete(
+            Uri.parse(endpoint).replace(queryParameters: query).toString(),
+          )
+          .timeout(const Duration(seconds: 20)),
+      rpc: (method, params) async {
+        final current = socket;
+        if (current == null) throw StateError('Gateway is not connected');
+        final envelope = await current.send(method, params);
+        final error = envelope['error'];
+        if (error is Map) {
+          throw JsonRpcError.fromGateway(
+            method,
+            error,
+            fallbackMessage: 'Gateway request failed',
+          );
+        }
+        final result = envelope['result'];
+        if (result is! Map) throw const FormatException('Missing RPC result');
+        return Map<String, dynamic>.from(result);
+      },
+      discover: () => ProfilesRepository(
+        dashboard.apiGet,
+      ).discover().timeout(const Duration(seconds: 20)),
+      connect: () =>
+          connecting ??
+          (connected && socket != null
+              ? Future<void>.value()
+              : connecting = (() async {
+                  socket?.close();
+                  socket = null;
+                  try {
+                    await open();
+                  } finally {
+                    connecting = null;
+                  }
+                })()),
+      close: () {
+        socket?.close();
+        dashboard.close();
+      },
+    );
+    return gateway;
+  }
+
+  Future<void> connect() => _connect();
+  void close() => _close();
+
+  /// Revalidate immediately before writes. Stock servers can still have a
+  /// deletion-after-validation race; client validation cannot fix that race.
+  Future<void> requireProfile() async {
+    if ((await discover()).named(scope.profileName) == null) {
+      throw StateError('Profile ${scope.profileName} is no longer available');
+    }
+  }
+
+  Future<Map<String, dynamic>> read(
+    String endpoint, [
+    Map<String, String> query = const {},
+  ]) => _get(endpoint, {...query, 'profile': scope.profileName});
+
+  Future<Map<String, dynamic>> call(
+    String method, [
+    Map<String, dynamic> params = const {},
+  ]) => _rpc(method, {...params, 'profile': scope.profileName});
+
+  static const sessionPageSize = 50;
+  static const projectSessionScanLimit = 5000;
+
+  Future<ProfileSessionPage> sessions({
+    int offset = 0,
+    int limit = sessionPageSize,
+    bool archivedOnly = false,
+  }) async {
+    if (offset < 0 || limit < 1 || limit > 100) {
+      throw ArgumentError('Invalid session page');
+    }
+    final result = await read('sessions', {
+      'limit': '$limit',
+      'offset': '$offset',
+      'order': 'recent',
+      if (archivedOnly) 'archived': 'only',
+    });
+    if (result['offset'] != offset ||
+        result['limit'] != limit ||
+        result['total'] is! int ||
+        (result['total'] as int) < 0) {
+      throw const FormatException('Invalid session pagination metadata');
+    }
+    final rows = records(result['sessions']);
+    for (final row in rows) {
+      if (row['profile'] != scope.profileName ||
+          row['id'] is! String ||
+          (row['id'] as String).isEmpty) {
+        throw const FormatException(
+          'Session response has a different profile owner',
+        );
+      }
+    }
+    return ProfileSessionPage(
+      rows: rows,
+      offset: offset,
+      limit: limit,
+      total: result['total'] as int,
+    );
+  }
+
+  Future<List<Map<String, dynamic>>> projects() async {
+    final rows = records(
+      (await call('projects.tree', {'preview_limit': 0}))['projects'],
+    );
+    final projects = <Map<String, dynamic>>[];
+    for (final row in rows) {
+      if (row['isNoProject'] == true) continue;
+      if (row['id'] is! String ||
+          row['label'] is! String ||
+          row['lastActive'] is! num) {
+        throw const FormatException('Invalid project overview');
+      }
+      projects.add({...row, 'name': row['label'], 'primary_path': row['path']});
+    }
+    projects.sort(
+      (a, b) => (b['lastActive'] as num).compareTo(a['lastActive'] as num),
+    );
+    return projects;
+  }
+
+  Future<List<Map<String, dynamic>>> projectSessions(String projectId) async {
+    await requireProfile();
+    final result = await call('projects.project_sessions', {
+      'project_id': projectId,
+      'session_limit': projectSessionScanLimit,
+    });
+    final project = result['project'];
+    if (project is! Map || project['id'] != projectId) {
+      throw StateError('Project is no longer available');
+    }
+    final rows = <String, Map<String, dynamic>>{};
+    for (final repo in records(project['repos'])) {
+      for (final group in records(repo['groups'])) {
+        for (final session in records(group['sessions'])) {
+          if (session['profile'] != scope.profileName ||
+              session['id'] is! String) {
+            throw const FormatException('Invalid project session owner');
+          }
+          rows[session['id'] as String] = session;
+        }
+      }
+    }
+    return rows.values.toList();
+  }
+
+  Future<Map<String, dynamic>> createSession({
+    String? cwd,
+    String? title,
+  }) async {
+    await requireProfile();
+    return _ownedSession(
+      await call('session.create', {
+        'source': 'desktop',
+        'close_on_disconnect': false,
+        'cwd': ?cwd,
+        'title': ?title,
+      }),
+    );
+  }
+
+  Future<Map<String, dynamic>> resume(String durableId) async {
+    await requireProfile();
+    return _ownedSession(
+      await call('session.resume', {
+        'session_id': durableId,
+        'omit_messages': true,
+      }),
+    );
+  }
+
+  Map<String, dynamic> _ownedSession(Map<String, dynamic> result) {
+    if (result['info'] is! Map ||
+        result['info']['profile_name'] != scope.profileName) {
+      throw const FormatException(
+        'Session response has a different profile owner',
+      );
+    }
+    if (result['session_id'] is! String ||
+        (result['session_id'] as String).isEmpty) {
+      throw const FormatException('Session response has no runtime identity');
+    }
+    return result;
+  }
+
+  static const historyPageSize = 50;
+  Future<ProfileHistoryPage> history(String id, {int offset = 0}) async {
+    if (id.isEmpty || offset < 0) throw ArgumentError('Invalid history page');
+    final result = await read('sessions/${Uri.encodeComponent(id)}/messages', {
+      'limit': '$historyPageSize',
+      'offset': '$offset',
+      'order': 'latest',
+      'include_compacted': 'true',
+    });
+    final pagination = result['pagination'];
+    final rows = records(result['messages']);
+    final resolved = result['session_id'];
+    if (resolved is! String ||
+        resolved.isEmpty ||
+        pagination is! Map ||
+        pagination['limit'] != historyPageSize ||
+        pagination['offset'] != offset ||
+        pagination['order'] != 'latest' ||
+        pagination['returned'] != rows.length ||
+        rows.length > historyPageSize ||
+        rows.any((row) => row['id'] is! int)) {
+      throw const FormatException('Invalid history page');
+    }
+    return ProfileHistoryPage(resolved, rows, offset, historyPageSize);
+  }
+
+  /// Stock search is profile-bound but does not stamp owners in its response.
+  /// Keep results in this client's scope; reject any contradictory owner field.
+  Future<List<Map<String, dynamic>>> search(String query) async {
+    if (query.trim().isEmpty) return [];
+    await requireProfile();
+    final rows = records(
+      (await read('sessions/search', {
+        'q': query.trim(),
+        'limit': '100',
+      }))['results'],
+    );
+    for (final row in rows) {
+      if (row['session_id'] is! String ||
+          (row['session_id'] as String).isEmpty ||
+          (row.containsKey('profile') && row['profile'] != scope.profileName)) {
+        throw const FormatException('Invalid search result owner');
+      }
+    }
+    return rows
+        .map(
+          (row) => <String, dynamic>{
+            ...row,
+            'id': row['session_id'],
+            'profile': scope.profileName,
+          },
+        )
+        .toList();
+  }
+
+  Future<Map<String, dynamic>> createProject(String name, String path) async {
+    await requireProfile();
+    final result = await call('projects.create', {
+      'name': name,
+      'folders': [path],
+      'primary_path': path,
+    });
+    if (result['project'] is! Map) {
+      throw const FormatException('Missing project');
+    }
+    return Map<String, dynamic>.from(result['project']);
+  }
+
+  Future<Map<String, dynamic>> updateSession(
+    String id,
+    Map<String, dynamic> changes,
+  ) async {
+    if (id.isEmpty ||
+        changes.isEmpty ||
+        changes.keys.any(
+          (key) => !{'title', 'pinned', 'archived', 'unread'}.contains(key),
+        )) {
+      throw ArgumentError('Invalid session update');
+    }
+    await requireProfile();
+    final patch = _patch;
+    if (patch == null) {
+      throw StateError('Session mutation transport unavailable');
+    }
+    final result = await patch('sessions/${Uri.encodeComponent(id)}', {
+      ...changes,
+      'profile': scope.profileName,
+    });
+    if (result['ok'] != true) {
+      throw const FormatException('Session update not acknowledged');
+    }
+    return result;
+  }
+
+  /// Same operation as Desktop: moves the stored workspace, not a local tag.
+  Future<Map<String, dynamic>> moveSession(String id, String cwd) async {
+    if (id.isEmpty || cwd.trim().isEmpty) {
+      throw ArgumentError('A chat and project folder are required');
+    }
+    await requireProfile();
+    // Stock workspace.move finds live agents by durable ID without checking
+    // profile ownership. Do not risk re-homing a colliding live session.
+    final live = records((await call('session.active_list'))['sessions']);
+    if (live.any((row) => row['session_key'] == id)) {
+      throw StateError(
+        'This chat is still open on Hermes. Close it before moving.',
+      );
+    }
+    final result = await call('session.workspace.move', {
+      'session_key': id,
+      'cwd': cwd,
+    });
+    if (result['cwd'] is! String ||
+        (result['cwd'] as String).trim().isEmpty ||
+        (result['branch'] != null && result['branch'] is! String) ||
+        (result['git_repo_root'] != null &&
+            result['git_repo_root'] is! String)) {
+      throw const FormatException('Invalid workspace move response');
+    }
+    return {
+      'cwd': result['cwd'],
+      'git_branch': result['branch'],
+      'git_repo_root': result['git_repo_root'],
+    };
+  }
+
+  /// Desktop uses the primary folder, then the first repository folder.
+  static String projectDirectory(Map<String, dynamic> project) {
+    final primary = (project['primary_path'] ?? project['path'])?.toString();
+    if (primary != null && primary.trim().isNotEmpty) return primary.trim();
+    for (final repo in (project['repos'] as List? ?? const [])) {
+      if (repo is Map && repo['path'] is String) {
+        final path = (repo['path'] as String).trim();
+        if (path.isNotEmpty) return path;
+      }
+    }
+    return '';
+  }
+
+  Future<void> deleteSession(String id) async {
+    if (id.isEmpty) throw ArgumentError('Missing session');
+    await requireProfile();
+    // The stock live list omits profile ownership. Any identical live durable
+    // ID blocks deletion conservatively, rather than risking a running agent.
+    final live = records((await call('session.active_list'))['sessions']);
+    if (live.any((row) => row['session_key'] == id)) {
+      throw StateError(
+        'This chat is still open on Hermes. Close it before deleting.',
+      );
+    }
+    final remove = _delete;
+    if (remove == null) {
+      throw StateError('Session mutation transport unavailable');
+    }
+    await remove('sessions/${Uri.encodeComponent(id)}', {
+      'profile': scope.profileName,
+    });
+  }
+
+  static List<Map<String, dynamic>> records(Object? value) {
+    if (value is! List || value.any((row) => row is! Map)) {
+      throw const FormatException('Expected a list of records');
+    }
+    return value.map((row) => Map<String, dynamic>.from(row as Map)).toList();
+  }
+}

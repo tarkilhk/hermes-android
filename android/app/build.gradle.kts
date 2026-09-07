@@ -13,10 +13,28 @@ val minimumInstalledVersionCode = 2127
 if (keystorePath.exists()) {
    keystoreProperties.load(FileInputStream(keystorePath))
 }
+val signingEnvironment = mapOf(
+    "storeFile" to "HERMES_STORE_FILE",
+    "storePassword" to "HERMES_STORE_PASSWORD",
+    "keyAlias" to "HERMES_KEY_ALIAS",
+    "keyPassword" to "HERMES_KEY_PASSWORD"
+)
+if (signingEnvironment.values.any { !System.getenv(it).isNullOrBlank() }) {
+    check(signingEnvironment.values.all { !System.getenv(it).isNullOrBlank() }) {
+        "All HERMES signing environment variables must be supplied"
+    }
+    signingEnvironment.forEach { (property, environment) ->
+        keystoreProperties[property] = System.getenv(environment)
+    }
+}
+val hasReleaseSigning = keystoreProperties.containsKey("storeFile")
 
 android {
    namespace = "com.hermesagent.hermes_android"
    compileSdk = 36
+   buildFeatures {
+       resValues = true
+   }
 
    compileOptions {
        sourceCompatibility = JavaVersion.VERSION_17
@@ -56,17 +74,27 @@ android {
            applicationIdSuffix = ".dev"
            versionNameSuffix = "-dev"
            manifestPlaceholders["appLabel"] = "Hermes Agent Dev"
+           resValue("string", "hermes_application_id", "com.hermesagent.hermes_android.dev")
        }
        release {
            // CI/local analysis may build a release artifact without access to
            // the private distribution keystore. Never fall back to the debug
            // key: leave the APK explicitly unsigned until the real
            // key.properties file is supplied.
-           if (keystorePath.exists()) {
+           manifestPlaceholders["appLabel"] = "Hermes Personal"
+           resValue("string", "hermes_application_id", "com.tarkilhk.hermes.android")
+           if (hasReleaseSigning) {
                signingConfig = signingConfigs.getByName("release")
            }
        }
    }
+}
+
+// Keep the installed Dev identity, but never replace the unrelated upstream app.
+androidComponents {
+    onVariants(selector().withBuildType("release")) { variant ->
+        variant.applicationId.set("com.tarkilhk.hermes.android")
+    }
 }
 
 kotlin {

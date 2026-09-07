@@ -44,11 +44,15 @@ app.*.map.json
 /android/app/profile
 /android/app/release
 /android/build/
+/android/.kotlin/
 /release-apks/
 
 # Local keystore properties
 /key.properties
 /release.keystore
+*.p12
+*.jks
+*.dpapi.xml
 key.properties
 
 # Graphify local incremental cache and machine-specific scan root
