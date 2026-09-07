@@ -142,7 +142,18 @@ class ProfileGateway {
       rpc: (method, params) async {
         final current = socket;
         if (current == null) throw StateError('Gateway is not connected');
-        final envelope = await current.send(method, params);
+        final envelope = await current.send(
+          method,
+          params,
+          timeout:
+              const {
+                'command.dispatch',
+                'slash.exec',
+                'session.compress',
+              }.contains(method)
+              ? const Duration(minutes: 11)
+              : const Duration(seconds: 30),
+        );
         final error = envelope['error'];
         if (error is Map) {
           throw JsonRpcError.fromGateway(

@@ -13,6 +13,7 @@ import '../widgets/gateway_clarify_dialog.dart';
 import '../theme/profile_workspace_theme.dart';
 import '../widgets/profile_chat_indicator.dart';
 import '../widgets/chat_intelligence_picker.dart';
+import '../widgets/slash_command_suggestions.dart';
 import 'profile_workspace_browser.dart';
 import 'profile_transcript.dart';
 
@@ -381,10 +382,23 @@ class _ProfileWorkspaceScreenState extends State<ProfileWorkspaceScreen>
                   ),
                 ),
               ),
+            for (final output in chat.commandOutput)
+              Padding(
+                padding: const EdgeInsets.symmetric(vertical: 8),
+                child: SelectableText(output),
+              ),
             if (chat.pendingQuestion != null) _questionPanel(chat),
           ],
         ),
       ),
+      if (!chat.commandRunning)
+        SlashCommandSuggestions(
+          key: ValueKey(chat.key),
+          controller: controller,
+          chat: chat,
+          composer: _composer,
+        ),
+      if (chat.commandRunning) const LinearProgressIndicator(),
       SafeArea(
         top: false,
         child: Padding(
@@ -433,6 +447,7 @@ class _ProfileWorkspaceScreenState extends State<ProfileWorkspaceScreen>
                                 onDeleted:
                                     chat.busy ||
                                         chat.changingAnswer ||
+                                        chat.commandRunning ||
                                         controller.switching
                                     ? null
                                     : () => _run(
@@ -449,6 +464,7 @@ class _ProfileWorkspaceScreenState extends State<ProfileWorkspaceScreen>
                   TextField(
                     key: const Key('profile-message-composer'),
                     controller: _composer,
+                    enabled: !chat.commandRunning,
                     minLines: 1,
                     maxLines: 5,
                     keyboardType: TextInputType.multiline,
@@ -459,7 +475,7 @@ class _ProfileWorkspaceScreenState extends State<ProfileWorkspaceScreen>
                       hintMaxLines: 1,
                       hintText: chat.busy
                           ? 'Draft your next message'
-                          : 'Message Hermes',
+                          : 'Message Hermes or type /',
                       border: InputBorder.none,
                       enabledBorder: InputBorder.none,
                       focusedBorder: InputBorder.none,
@@ -482,6 +498,7 @@ class _ProfileWorkspaceScreenState extends State<ProfileWorkspaceScreen>
                         onPressed:
                             chat.busy ||
                                 chat.changingAnswer ||
+                                chat.commandRunning ||
                                 controller.switching
                             ? null
                             : () => _run(() async {
@@ -509,6 +526,7 @@ class _ProfileWorkspaceScreenState extends State<ProfileWorkspaceScreen>
                             onPressed:
                                 chat.busy ||
                                     chat.changingAnswer ||
+                                    chat.commandRunning ||
                                     controller.switching ||
                                     chat.changingIntelligence ||
                                     _loadingIntelligence != null
@@ -527,18 +545,28 @@ class _ProfileWorkspaceScreenState extends State<ProfileWorkspaceScreen>
                             borderRadius: BorderRadius.circular(14),
                           ),
                         ),
-                        tooltip: chat.busy ? 'Stop' : 'Send',
-                        icon: Icon(chat.busy ? Icons.stop : Icons.arrow_upward),
+                        tooltip:
+                            chat.busy && !chat.draft.trimLeft().startsWith('/')
+                            ? 'Stop'
+                            : 'Send',
+                        icon: Icon(
+                          chat.busy && !chat.draft.trimLeft().startsWith('/')
+                              ? Icons.stop
+                              : Icons.arrow_upward,
+                        ),
                         onPressed:
                             controller.switching ||
                                 chat.changingAnswer ||
+                                chat.commandRunning ||
                                 chat.changingIntelligence ||
                                 (!chat.busy &&
                                     chat.draft.trim().isEmpty &&
                                     chat.attachments.isEmpty)
                             ? null
                             : () => _run(
-                                () => chat.busy
+                                () =>
+                                    chat.busy &&
+                                        !chat.draft.trimLeft().startsWith('/')
                                     ? controller.stop(chat)
                                     : controller.send(chat),
                               ),
