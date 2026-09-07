@@ -25,6 +25,16 @@ void main() {
   });
   tearDown(() => controller.dispose());
 
+  test('workspace status-bar icons contrast with the active theme', () {
+    for (final brightness in Brightness.values) {
+      final theme = profileWorkspaceTheme(hermesTheme(brightness));
+      expect(
+        theme.appBarTheme.systemOverlayStyle!.statusBarIconBrightness,
+        brightness == Brightness.light ? Brightness.dark : Brightness.light,
+      );
+    }
+  });
+
   Future<void> show(WidgetTester tester, {double scale = 1, Key? key}) async {
     tester.view.physicalSize = const Size(360, 800);
     tester.view.devicePixelRatio = 1;
