@@ -155,7 +155,7 @@ class _ProfileTranscriptState extends State<ProfileTranscript> {
   Widget build(BuildContext context) {
     final chat = widget.chat;
     final tail = widget.tail.reversed.toList();
-    final rows = groupTranscriptRows(chat.messages).reversed.toList();
+    final rows = groupTranscriptSections(chat.messages).reversed.toList();
     final activeIds = chat.messages
         .where((r) => r['id'] != null)
         .map((r) => r['id'])
@@ -165,7 +165,8 @@ class _ProfileTranscriptState extends State<ProfileTranscript> {
     // when a new tail shifts every existing row's index.
     final keys = <Key>[];
     final usedKeys = <Key>{};
-    for (final group in rows) {
+    for (final section in rows) {
+      final group = section.messages.toList();
       final existing = group.reversed
           .map((row) => _rows[row['id']])
           .whereType<GlobalKey>()
@@ -220,12 +221,12 @@ class _ProfileTranscriptState extends State<ProfileTranscript> {
               if (index < tail.length) return tail[index];
               final rowIndex = index - tail.length;
               if (rowIndex < rows.length) {
-                final group = rows[rowIndex];
-                final row = group.last;
+                final section = rows[rowIndex];
+                final row = section.messages.last;
                 return KeyedSubtree(
                   key: keys[rowIndex],
-                  child: row['role'] == 'tool'
-                      ? ProfileToolActivity(messages: group)
+                  child: section.isTool
+                      ? ProfileToolActivitySection(groups: section.groups)
                       : widget.messageBuilder(row),
                 );
               }

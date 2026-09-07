@@ -254,9 +254,14 @@ void main() {
         {'id': 4, 'role': 'assistant', 'content': 'Here is the answer.'},
       ]);
       await show(tester);
-      expect(find.text('2 tool results'), findsOneWidget);
+      expect(find.text('Tool activity'), findsOneWidget);
+      expect(find.text('2 tool results'), findsNothing);
       expect(find.text('Private tool detail A'), findsNothing);
       expect(find.text('Here is the answer.'), findsOneWidget);
+      await tester.tap(find.text('Tool activity'));
+      await tester.pumpAndSettle();
+      expect(find.text('2 tool results'), findsOneWidget);
+      expect(find.text('Private tool detail A'), findsNothing);
       await tester.tap(find.text('2 tool results'));
       await tester.pumpAndSettle();
       expect(find.text('Private tool detail A'), findsOneWidget);

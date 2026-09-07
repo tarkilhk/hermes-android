@@ -172,6 +172,8 @@ void main() {
     chat.messages = [tool(1), tool(2), row(3)];
     chat.nextHistoryOffset = null;
     await show(tester);
+    await tester.tap(find.text('Tool activity'));
+    await tester.pumpAndSettle();
     await tester.tap(find.text('2 tool results'));
     await tester.pumpAndSettle();
     expect(find.text('Output 1'), findsOneWidget);
@@ -182,6 +184,86 @@ void main() {
     await publish(tester);
     expect(find.text('Output 1'), findsOneWidget);
     expect(find.text('Output 4'), findsOneWidget);
+  });
+
+  testWidgets('empty assistant rows leave existing tool cards in one section', (
+    tester,
+  ) async {
+    chat.messages = [
+      {
+        'id': 1,
+        'role': 'tool',
+        'tool_name': 'read_file',
+        'content': 'Read output',
+      },
+      {'id': 2, 'role': 'assistant', 'content': ''},
+      {
+        'id': 3,
+        'role': 'tool',
+        'tool_name': 'patch',
+        'content': 'Patch output',
+      },
+      {
+        'id': 4,
+        'role': 'tool',
+        'tool_name': 'terminal',
+        'content': 'Test output',
+      },
+      row(5),
+    ];
+    chat.nextHistoryOffset = null;
+    await show(tester);
+    expect(find.text('Tool activity'), findsOneWidget);
+    expect(find.text('3 tool calls'), findsOneWidget);
+    expect(find.text('read_file'), findsNothing);
+    expect(find.text('2 tool results'), findsNothing);
+    expect(find.text('Message 5'), findsOneWidget);
+
+    await tester.tap(find.text('Tool activity'));
+    await tester.pumpAndSettle();
+    expect(find.text('read_file'), findsOneWidget);
+    expect(find.text('2 tool results'), findsOneWidget);
+    expect(find.text('Read output'), findsNothing);
+    await tester.tap(find.text('read_file'));
+    await tester.pumpAndSettle();
+    expect(find.text('Read output'), findsOneWidget);
+    expect(find.text('Patch output'), findsNothing);
+    await tester.tap(find.text('Tool activity'));
+    await tester.pumpAndSettle();
+    expect(find.text('Read output'), findsNothing);
+    expect(find.text('Message 5'), findsOneWidget);
+
+    await tester.tap(find.text('Tool activity'));
+    await tester.pumpAndSettle();
+    expect(find.text('Read output'), findsOneWidget);
+    await tester.pumpWidget(const SizedBox.shrink());
+    chat.historyScrollOffset = 0;
+    await show(tester);
+    expect(find.text('Tool activity'), findsOneWidget);
+    expect(find.text('read_file'), findsNothing);
+  });
+
+  testWidgets('long tool history stays compact and prose separates sections', (
+    tester,
+  ) async {
+    chat.messages = [
+      for (var i = 0; i < 30; i++) ...[
+        {'id': i * 2, 'role': 'assistant', 'content': ''},
+        {'id': i * 2 + 1, 'role': 'tool', 'content': 'Output $i'},
+      ],
+      row(60),
+      {'id': 61, 'role': 'tool', 'content': 'Another output'},
+      row(62),
+    ];
+    chat.nextHistoryOffset = null;
+    await show(tester);
+    expect(find.text('Tool activity'), findsNWidgets(2));
+    expect(find.text('30 tool calls'), findsOneWidget);
+    expect(find.text('1 tool call'), findsOneWidget);
+    expect(find.text('Tool result'), findsNothing);
+    expect(find.text('Message 60').hitTestable(), findsOneWidget);
+    expect(find.text('Message 62').hitTestable(), findsOneWidget);
+    expect(tester.takeException(), isNull);
   });
 
   testWidgets(
