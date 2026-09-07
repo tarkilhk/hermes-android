@@ -13,6 +13,8 @@ import 'profile_gateway.dart';
 import 'profile_selection_store.dart';
 import 'profiles_repository.dart';
 import 'ws_client.dart';
+import 'chat_model_override_store.dart';
+import '../widgets/chat_intelligence_picker.dart';
 
 class ProfileSessionKey {
   final WorkspaceScope workspace;
@@ -69,6 +71,11 @@ class ProfileChat {
   String title;
   double lastActive = DateTime.now().millisecondsSinceEpoch / 1000;
   String? projectId;
+  String? model;
+  String? provider;
+  String? reasoningEffort;
+  bool changingIntelligence = false;
+  String? intelligenceRuntime;
   String draft = '';
   String streaming = '';
   String? tool;
@@ -599,6 +606,7 @@ class ProfileWorkspaceController extends ChangeNotifier {
       projectId: project?['id'] as String?,
     );
     resource.chats[id] = chat;
+    _hydrateIntelligence(chat, response);
     if (current == resource && !switching) resource.selectedSession = id;
     _changed();
     return chat;
@@ -1012,7 +1020,7 @@ class ProfileWorkspaceController extends ChangeNotifier {
     int index,
   ) async {
     final resource = _owned(chat);
-    if (chat.busy || chat.changingAnswer || switching) return;
+    if (chat.busy || chat.changingAnswer || chat.changingIntelligence || switching) return;
     if (!resource.answerVersions.contains(group) ||
         !group.selections.containsKey(chat.key.sessionId) ||
         index < 0 ||
@@ -1038,7 +1046,7 @@ class ProfileWorkspaceController extends ChangeNotifier {
     bool regenerate = false,
   }) async {
     final resource = _owned(source);
-    if (source.busy || source.changingAnswer || switching) return null;
+    if (source.busy || source.changingAnswer || source.changingIntelligence || switching) return null;
     if (messageIndex < 0 || messageIndex >= source.messages.length) {
       throw ArgumentError('Unknown answer');
     }
@@ -1257,10 +1265,171 @@ class ProfileWorkspaceController extends ChangeNotifier {
     return !rejected;
   }
 
+  String _intelligenceOwner(ProfileChat chat) =>
+      jsonEncode([connectionIdentity, chat.key.workspace.profileName]);
+
+  ChatModelOverride? _savedIntelligence(ProfileChat chat) =>
+      ChatModelOverrideStore(preferences).read(
+        connectionIdentity: _intelligenceOwner(chat),
+        sessionId: chat.key.sessionId,
+      );
+
+  void _hydrateIntelligence(ProfileChat chat, Map<String, dynamic> response) {
+    final info = response['info'];
+    if (info is Map) {
+      chat.model = info['model']?.toString() ?? chat.model;
+      chat.provider = info['provider']?.toString() ?? chat.provider;
+      chat.reasoningEffort =
+          info['reasoning_effort']?.toString() ?? chat.reasoningEffort;
+    }
+    final saved = _savedIntelligence(chat);
+    if (saved != null) {
+      chat.model = saved.model;
+      chat.provider = saved.provider;
+      chat.reasoningEffort = saved.reasoningEffort;
+    }
+  }
+
+  /// Reads and writes always use this chat's immutable profile owner and live ID.
+  Future<
+    ({
+      List<ChatModelChoice> choices,
+      String defaultModel,
+      String? defaultProvider,
+    })
+  >
+  loadIntelligence(ProfileChat chat) async {
+    final gateway = _owned(chat).gateway;
+    final results = await Future.wait([
+      gateway.read('model/info'),
+      gateway.read('model/options'),
+      gateway.call('config.get', {
+        'session_id': chat.runtimeId,
+        'key': 'reasoning',
+      }),
+    ]);
+    final defaults = results[0];
+    final choices = <ChatModelChoice>[];
+    for (final provider in ProfileGateway.records(results[1]['providers'])) {
+      final slug = (provider['slug'] ?? provider['id'])?.toString() ?? '';
+      if (slug.isEmpty || provider['models'] is! List) continue;
+      for (final value in provider['models'] as List) {
+        final model = value is String
+            ? value
+            : value is Map
+            ? (value['id'] ?? value['model'] ?? value['name'])?.toString()
+            : null;
+        if (model != null && model.trim().isNotEmpty) {
+          choices.add(ChatModelChoice(provider: slug, model: model.trim()));
+        }
+      }
+    }
+    if (choices.isEmpty)
+      throw StateError('This profile returned no selectable models.');
+    chat.model ??= defaults['model']?.toString();
+    chat.provider ??= defaults['provider']?.toString();
+    chat.reasoningEffort =
+        _savedIntelligence(chat)?.reasoningEffort ??
+        WsClient.normalizeReasoningEffort(results[2]['value']);
+    _changed();
+    return (
+      choices: choices,
+      defaultModel: defaults['model']?.toString() ?? 'Default',
+      defaultProvider: defaults['provider']?.toString(),
+    );
+  }
+
+  Future<void> _writeIntelligence(
+    ProfileChat chat,
+    ChatIntelligenceSelection selection,
+  ) async {
+    final gateway = _owned(chat).gateway;
+    if (!WsClient.validReasoningEfforts.contains(selection.reasoningEffort)) {
+      throw ArgumentError('Unsupported reasoning effort');
+    }
+    await gateway.requireProfile();
+    final runtime = chat.runtimeId;
+    final result = await gateway.call('config.set', {
+      'session_id': runtime,
+      'key': 'model',
+      'value': WsClient.buildSessionModelValue(
+        provider: selection.choice.provider,
+        model: selection.choice.model,
+      ),
+    });
+    if (result['confirm_required'] == true) {
+      throw StateError(
+        result['confirm_message']?.toString() ?? 'Model needs confirmation.',
+      );
+    }
+    if (chat.runtimeId != runtime)
+      throw StateError('Chat reconnected. Try applying again.');
+    chat.model = selection.choice.model;
+    chat.provider = selection.choice.provider;
+    // Save the acknowledged model even if the separate reasoning request fails.
+    await _saveIntelligence(chat);
+    await gateway.call('config.set', {
+      'session_id': runtime,
+      'key': 'reasoning',
+      'value': selection.reasoningEffort,
+    });
+    if (chat.runtimeId != runtime)
+      throw StateError('Chat reconnected. Try applying again.');
+    chat.reasoningEffort = selection.reasoningEffort;
+    await _saveIntelligence(chat);
+    chat.intelligenceRuntime = runtime;
+  }
+
+  Future<void> _saveIntelligence(ProfileChat chat) =>
+      ChatModelOverrideStore(preferences).save(
+        connectionIdentity: _intelligenceOwner(chat),
+        sessionId: chat.key.sessionId,
+        provider: chat.provider!,
+        model: chat.model!,
+        reasoningEffort: chat.reasoningEffort,
+      );
+
+  Future<void> setIntelligence(
+    ProfileChat chat,
+    ChatIntelligenceSelection selection,
+  ) async {
+    _owned(chat);
+    if (chat.busy ||
+        chat.changingAnswer ||
+        chat.changingIntelligence ||
+        switching ||
+        current?.chat != chat) {
+      throw StateError(
+        'Wait for this chat to be ready before changing its model.',
+      );
+    }
+    chat.changingIntelligence = true;
+    _changed();
+    try {
+      await _writeIntelligence(chat, selection);
+    } finally {
+      chat.changingIntelligence = false;
+      _changed();
+    }
+  }
+
+  Future<void> _restoreIntelligence(ProfileChat chat) async {
+    final saved = _savedIntelligence(chat);
+    if (saved == null || chat.intelligenceRuntime == chat.runtimeId) return;
+    await _writeIntelligence(
+      chat,
+      ChatIntelligenceSelection(
+        choice: ChatModelChoice(provider: saved.provider, model: saved.model),
+        reasoningEffort: saved.reasoningEffort ?? 'medium',
+      ),
+    );
+  }
+
   Future<void> send(ProfileChat chat) async {
     final resource = _owned(chat);
     if (chat.busy ||
         chat.changingAnswer ||
+        chat.changingIntelligence ||
         (chat.draft.trim().isEmpty && chat.attachments.isEmpty)) {
       return;
     }
@@ -1273,6 +1442,7 @@ class ProfileWorkspaceController extends ChangeNotifier {
     var submitted = false;
     try {
       await resource.gateway.requireProfile();
+      await _restoreIntelligence(chat);
       // Persist only ownership and status. No prompt text, paths or credentials.
       await _journal();
       await AttachmentDraftSendCoordinator(attachments).uploadThenSubmit(
@@ -1550,6 +1720,7 @@ class ProfileWorkspaceController extends ChangeNotifier {
   void _hydrate(ProfileChat chat, Map<String, dynamic> result) {
     final wasBusy = chat.busy;
     chat.runtimeId = result['session_id'] as String;
+    _hydrateIntelligence(chat, result);
     final inflight = result['inflight'] as Map?;
     chat.streaming = inflight?['assistant']?.toString() ?? '';
     chat.approval = result['pending_approval'] is Map

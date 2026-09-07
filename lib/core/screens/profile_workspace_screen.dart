@@ -12,6 +12,7 @@ import '../models/gateway_clarify.dart';
 import '../widgets/gateway_clarify_dialog.dart';
 import '../theme/profile_workspace_theme.dart';
 import '../widgets/profile_chat_indicator.dart';
+import '../widgets/chat_intelligence_picker.dart';
 import 'profile_workspace_browser.dart';
 import 'profile_transcript.dart';
 
@@ -38,6 +39,7 @@ class _ProfileWorkspaceScreenState extends State<ProfileWorkspaceScreen>
   ProfileWorkspaceController get controller => widget.controller;
   final _composer = TextEditingController();
   ProfileSessionKey? _composerKey;
+  ProfileSessionKey? _loadingIntelligence;
   late WorkspaceAccent _accent;
 
   @override
@@ -242,7 +244,7 @@ class _ProfileWorkspaceScreenState extends State<ProfileWorkspaceScreen>
         isBranchMessage(message);
     final group = controller.answerVersionsForMessage(chat, message);
     final selected = group?.selections[chat.key.sessionId] ?? 0;
-    final enabled = !chat.busy && !chat.changingAnswer && !controller.switching;
+    final enabled = !chat.busy && !chat.changingAnswer && !chat.changingIntelligence && !controller.switching;
     return Column(
       crossAxisAlignment: CrossAxisAlignment.stretch,
       children: [
@@ -440,6 +442,30 @@ class _ProfileWorkspaceScreenState extends State<ProfileWorkspaceScreen>
                         ],
                       ),
                     ),
+                  TextField(
+                    key: const Key('profile-message-composer'),
+                    controller: _composer,
+                    minLines: 1,
+                    maxLines: 5,
+                    keyboardType: TextInputType.multiline,
+                    textInputAction: TextInputAction.newline,
+                    onChanged: (value) => setState(() => chat.draft = value),
+                    decoration: InputDecoration(
+                      isDense: true,
+                      hintMaxLines: 1,
+                      hintText: chat.busy
+                          ? 'Draft your next message'
+                          : 'Message Hermes',
+                      border: InputBorder.none,
+                      enabledBorder: InputBorder.none,
+                      focusedBorder: InputBorder.none,
+                      filled: false,
+                      contentPadding: const EdgeInsets.symmetric(
+                        horizontal: 12,
+                        vertical: 12,
+                      ),
+                    ),
+                  ),
                   Row(
                     crossAxisAlignment: CrossAxisAlignment.end,
                     children: [
@@ -468,32 +494,28 @@ class _ProfileWorkspaceScreenState extends State<ProfileWorkspaceScreen>
                               }),
                       ),
                       Expanded(
-                        child: TextField(
-                          key: const Key('profile-message-composer'),
-                          controller: _composer,
-                          minLines: 1,
-                          maxLines: 5,
-                          keyboardType: TextInputType.multiline,
-                          textInputAction: TextInputAction.newline,
-                          onChanged: (value) =>
-                              setState(() => chat.draft = value),
-                          decoration: InputDecoration(
-                            isDense: true,
-                            hintMaxLines: 1,
-                            hintText: chat.busy
-                                ? 'Draft your next message'
-                                : 'Message Hermes',
-                            border: InputBorder.none,
-                            enabledBorder: InputBorder.none,
-                            focusedBorder: InputBorder.none,
-                            filled: false,
-                            contentPadding: const EdgeInsets.symmetric(
-                              horizontal: 4,
-                              vertical: 12,
-                            ),
+                        child: Align(
+                          alignment: Alignment.centerRight,
+                          child: ChatIntelligenceButton(
+                            model: chat.model ?? 'Model',
+                            reasoningEffort: chat.reasoningEffort ?? 'default',
+                            loading:
+                                _loadingIntelligence == chat.key ||
+                                chat.changingIntelligence,
+                            onPressed:
+                                chat.busy ||
+                                    chat.changingAnswer ||
+                                    controller.switching ||
+                                    chat.changingIntelligence ||
+                                    _loadingIntelligence != null
+                                ? null
+                                : () => _run(
+                                    () => _chooseIntelligence(chat, context),
+                                  ),
                           ),
                         ),
                       ),
+                      const SizedBox(width: 6),
                       IconButton.filled(
                         style: IconButton.styleFrom(
                           minimumSize: const Size(48, 48),
@@ -506,6 +528,7 @@ class _ProfileWorkspaceScreenState extends State<ProfileWorkspaceScreen>
                         onPressed:
                             controller.switching ||
                                 chat.changingAnswer ||
+                                chat.changingIntelligence ||
                                 (!chat.busy &&
                                     chat.draft.trim().isEmpty &&
                                     chat.attachments.isEmpty)
@@ -526,6 +549,47 @@ class _ProfileWorkspaceScreenState extends State<ProfileWorkspaceScreen>
       ),
     ],
   );
+
+  Future<void> _chooseIntelligence(
+    ProfileChat chat,
+    BuildContext context,
+  ) async {
+    setState(() => _loadingIntelligence = chat.key);
+    try {
+      final options = await controller.loadIntelligence(chat);
+      if (!mounted ||
+          !context.mounted ||
+          controller.current?.chat != chat ||
+          controller.switching)
+        return;
+      final choice = options.choices
+          .where(
+            (choice) =>
+                choice.model == chat.model &&
+                (chat.provider == null || choice.provider == chat.provider),
+          )
+          .firstOrNull;
+      // Keep an existing model visible even if it is absent from today's catalog.
+      final initial =
+          choice ??
+          ChatModelChoice(
+            provider: chat.provider ?? options.defaultProvider ?? '',
+            model: chat.model ?? options.defaultModel,
+          );
+      final selection = await showChatIntelligencePicker(
+        context: context,
+        choices: options.choices,
+        initialChoice: initial,
+        initialReasoningEffort: chat.reasoningEffort ?? 'medium',
+        defaultModel: options.defaultModel,
+        defaultProvider: options.defaultProvider,
+      );
+      if (selection != null && mounted)
+        await controller.setIntelligence(chat, selection);
+    } finally {
+      if (mounted) setState(() => _loadingIntelligence = null);
+    }
+  }
 
   Future<void> _chooseAccent(BuildContext context) async {
     final choice = await showDialog<WorkspaceAccent>(
