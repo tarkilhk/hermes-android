@@ -203,7 +203,9 @@ void main() {
     'project read failure remains an error, not an empty-project claim',
     (tester) async {
       fixture.failProjects = true;
-      await controller.refresh();
+      // Refresh now restores sessions and waits for the preferences journal,
+      // whose future was created by setUp outside the widget's fake clock.
+      await tester.runAsync(controller.refresh);
       await show(tester);
       expect(find.textContaining('Projects are unavailable'), findsOneWidget);
       expect(find.text('No projects in this profile'), findsNothing);
