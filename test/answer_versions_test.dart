@@ -24,6 +24,8 @@ class AnswerHost {
   int next = 0;
   int nextRow = 10000;
 
+  bool shown(Map<String, dynamic> message) => !isHiddenAnswerMessage(message);
+
   List<Map<String, dynamic>> history(String profile, String id) =>
       histories.putIfAbsent(
         '$profile/$id',
@@ -35,6 +37,30 @@ class AnswerHost {
           {'role': 'assistant', 'text': 'Later answer', 'row_id': 5},
         ],
       );
+
+  Map<String, dynamic> historyPage(
+    String profile,
+    String path,
+    Map<String, String> query,
+  ) {
+    final id = Uri.decodeComponent(path.split('/')[1]);
+    final rows = history(profile, id);
+    final offset = int.parse(query['offset']!);
+    final limit = int.parse(query['limit']!);
+    final selected = query['order'] == 'oldest'
+        ? rows.skip(offset).take(limit).toList()
+        : rows.reversed.skip(offset).take(limit).toList().reversed.toList();
+    return {
+      'session_id': id,
+      'pagination': {
+        'limit': limit,
+        'offset': offset,
+        'order': query['order'],
+        'returned': selected.length,
+      },
+      'messages': answerHistoryRows(selected),
+    };
+  }
 
   ProfileGateway gateway(WorkspaceScope scope) =>
       gateways[scope.profileName] = ProfileGateway(
@@ -60,24 +86,7 @@ class AnswerHost {
                   },
                 ],
               }
-            : {
-                'session_id': Uri.decodeComponent(path.split('/')[1]),
-                'pagination': {
-                  'limit': 50,
-                  'offset': int.parse(query['offset']!),
-                  'order': 'latest',
-                  'returned': history(
-                    scope.profileName,
-                    Uri.decodeComponent(path.split('/')[1]),
-                  ).length,
-                },
-                'messages': answerHistoryRows(
-                  history(
-                    scope.profileName,
-                    Uri.decodeComponent(path.split('/')[1]),
-                  ),
-                ),
-              },
+            : historyPage(scope.profileName, path, query),
         rpc: (method, params) async {
           calls.add((method, params));
           final profile = scope.profileName;
@@ -89,7 +98,7 @@ class AnswerHost {
             'messages': history(
               profile,
               child,
-            ).map((m) => Map<String, dynamic>.from(m)).toList(),
+            ).where(shown).map((m) => Map<String, dynamic>.from(m)).toList(),
             'info': {'profile_name': profile},
             'title': 'Branched chat',
           };
@@ -101,6 +110,7 @@ class AnswerHost {
             case 'session.history':
               return {
                 'messages': history(profile, id)
+                    .where(shown)
                     .map(
                       (m) => {
                         ...m,
@@ -190,14 +200,156 @@ void main() {
   });
   tearDown(() => controller.dispose());
 
+  test('stored multimodal rows use the gateway text projection', () {
+    expect(
+      answerMessageText({
+        'content': [
+          'one',
+          {'type': 'text', 'text': 'two'},
+        ],
+      }),
+      'onetwo',
+    );
+    expect(
+      isBranchMessage({
+        'role': 'user',
+        'content': [
+          {
+            'type': 'image_url',
+            'image_url': {'url': 'https://example.test/qa.png'},
+          },
+        ],
+      }),
+      isTrue,
+    );
+    expect(
+      isBranchMessage({
+        'role': 'assistant',
+        'content': '',
+        'tool_calls': [
+          {'id': 'qa-tool'},
+        ],
+      }),
+      isFalse,
+    );
+  });
+
+  test('hidden notices count toward the persisted fork boundary', () async {
+    host.history('a', 'original').insert(1, {
+      'role': 'user',
+      'text': '[System: model changed]',
+      'row_id': 8,
+    });
+    final child = (await controller.branchAnswer(original, 2))!;
+    expect(
+      child.messages
+          .where((m) => !isHiddenAnswerMessage(m))
+          .map(answerMessageText),
+      ['Original prompt', 'Original answer'],
+    );
+    expect(
+      host.calls.lastWhere((c) => c.$1 == 'session.branch').$2['count'],
+      3,
+    );
+    expect(host.history('a', 'original').length, 6);
+  });
+
+  test(
+    'resolves saved fork boundaries beyond the first history page',
+    () async {
+      host
+          .history('a', 'original')
+          .insertAll(
+            0,
+            List.generate(
+              505,
+              (i) => {
+                'role': 'user',
+                'text': '[System: notice $i]',
+                'row_id': 1000 + i,
+              },
+            ),
+          );
+      final child = (await controller.branchAnswer(original, 2))!;
+      expect(
+        child.messages
+            .where((m) => !isHiddenAnswerMessage(m))
+            .map(answerMessageText),
+        ['Original prompt', 'Original answer'],
+      );
+      expect(
+        host.calls.lastWhere((c) => c.$1 == 'session.branch').$2['count'],
+        507,
+      );
+    },
+  );
+
+  test('a missing saved answer refuses before creating a child', () async {
+    host.history('a', 'original')[2].remove('row_id');
+    await expectLater(controller.branchAnswer(original, 2), throwsStateError);
+    expect(host.calls.where((c) => c.$1 == 'session.branch'), isEmpty);
+  });
+
+  testWidgets(
+    'raw history keeps hidden gateway notices out of the transcript',
+    (tester) async {
+      host.history('a', 'original').insert(1, {
+        'role': 'user',
+        'text': '[System: model changed]',
+        'row_id': 8,
+      });
+      await controller.refreshHistory(original);
+      await tester.pumpWidget(
+        MaterialApp(home: ProfileWorkspaceScreen(controller: controller)),
+      );
+      await tester.pumpAndSettle();
+      expect(find.textContaining('[System: model changed]'), findsNothing);
+      expect(
+        original.messages.any(isHiddenAnswerMessage),
+        isTrue,
+        reason:
+            'Raw rows remain available for pagination and branch addressing',
+      );
+    },
+  );
+
+  test(
+    'a continued fork can be forked again without exposing hidden notices',
+    () async {
+      host.history('a', 'original').insert(1, {
+        'role': 'user',
+        'text': '[System: model changed]',
+        'row_id': 8,
+      });
+      final child = (await controller.branchAnswer(original, 2))!;
+      child.draft = 'Continue the fork';
+      await controller.send(child);
+      await host.complete(child);
+      final grandchild = (await controller.branchAnswer(
+        child,
+        child.messages.length - 1,
+      ))!;
+      expect(
+        grandchild.messages
+            .where((m) => !isHiddenAnswerMessage(m))
+            .map(answerMessageText),
+        child.messages
+            .where((m) => !isHiddenAnswerMessage(m))
+            .map(answerMessageText),
+      );
+    },
+  );
+
   test(
     'branches at the selected answer, ignoring tools and later turns',
     () async {
       final child = (await controller.branchAnswer(original, 2))!;
-      expect(child.messages.map(answerMessageText), [
-        'Original prompt',
-        'Original answer',
-      ]);
+      expect(
+        child.messages
+            .where((m) => !isHiddenAnswerMessage(m))
+            .map(answerMessageText),
+        ['Original prompt', 'Original answer'],
+      );
       expect(original.messages.length, 5);
       expect(controller.current!.chat, same(child));
       expect(host.calls.lastWhere((c) => c.$1 == 'session.branch').$2, {
@@ -230,10 +382,12 @@ void main() {
         'confirm_empty_truncate': true,
       });
       expect(jsonEncode(host.history('a', 'original')), before);
-      expect(child.messages.map(answerMessageText), [
-        'Original prompt',
-        'New answer 1',
-      ]);
+      expect(
+        child.messages
+            .where((m) => !isHiddenAnswerMessage(m))
+            .map(answerMessageText),
+        ['Original prompt', 'New answer 1'],
+      );
       var group = controller.answerVersions(child, 0)!;
       expect(group.sessions, ['original', child.key.sessionId]);
       await controller.selectAnswer(child, group, 0);
@@ -353,12 +507,12 @@ void main() {
         host.calls.lastWhere((c) => c.$1 == 'prompt.submit').$2['text'],
         'Follow-up',
       );
-      expect(child.messages.map(answerMessageText), [
-        'Original prompt',
-        'Original answer',
-        'Follow-up',
-        'New answer 1',
-      ]);
+      expect(
+        child.messages
+            .where((m) => !isHiddenAnswerMessage(m))
+            .map(answerMessageText),
+        ['Original prompt', 'Original answer', 'Follow-up', 'New answer 1'],
+      );
       final group = controller.answerVersionsForMessage(
         child,
         child.messages.last,
@@ -491,10 +645,12 @@ void main() {
       await tester.runAsync(() => host.complete(child));
       await tester.pumpAndSettle();
       expect(child.status, ProfileTurnStatus.completed);
-      expect(child.messages.map(answerMessageText), [
-        'Original prompt',
-        'New answer 1',
-      ]);
+      expect(
+        child.messages
+            .where((m) => !isHiddenAnswerMessage(m))
+            .map(answerMessageText),
+        ['Original prompt', 'New answer 1'],
+      );
       expect(controller.answerVersions(child, 0)?.sessions.length, 2);
       expect(find.text('2 / 2'), findsOneWidget);
       expect(find.text('New answer 1'), findsOneWidget);

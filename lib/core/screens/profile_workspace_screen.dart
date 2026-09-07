@@ -239,6 +239,7 @@ class _ProfileWorkspaceScreenState extends State<ProfileWorkspaceScreen>
   }
 
   Widget _answer(ProfileChat chat, Map<String, dynamic> message) {
+    if (isHiddenAnswerMessage(message)) return const SizedBox.shrink();
     final savedAnswer =
         message['role'] == 'assistant' &&
         answerMessageId(message) != null &&

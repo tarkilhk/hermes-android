@@ -4,6 +4,7 @@
 import 'dart:async';
 
 import '../models/hermes_profile.dart';
+import '../models/answer_versions.dart';
 import 'connection_manager.dart';
 import 'profiles_repository.dart';
 import 'ws_client.dart';
@@ -327,6 +328,40 @@ class ProfileGateway {
     await requireProfile();
     return _ownedSession(
       await call('session.branch', {'session_id': runtimeId, 'count': count}),
+    );
+  }
+
+  /// session.branch counts persisted user/assistant rows, including notices
+  /// omitted by session.history. Resolve the selected durable row before writing.
+  Future<int> branchCountThrough(String durableId, int rowId) async {
+    var offset = 0;
+    var count = 0;
+    while (true) {
+      final result =
+          await read('sessions/${Uri.encodeComponent(durableId)}/messages', {
+            'limit': '500',
+            'offset': '$offset',
+            'order': 'oldest',
+            'include_compacted': 'true',
+          });
+      if (result['session_id'] != durableId) {
+        throw StateError(
+          'History changed. Reload the conversation before branching.',
+        );
+      }
+      final rows = records(result['messages']);
+      for (final row in rows) {
+        if (isBranchMessage(row)) count++;
+        if (row['id'] == rowId) {
+          if (row['role'] != 'assistant' || !isBranchMessage(row)) break;
+          return count;
+        }
+      }
+      if (rows.length < 500) break;
+      offset += rows.length;
+    }
+    throw StateError(
+      'The selected answer is no longer saved. Reload before branching.',
     );
   }
 
