@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'hermes_theme.dart';
 
 /// Workspace art direction, isolated from connection setup and legacy screens.
@@ -57,6 +58,9 @@ ThemeData profileWorkspaceTheme(
     scaffoldBackgroundColor: canvas,
     textTheme: base.textTheme.apply(bodyColor: ink, displayColor: ink),
     appBarTheme: base.appBarTheme.copyWith(
+      systemOverlayStyle: dark
+          ? SystemUiOverlayStyle.light
+          : SystemUiOverlayStyle.dark,
       backgroundColor: canvas,
       foregroundColor: ink,
       surfaceTintColor: Colors.transparent,
