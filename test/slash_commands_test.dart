@@ -1,0 +1,475 @@
+import 'dart:async';
+
+import 'package:flutter/material.dart';
+import 'package:flutter_test/flutter_test.dart';
+import 'package:hermes_android/core/models/slash_command.dart';
+import 'package:hermes_android/core/models/hermes_profile.dart';
+import 'package:hermes_android/core/screens/profile_workspace_screen.dart';
+import 'package:hermes_android/core/services/connection_manager.dart';
+import 'package:hermes_android/core/services/profile_gateway.dart';
+import 'package:hermes_android/core/services/profile_workspace_controller.dart';
+import 'package:hermes_android/core/services/ws_client.dart';
+import 'package:hermes_android/core/widgets/slash_command_suggestions.dart';
+import 'package:shared_preferences/shared_preferences.dart';
+
+import 'profile_workspace_controller_test.dart' show Host;
+
+class CommandHost extends Host {
+  final commandCalls = <(String, Map<String, dynamic>)>[];
+  Future<Map<String, dynamic>> Function(String, Map<String, dynamic>)? respond;
+  Map<String, dynamic> catalog(String profile) => {
+    'pairs': [
+      ['/$profile-skill', 'Profile $profile skill'],
+      ['/model', 'Choose model'],
+      ['/undo', 'Edit last prompt'],
+      ['/clear', 'Clear the terminal'],
+    ],
+    'categories': [
+      {
+        'name': 'Skills',
+        'pairs': [
+          ['/$profile-skill', 'Profile $profile skill'],
+        ],
+      },
+    ],
+    'canon': {'/short': '/$profile-skill'},
+    'commands': {
+      '/clear': {'desktop': 'terminal'},
+    },
+    'warning': '',
+  };
+
+  @override
+  ProfileGateway gateway(WorkspaceScope scope) {
+    final base = super.gateway(scope);
+    final gateway = ProfileGateway(
+      scope: scope,
+      discover: discover,
+      get: base.read,
+      rpc: (method, params) async {
+        commandCalls.add((method, params));
+        if (method == 'commands.catalog') return catalog(scope.profileName);
+        if (method == 'command.dispatch' ||
+            method == 'slash.exec' ||
+            method == 'complete.slash') {
+          return await respond?.call(method, params) ??
+              {'type': 'exec', 'output': 'Done'};
+        }
+        if (method == 'session.history') {
+          return {'messages': <Map<String, dynamic>>[]};
+        }
+        return base.call(method, params);
+      },
+    );
+    gateways[scope.profileName] = gateway;
+    return gateway;
+  }
+}
+
+void main() {
+  late CommandHost host;
+  late ProfileWorkspaceController controller;
+  late ProfileChat chat;
+  setUp(() async {
+    SharedPreferences.setMockInitialValues({});
+    host = CommandHost();
+    controller = ProfileWorkspaceController(
+      connectionIdentity: 'slash-test-host',
+      connection: SavedConnection(
+        id: 'host',
+        label: 'Host',
+        host: 'localhost',
+        port: 1,
+        apiKey: '',
+      ),
+      preferences: await SharedPreferences.getInstance(),
+      gatewayFactory: host.gateway,
+    );
+    await controller.initialize();
+    chat = await controller.createChat();
+  });
+  tearDown(() => controller.dispose());
+
+  test('catalog includes custom skills, aliases and no fixed size limit', () {
+    final value = host.catalog('a');
+    value['pairs'] = [
+      ...value['pairs'] as List,
+      ...List<List<String>>.generate(
+        300,
+        (i) => ['/skill-$i', 'Custom skill $i'],
+      ),
+    ];
+    final catalog = SlashCatalog.fromJson(value);
+    expect(catalog.search('/').length, 304);
+    expect(catalog.search('/short').single.text, '/a-skill');
+    expect(catalog.unavailable('clear'), contains('terminal'));
+    expect(
+      SlashInvocation.parse('/skill first\nsecond')!.argument,
+      'first\nsecond',
+    );
+    expect(SlashInvocation.parse('/'), isNull);
+  });
+
+  test(
+    'skill dispatch expands once and retains visible invocation and arguments',
+    () async {
+      host.respond = (_, params) async => {
+        'type': 'skill',
+        'message': 'Expanded skill body',
+        'display': '/a-skill first\nsecond',
+      };
+      chat.draft = '/short first\nsecond';
+      await controller.send(chat);
+      final dispatch = host.commandCalls
+          .singleWhere((c) => c.$1 == 'command.dispatch')
+          .$2;
+      expect(dispatch, containsPair('name', 'a-skill'));
+      expect(dispatch['arg'], 'first\nsecond');
+      final prompt = host.commandCalls
+          .singleWhere((c) => c.$1 == 'prompt.submit')
+          .$2;
+      expect(prompt['text'], 'Expanded skill body');
+      expect(prompt['profile'], 'a');
+      expect(prompt['session_id'], 'a-runtime');
+      expect(chat.messages.single['display_content'], '/a-skill first\nsecond');
+      expect(chat.draft, isEmpty);
+      expect(chat.status, ProfileTurnStatus.running);
+    },
+  );
+
+  test(
+    'late skill reply submits to original owner after a profile switch',
+    () async {
+      final reply = Completer<Map<String, dynamic>>();
+      host.respond = (_, _) => reply.future;
+      chat.draft = '/a-skill task';
+      final send = controller.send(chat);
+      await Future<void>.delayed(Duration.zero);
+      await controller.switchProfile('b');
+      final other = await controller.createChat();
+      other.draft = 'Keep this draft';
+      reply.complete({
+        'type': 'send',
+        'message': 'Expanded bundle',
+        'display': '/a-skill task',
+        'notice': 'Loading bundle',
+      });
+      await send;
+      expect(controller.current!.chat, same(other));
+      expect(other.draft, 'Keep this draft');
+      expect(other.messages, isEmpty);
+      expect(chat.commandOutput, ['Loading bundle']);
+      expect(
+        host.commandCalls
+            .singleWhere((c) => c.$1 == 'prompt.submit')
+            .$2['profile'],
+        'a',
+      );
+      expect(
+        (await controller.commandCatalog(other)).commands.first.text,
+        '/b-skill',
+      );
+    },
+  );
+
+  test('duplicate taps do not execute a command twice', () async {
+    final reply = Completer<Map<String, dynamic>>();
+    host.respond = (_, _) => reply.future;
+    chat.draft = '/custom';
+    final first = controller.send(chat);
+    await controller.send(chat);
+    reply.complete({'type': 'exec', 'output': 'Done'});
+    await first;
+    expect(
+      host.commandCalls.where((c) => c.$1 == 'command.dispatch'),
+      hasLength(1),
+    );
+  });
+
+  test('text output settles without expecting stream events', () async {
+    chat.draft = '/custom';
+    await controller.send(chat);
+    expect(chat.busy, isFalse);
+    expect(chat.commandRunning, isFalse);
+    expect(chat.commandOutput, ['Done']);
+    expect(host.commandCalls.where((c) => c.$1 == 'prompt.submit'), isEmpty);
+  });
+
+  test(
+    'undo prefill edits composer without automatically submitting',
+    () async {
+      host.respond = (_, _) async => {
+        'type': 'prefill',
+        'message': 'Edit this question',
+        'notice': 'Rewound',
+      };
+      chat.draft = '/undo';
+      await controller.send(chat);
+      expect(chat.draft, 'Edit this question');
+      expect(chat.commandOutput, ['Rewound']);
+      expect(host.commandCalls.where((c) => c.$1 == 'prompt.submit'), isEmpty);
+    },
+  );
+
+  test('explicit dispatch refusal routes built-in to slash.exec', () async {
+    host.respond = (method, _) async {
+      if (method == 'command.dispatch') {
+        throw JsonRpcError(
+          method,
+          'not a quick/plugin/bundle/skill command: model',
+          code: 4018,
+        );
+      }
+      return {'output': 'Model changed', 'warning': 'Session only'};
+    };
+    chat.draft = '/model provider/model';
+    await controller.send(chat);
+    expect(
+      host.commandCalls.singleWhere((c) => c.$1 == 'slash.exec').$2['command'],
+      '/model provider/model',
+    );
+    expect(chat.commandOutput, ['Session only', 'Model changed']);
+  });
+
+  test('timeout never retries via slash.exec or prompt.submit', () async {
+    host.respond = (_, _) async => throw TimeoutException('lost reply');
+    chat.draft = '/custom';
+    await controller.send(chat);
+    expect(chat.draft, '/custom');
+    expect(chat.error, contains('uncertain'));
+    expect(
+      host.commandCalls.where(
+        (c) => {'slash.exec', 'prompt.submit'}.contains(c.$1),
+      ),
+      isEmpty,
+    );
+  });
+
+  test(
+    'command error is preserved and is not treated as routing refusal',
+    () async {
+      host.respond = (method, _) async =>
+          throw JsonRpcError(method, 'quick command failed', code: 4018);
+      chat.draft = '/custom';
+      await controller.send(chat);
+      expect(chat.error, contains('quick command failed'));
+      expect(chat.draft, '/custom');
+      expect(host.commandCalls.where((c) => c.$1 == 'slash.exec'), isEmpty);
+    },
+  );
+
+  test('alias cycles terminate without a model request', () async {
+    host.respond = (_, _) async => {'type': 'alias', 'target': 'cycle'};
+    chat.draft = '/cycle';
+    await controller.send(chat);
+    expect(chat.error, contains('alias cycle'));
+    expect(
+      host.commandCalls.where((c) => c.$1 == 'command.dispatch'),
+      hasLength(1),
+    );
+  });
+
+  test('catalog normalizes quick commands without a leading slash', () {
+    final catalog = SlashCatalog.fromJson({
+      'pairs': [
+        ['deploy', 'User command'],
+      ],
+      'canon': {'deploy': 'deploy'},
+    });
+    expect(catalog.commands.single.text, '/deploy');
+    expect(catalog.resolve('deploy'), 'deploy');
+  });
+
+  test('catalog identifies skills supplied outside the categories array', () {
+    final catalog = SlashCatalog.fromJson({
+      'pairs': [
+        ['/custom-skill', 'Installed skill'],
+      ],
+      'categories': <Map<String, dynamic>>[],
+      'skills': {
+        '/custom-skill': {'usage': 0, 'origin': 'local'},
+      },
+    });
+    expect(catalog.commands.single.category, 'Skills');
+  });
+
+  test(
+    'side-question completion remains with its originating profile',
+    () async {
+      chat.draft = '/btw What changed?';
+      await controller.send(chat);
+      await controller.switchProfile('b');
+      final other = await controller.createChat();
+      host.event('a', 'btw.complete', {'text': 'Side answer'});
+      expect(chat.commandOutput.last, 'Side answer');
+      expect(other.commandOutput, isEmpty);
+      expect(
+        host.commandCalls.singleWhere((c) => c.$1 == 'prompt.btw').$2['text'],
+        'What changed?',
+      );
+      expect(host.commandCalls.where((c) => c.$1 == 'slash.exec'), isEmpty);
+    },
+  );
+
+  test('terminal commands explain requirement and preserve draft', () async {
+    chat.draft = '/clear';
+    await controller.send(chat);
+    expect(chat.error, contains('requires the Hermes terminal'));
+    expect(chat.draft, '/clear');
+    expect(host.commandCalls.where((c) => c.$1 == 'command.dispatch'), isEmpty);
+  });
+
+  test(
+    'interrupt while busy uses exact session and preserves turn status',
+    () async {
+      chat.status = ProfileTurnStatus.running;
+      chat.draft = '/interrupt';
+      await controller.send(chat);
+      expect(
+        host.commandCalls
+            .singleWhere((c) => c.$1 == 'session.interrupt')
+            .$2['session_id'],
+        'a-runtime',
+      );
+      expect(chat.status, ProfileTurnStatus.running);
+    },
+  );
+
+  testWidgets(
+    'picker searches all skills and inserts selection without sending',
+    (tester) async {
+      final input = TextEditingController(text: '/a-');
+      addTearDown(input.dispose);
+      await tester.pumpWidget(
+        MaterialApp(
+          home: Scaffold(
+            body: Column(
+              children: [
+                SlashCommandSuggestions(
+                  controller: controller,
+                  chat: chat,
+                  composer: input,
+                ),
+              ],
+            ),
+          ),
+        ),
+      );
+      await tester.pump(const Duration(milliseconds: 200));
+      await tester.pumpAndSettle();
+      expect(find.text('/a-skill'), findsOneWidget);
+      await tester.tap(find.text('/a-skill'));
+      expect(input.text, '/a-skill ');
+      expect(chat.draft, '/a-skill ');
+      expect(host.commandCalls.where((c) => c.$1 == 'prompt.submit'), isEmpty);
+      await tester.pumpWidget(const SizedBox.shrink());
+    },
+  );
+
+  testWidgets(
+    'argument completion replaces only the server range and keeps suffix',
+    (tester) async {
+      host.respond = (_, _) async => {
+        'items': [
+          {'text': 'provider/model', 'meta': 'Model'},
+        ],
+        'replace_from': 7,
+      };
+      final input = TextEditingController.fromValue(
+        const TextEditingValue(
+          text: '/model pr keep',
+          selection: TextSelection.collapsed(offset: 9),
+        ),
+      );
+      addTearDown(input.dispose);
+      await tester.pumpWidget(
+        MaterialApp(
+          home: Scaffold(
+            body: SlashCommandSuggestions(
+              controller: controller,
+              chat: chat,
+              composer: input,
+            ),
+          ),
+        ),
+      );
+      await tester.pump(const Duration(milliseconds: 200));
+      await tester.pumpAndSettle();
+      await tester.tap(find.text('provider/model'));
+      expect(input.text, '/model provider/model keep');
+      expect(input.selection.extentOffset, 21);
+      await tester.pumpWidget(const SizedBox.shrink());
+    },
+  );
+
+  testWidgets('late completion cannot replace a newer search', (tester) async {
+    final delayed = Completer<Map<String, dynamic>>();
+    host.respond = (_, _) => delayed.future;
+    final input = TextEditingController(text: '/model pr');
+    addTearDown(input.dispose);
+    await tester.pumpWidget(
+      MaterialApp(
+        home: Scaffold(
+          body: SlashCommandSuggestions(
+            controller: controller,
+            chat: chat,
+            composer: input,
+          ),
+        ),
+      ),
+    );
+    await tester.pump(const Duration(milliseconds: 200));
+    input.text = '/a-';
+    await tester.pump(const Duration(milliseconds: 200));
+    delayed.complete({
+      'items': [
+        {'text': 'stale model', 'meta': ''},
+      ],
+      'replace_from': 7,
+    });
+    await tester.pumpAndSettle();
+    expect(find.text('/a-skill'), findsOneWidget);
+    expect(find.text('stale model'), findsNothing);
+    await tester.pumpWidget(const SizedBox.shrink());
+  });
+
+  testWidgets(
+    'mobile composer sends skill and displays invocation, not expanded body',
+    (tester) async {
+      host.respond = (_, _) async => {
+        'type': 'skill',
+        'message': 'Internal expanded skill body',
+        'display': '/a-skill task',
+      };
+      await tester.pumpWidget(
+        MaterialApp(home: ProfileWorkspaceScreen(controller: controller)),
+      );
+      await tester.enterText(
+        find.byKey(const Key('profile-message-composer')),
+        '/a-skill task',
+      );
+      await tester.pump();
+      // Attachment cleanup uses real filesystem futures even with no files.
+      await tester.runAsync(() async {
+        await tester.tap(find.byTooltip('Send'));
+        for (var i = 0; i < 100 && chat.commandRunning; i++) {
+          await Future<void>.delayed(const Duration(milliseconds: 10));
+        }
+      });
+      await tester.pump();
+      expect(chat.commandRunning, isFalse);
+      expect(
+        find.byWidgetPredicate(
+          (widget) =>
+              widget is SelectableText &&
+              (widget.data ?? widget.textSpan?.toPlainText()) ==
+                  '/a-skill task',
+        ),
+        findsOneWidget,
+      );
+      expect(find.text('Internal expanded skill body'), findsNothing);
+      expect(chat.status, ProfileTurnStatus.running);
+      await tester.pumpWidget(const SizedBox.shrink());
+    },
+  );
+}

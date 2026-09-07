@@ -394,6 +394,8 @@ Android app (Flutter)
 
 ### Chat screen
 
+- Type `/` in the profile workspace to browse gateway commands and installed skills. See [mobile slash commands](docs/SLASH_COMMAND_SUPPORT.md) for execution and server requirements.
+
 - **Send messages** — Type in the input field and tap the send button or press Enter.
 - **Streaming responses** — The agent's response appears token-by-token in real-time. The chat auto-scrolls to the bottom as new tokens arrive.
 - **Tool progress** — When the agent uses tools, inline progress messages show the tool name, status, and progress.

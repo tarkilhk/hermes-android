@@ -7,6 +7,7 @@ import 'package:shared_preferences/shared_preferences.dart';
 import '../models/attachment_draft.dart';
 import '../models/answer_versions.dart';
 import '../models/hermes_profile.dart';
+import '../models/slash_command.dart';
 import 'attachment_draft_service.dart';
 import 'connection_manager.dart';
 import 'profile_gateway.dart';
@@ -81,6 +82,8 @@ class ProfileChat {
   String? tool;
   String? error;
   bool changingAnswer = false;
+  bool commandRunning = false;
+  final List<String> commandOutput = [];
   Map<String, dynamic>? approval;
   Map<String, dynamic>? clarification;
   List<Map<String, dynamic>> messages = [];
@@ -130,6 +133,7 @@ class ProfileChat {
 }
 
 class ProfileWorkspaceData {
+  Future<SlashCatalog>? commandCatalog;
   final ProfileGateway gateway;
   List<Map<String, dynamic>> sessions = [];
   int? nextSessionOffset;
@@ -344,6 +348,7 @@ class ProfileWorkspaceController extends ChangeNotifier {
       await initialize();
       return;
     }
+    resource.commandCatalog = null;
     await switchProfile(resource.scope.profileName);
     if (_unrestoredPending.isNotEmpty) await _restorePending();
   }
@@ -1438,15 +1443,319 @@ class ProfileWorkspaceController extends ChangeNotifier {
     );
   }
 
+  Future<SlashCatalog> commandCatalog(ProfileChat chat) {
+    final resource = _owned(chat);
+    return resource.commandCatalog ??= (() async {
+      try {
+        return SlashCatalog.fromJson(
+          await resource.gateway.call('commands.catalog', {
+            'session_id': chat.runtimeId,
+          }),
+        );
+      } catch (_) {
+        resource.commandCatalog = null;
+        rethrow;
+      }
+    })();
+  }
+
+  Future<Map<String, dynamic>> completeCommand(ProfileChat chat, String text) =>
+      _owned(chat).gateway.call('complete.slash', {
+        'session_id': chat.runtimeId,
+        'text': text,
+      });
+
   Future<void> send(ProfileChat chat) async {
+    if (chat.commandRunning || chat.changingIntelligence || switching) return;
+    if (chat.draft.trimLeft().startsWith('/')) {
+      await _sendCommand(chat);
+      return;
+    }
+    await _sendPrompt(chat);
+  }
+
+  Future<void> _sendCommand(ProfileChat chat) async {
+    if (chat.changingAnswer) return;
+    final invocation = SlashInvocation.parse(chat.draft);
+    if (invocation == null) {
+      chat.error = 'Choose a command or enter its name after /.';
+      _changed();
+      return;
+    }
+    final resource = _owned(chat);
+    final original = chat.draft;
+    chat.commandRunning = true;
+    chat.error = null;
+    _changed();
+    try {
+      await resource.gateway.requireProfile();
+      final catalog = await commandCatalog(chat);
+      var name = catalog.resolve(invocation.name);
+      var argument = invocation.argument;
+      final visited = <String>{};
+      while (true) {
+        if (!visited.add(name) || visited.length > 16) {
+          throw StateError('Command alias cycle');
+        }
+        // Session navigation belongs to the phone; slash workers own a different
+        // CLI session and must never create, rename or select it on our behalf.
+        if (await _localCommand(chat, name, argument)) {
+          chat.draft = '';
+          break;
+        }
+        final unavailable = catalog.unavailable(name);
+        if (unavailable != null) throw StateError(unavailable);
+        if (chat.busy) {
+          throw StateError(
+            'Wait for the current turn or stop it before running /$name.',
+          );
+        }
+        Map<String, dynamic> result;
+        try {
+          result = await resource.gateway.call('command.dispatch', {
+            'session_id': chat.runtimeId,
+            'name': name,
+            'arg': argument,
+          });
+        } on JsonRpcError catch (e) {
+          // This exact refusal means dispatch did not execute anything. Never
+          // retry a timeout or a command failure through another execution path.
+          if (e.code != 4018 ||
+              !e.message.startsWith(
+                'not a quick/plugin/bundle/skill command:',
+              )) {
+            rethrow;
+          }
+          result = await resource.gateway.call('slash.exec', {
+            'session_id': chat.runtimeId,
+            'command': '/$name${argument.isEmpty ? '' : ' $argument'}',
+          });
+        }
+        final type = result['type'];
+        if (type == 'alias') {
+          final target = result['target'] as String? ?? '';
+          final alias = SlashInvocation.parse(
+            '${target.startsWith('/') ? '' : '/'}$target',
+          );
+          if (alias == null) {
+            throw const FormatException('Invalid command alias');
+          }
+          name = catalog.resolve(alias.name);
+          argument = [
+            alias.argument,
+            argument,
+          ].where((s) => s.isNotEmpty).join(' ');
+          continue;
+        }
+        for (final key in ['notice', 'warning', 'output']) {
+          final line = result[key];
+          if (line is String && line.isNotEmpty) chat.commandOutput.add(line);
+        }
+        if (type == 'skill' || type == 'send' || type == 'prefill') {
+          final message = result['message'];
+          if (message is! String || message.isEmpty) {
+            throw const FormatException('Command returned an empty prompt');
+          }
+          if (type == 'prefill') {
+            chat.draft = message;
+            // /undo changes server history. Read through the runtime owner.
+            await refreshHistory(chat);
+          } else {
+            await _sendPrompt(
+              chat,
+              prompt: message,
+              display: result['display'] as String? ?? original,
+            );
+          }
+        } else if ((type == null || type == 'exec' || type == 'plugin') &&
+            result['output'] is String) {
+          if (chat.attachments.isNotEmpty) {
+            chat.commandOutput.add(
+              'Attachments remain in the composer for your next message.',
+            );
+          }
+          chat.draft = '';
+          try {
+            await refreshHistory(chat);
+            await _refreshSessions(resource);
+          } catch (_) {
+            chat.commandOutput.add(
+              'Command finished. Refresh to reload history.',
+            );
+          }
+        } else {
+          throw FormatException('Unsupported command response: $type');
+        }
+        break;
+      }
+    } catch (e) {
+      chat.error = e is TimeoutException
+          ? 'Command status is uncertain. It was not retried. Check the session before running it again.'
+          : e.toString();
+    } finally {
+      chat.commandRunning = false;
+      _changed();
+    }
+  }
+
+  Future<bool> _localCommand(
+    ProfileChat chat,
+    String name,
+    String argument,
+  ) async {
+    final resource = _owned(chat);
+    switch (name) {
+      case 'new':
+      case 'reset':
+        if (current != resource || current?.chat != chat || switching) {
+          throw StateError('Return to this chat to create a session.');
+        }
+        await createChat();
+      case 'profile':
+        if (argument.isEmpty) {
+          chat.commandOutput.add('Profile: ${resource.scope.profileName}');
+        } else if (current == resource && current?.chat == chat && !switching) {
+          if (!await switchProfile(argument)) {
+            throw StateError(error ?? 'Profile switch failed');
+          }
+        } else {
+          throw StateError('Return to this chat to switch profiles.');
+        }
+      case 'sessions':
+      case 'resume':
+      case 'switch':
+        if (current != resource || current?.chat != chat || switching) {
+          throw StateError('Return to this chat to select a session.');
+        }
+        if (argument.isEmpty) {
+          showList();
+        } else {
+          final matches = resource.sessions
+              .where((s) => s['id'] == argument || s['title'] == argument)
+              .toList();
+          if (matches.length != 1) {
+            throw StateError(
+              'Choose a session from Chats, or use its exact ID or title.',
+            );
+          }
+          await openSession(
+            ProfileSessionKey(resource.scope, matches.single['id'] as String),
+          );
+        }
+      case 'title':
+        if (argument.isEmpty) {
+          chat.commandOutput.add(chat.title);
+          break;
+        }
+        final result = await resource.gateway.call('session.title', {
+          'session_id': chat.runtimeId,
+          'title': argument,
+        });
+        chat.title = result['title'] as String? ?? argument;
+        chat.commandOutput.add('Session title: ${chat.title}');
+      case 'branch':
+      case 'fork':
+        if (chat.busy || switching) {
+          throw StateError('Wait for the current turn before branching.');
+        }
+        final index = chat.messages.lastIndexWhere(
+          (m) => m['role'] == 'assistant' && isBranchMessage(m),
+        );
+        if (index < 0) {
+          throw StateError('Send a message before branching this chat.');
+        }
+        final child = await branchAnswer(chat, index);
+        if (child == null) throw StateError('Could not branch this chat.');
+        if (argument.isNotEmpty) {
+          final result = await resource.gateway.call('session.title', {
+            'session_id': child.runtimeId,
+            'title': argument,
+          });
+          child.title = result['title'] as String? ?? argument;
+        }
+      case 'save':
+        final result = await resource.gateway.call('session.save', {
+          'session_id': chat.runtimeId,
+        });
+        final file = result['file'];
+        if (file is! String || file.isEmpty) {
+          throw const FormatException(
+            'The server did not return the saved file path.',
+          );
+        }
+        chat.commandOutput.add('Saved on the Hermes host: $file');
+      case 'status':
+        final result = await resource.gateway.call('session.status', {
+          'session_id': chat.runtimeId,
+        });
+        chat.commandOutput.add(
+          result['output'] as String? ?? 'Status unavailable.',
+        );
+      case 'history':
+        await refreshHistory(chat);
+        chat.commandOutput.add('Conversation history refreshed.');
+      case 'bg':
+      case 'background':
+      case 'btw':
+        if (argument.isEmpty) throw StateError('Usage: /$name <message>');
+        await resource.gateway.call(
+          name == 'btw' ? 'prompt.btw' : 'prompt.background',
+          {'session_id': chat.runtimeId, 'text': argument},
+        );
+        chat.commandOutput.add('Started /$name on the Hermes host.');
+      case 'stop':
+      case 'interrupt':
+        await stop(chat);
+        chat.commandOutput.add('Interrupt requested.');
+        if (name == 'stop') {
+          final result = await resource.gateway.call('process.stop');
+          chat.commandOutput.add(
+            'Background processes stopped: ${result['killed']}',
+          );
+        }
+      case 'skills':
+        if (argument.isNotEmpty && argument != 'list') return false;
+        final catalog = await commandCatalog(chat);
+        chat.commandOutput.add(
+          catalog.commands
+              .where((c) => c.category.toLowerCase().contains('skill'))
+              .map((c) => '${c.text}  ${c.description}')
+              .join('\n'),
+        );
+        if (catalog.warning.isNotEmpty) chat.commandOutput.add(catalog.warning);
+      case 'help':
+      case 'commands':
+        final catalog = await commandCatalog(chat);
+        chat.commandOutput.add(
+          catalog.commands.map((c) => '${c.text}  ${c.description}').join('\n'),
+        );
+        if (catalog.warning.isNotEmpty) chat.commandOutput.add(catalog.warning);
+      case 'steer':
+        if (argument.isEmpty) throw StateError('Usage: /steer <message>');
+        await resource.gateway.call('session.steer', {
+          'session_id': chat.runtimeId,
+          'text': argument,
+        });
+        chat.commandOutput.add('Steering message sent.');
+      default:
+        return false;
+    }
+    return true;
+  }
+
+  Future<void> _sendPrompt(
+    ProfileChat chat, {
+    String? prompt,
+    String? display,
+  }) async {
     final resource = _owned(chat);
     if (chat.busy ||
         chat.changingAnswer ||
         chat.changingIntelligence ||
-        (chat.draft.trim().isEmpty && chat.attachments.isEmpty)) {
+        ((prompt ?? chat.draft).trim().isEmpty && chat.attachments.isEmpty)) {
       return;
     }
-    final text = chat.draft.trim();
+    final text = prompt ?? chat.draft.trim();
     chat.lastActive = DateTime.now().millisecondsSinceEpoch / 1000;
     final files = List<AttachmentDraft>.of(chat.attachments);
     chat.status = ProfileTurnStatus.submitting;
@@ -1475,13 +1784,17 @@ class ProfileWorkspaceController extends ChangeNotifier {
         onChanged: (_) => _changed(),
         submitPrompt: (refs) async {
           await resource.gateway.requireProfile();
-          chat.messages.add({'role': 'user', 'content': text});
+          chat.messages.add({
+            'role': 'user',
+            'content': text,
+            'display_content': ?display,
+          });
           chat.streaming = '';
           chat.draft = '';
           chat.attachments.clear();
           chat.status = ProfileTurnStatus.running;
           if (chat.title == 'New chat') {
-            chat.title = text.isEmpty ? 'Attachment' : text;
+            chat.title = display ?? (text.isEmpty ? 'Attachment' : text);
           }
           submitted = true;
           _changed();
@@ -1590,6 +1903,12 @@ class ProfileWorkspaceController extends ChangeNotifier {
             'Working';
       case 'tool.complete':
         chat.tool = null;
+      case 'btw.complete':
+      case 'background.complete':
+        chat.commandOutput.add(
+          event.data['text']?.toString() ?? 'Background command finished.',
+        );
+        _notify(chat, false);
       case 'approval.request':
         chat.approval = event.data;
         chat.status = ProfileTurnStatus.attention;
