@@ -6,6 +6,8 @@ import 'package:flutter/material.dart';
 import '../services/profile_workspace_controller.dart';
 import '../services/android_share_intent_service.dart';
 import '../widgets/profile_message.dart';
+import '../models/answer_versions.dart';
+import '../widgets/answer_actions.dart';
 import '../models/gateway_clarify.dart';
 import '../widgets/gateway_clarify_dialog.dart';
 import '../theme/profile_workspace_theme.dart';
@@ -233,6 +235,56 @@ class _ProfileWorkspaceScreenState extends State<ProfileWorkspaceScreen>
     );
   }
 
+  Widget _answer(ProfileChat chat, Map<String, dynamic> message) {
+    final savedAnswer =
+        message['role'] == 'assistant' &&
+        answerMessageId(message) != null &&
+        isBranchMessage(message);
+    final group = controller.answerVersionsForMessage(chat, message);
+    final selected = group?.selections[chat.key.sessionId] ?? 0;
+    final enabled = !chat.busy && !chat.changingAnswer && !controller.switching;
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: [
+        ProfileMessage(message: message),
+        if (savedAnswer)
+          AnswerActions(
+            key: ValueKey('answer-actions-${answerMessageId(message)}'),
+            busy: chat.changingAnswer,
+            onBranch: enabled
+                ? () => _run(() async {
+                    await controller.branchAnswer(
+                      chat,
+                      chat.messages.indexOf(message),
+                    );
+                  })
+                : null,
+            onRegenerate: enabled
+                ? () => _run(() async {
+                    await controller.branchAnswer(
+                      chat,
+                      chat.messages.indexOf(message),
+                      regenerate: true,
+                    );
+                  })
+                : null,
+            version: selected + 1,
+            count: group?.sessions.length ?? 1,
+            onPrevious: enabled && group != null
+                ? () => _run(
+                    () => controller.selectAnswer(chat, group, selected - 1),
+                  )
+                : null,
+            onNext: enabled && group != null
+                ? () => _run(
+                    () => controller.selectAnswer(chat, group, selected + 1),
+                  )
+                : null,
+          ),
+      ],
+    );
+  }
+
   Widget _chat(ProfileChat chat, BuildContext context) => Column(
     children: [
       if (chat.busy || chat.error != null)
@@ -260,7 +312,7 @@ class _ProfileWorkspaceScreenState extends State<ProfileWorkspaceScreen>
           key: ValueKey(chat.key),
           chat: chat,
           controller: controller,
-          messageBuilder: (message) => ProfileMessage(message: message),
+          messageBuilder: (message) => _answer(chat, message),
           tail: [
             if (chat.streaming.isNotEmpty)
               ProfileMessage(
@@ -372,7 +424,10 @@ class _ProfileWorkspaceScreenState extends State<ProfileWorkspaceScreen>
                                     overflow: TextOverflow.ellipsis,
                                   ),
                                 ),
-                                onDeleted: chat.busy || controller.switching
+                                onDeleted:
+                                    chat.busy ||
+                                        chat.changingAnswer ||
+                                        controller.switching
                                     ? null
                                     : () => _run(
                                         () => controller.removeAttachment(
@@ -394,7 +449,10 @@ class _ProfileWorkspaceScreenState extends State<ProfileWorkspaceScreen>
                           minimumSize: const Size(48, 48),
                         ),
                         icon: const Icon(Icons.add),
-                        onPressed: chat.busy || controller.switching
+                        onPressed:
+                            chat.busy ||
+                                chat.changingAnswer ||
+                                controller.switching
                             ? null
                             : () => _run(() async {
                                 final result = await FilePicker.platform
@@ -447,6 +505,7 @@ class _ProfileWorkspaceScreenState extends State<ProfileWorkspaceScreen>
                         icon: Icon(chat.busy ? Icons.stop : Icons.arrow_upward),
                         onPressed:
                             controller.switching ||
+                                chat.changingAnswer ||
                                 (!chat.busy &&
                                     chat.draft.trim().isEmpty &&
                                     chat.attachments.isEmpty)

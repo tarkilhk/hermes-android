@@ -5,6 +5,7 @@ import 'package:flutter/foundation.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
 import '../models/attachment_draft.dart';
+import '../models/answer_versions.dart';
 import '../models/hermes_profile.dart';
 import 'attachment_draft_service.dart';
 import 'connection_manager.dart';
@@ -72,6 +73,7 @@ class ProfileChat {
   String streaming = '';
   String? tool;
   String? error;
+  bool changingAnswer = false;
   Map<String, dynamic>? approval;
   Map<String, dynamic>? clarification;
   List<Map<String, dynamic>> messages = [];
@@ -147,6 +149,7 @@ class ProfileWorkspaceData {
   int reconnectAttempt = 0;
   Timer? retry;
   bool reconnecting = false;
+  List<AnswerVersionGroup> answerVersions = [];
   ProfileWorkspaceData(this.gateway);
   WorkspaceScope get scope => gateway.scope;
   ProfileChat? get chat => chats[selectedSession];
@@ -175,6 +178,7 @@ class ProfileWorkspaceController extends ChangeNotifier {
   String? error;
   bool visible = false;
   int _generation = 0;
+  int _navigationGeneration = 0;
   bool _closed = false;
   Future<void> _journalQueue = Future.value();
 
@@ -216,6 +220,9 @@ class ProfileWorkspaceController extends ChangeNotifier {
     );
     return _resources.putIfAbsent(scope, () {
       final resource = ProfileWorkspaceData(_factory(scope));
+      resource.answerVersions = AnswerVersionGroup.decode(
+        preferences.getString(_versionsKey(resource)),
+      );
       resource.gateway.onEvent = (event) => _event(resource, event);
       resource.gateway.onConnectionChanged = (connected) {
         if (!connected && !_closed) {
@@ -422,6 +429,7 @@ class ProfileWorkspaceController extends ChangeNotifier {
       chat.nextHistoryOffset = page.nextOffset == null
           ? null
           : chat.messages.length;
+      await _refreshAnswerIds(chat);
     } catch (_) {
       if (!_closed && chat.historyGeneration == generation) {
         chat.historyError = 'History could not be loaded. Retry to reload.';
@@ -568,6 +576,7 @@ class ProfileWorkspaceController extends ChangeNotifier {
     Map<String, dynamic>? inProject,
     WorkspaceScope? owner,
   }) async {
+    _navigationGeneration++;
     final resource = _writable();
     if (owner != null && owner != resource.scope) {
       throw StateError('Profile changed. Open the menu again.');
@@ -596,6 +605,7 @@ class ProfileWorkspaceController extends ChangeNotifier {
   }
 
   Future<void> openSession(ProfileSessionKey key) async {
+    final navigation = ++_navigationGeneration;
     if (!owns(key)) {
       throw ArgumentError('Wrong connection settings or host');
     }
@@ -638,7 +648,9 @@ class ProfileWorkspaceController extends ChangeNotifier {
       _hydrate(chat, response);
     }
     // The user may have navigated again while resume was in flight.
-    if (current == resource && !switching) {
+    if (current == resource &&
+        !switching &&
+        navigation == _navigationGeneration) {
       resource.selectedSession = key.sessionId;
     }
     _changed();
@@ -646,6 +658,7 @@ class ProfileWorkspaceController extends ChangeNotifier {
   }
 
   void showList() {
+    _navigationGeneration++;
     _cancelOlderLoads();
     current?.selectedSession = null;
     _changed();
@@ -845,6 +858,7 @@ class ProfileWorkspaceController extends ChangeNotifier {
   }
 
   Future<void> selectProject(Map<String, dynamic>? project) {
+    _navigationGeneration++;
     final resource = _writable();
     if (project != null && !resource.projects.contains(project)) {
       throw ArgumentError('Wrong project owner');
@@ -934,9 +948,320 @@ class ProfileWorkspaceController extends ChangeNotifier {
     return resource;
   }
 
+  String _versionsKey(ProfileWorkspaceData resource) =>
+      'answer_versions_v1_${resource.scope.storageNamespace}';
+
+  AnswerVersionGroup? answerVersionsForMessage(
+    ProfileChat chat,
+    Map<String, dynamic> message,
+  ) {
+    final id = answerMessageId(message);
+    if (id == null) return null;
+    return _owned(chat).answerVersions
+        .where((g) => g.answerIds[chat.key.sessionId] == id)
+        .firstOrNull;
+  }
+
+  Future<void> _refreshAnswerIds(ProfileChat chat) async {
+    final resource = _owned(chat);
+    final groups = resource.answerVersions
+        .where((g) => g.selections.containsKey(chat.key.sessionId))
+        .toList();
+    if (groups.isEmpty) return;
+    final history = await resource.gateway.fullHistory(chat.runtimeId);
+    var ordinal = -1;
+    final answers = <int, int>{};
+    for (final message in history) {
+      if (isAnswerPrompt(message)) ordinal++;
+      final id = answerMessageId(message);
+      if (message['role'] == 'assistant' &&
+          isBranchMessage(message) &&
+          id != null) {
+        answers[ordinal] = id;
+      }
+    }
+    var changed = false;
+    for (final group in groups) {
+      final id = answers[group.userOrdinal];
+      if (id != null && group.answerIds[chat.key.sessionId] != id) {
+        group.answerIds[chat.key.sessionId] = id;
+        changed = true;
+      }
+    }
+    if (changed &&
+        !await preferences.setString(
+          _versionsKey(resource),
+          jsonEncode(resource.answerVersions.map((g) => g.toJson()).toList()),
+        )) {
+      throw StateError('Could not save answer positions');
+    }
+  }
+
+  AnswerVersionGroup? answerVersions(ProfileChat chat, int userOrdinal) =>
+      _owned(chat).answerVersions
+          .where(
+            (group) =>
+                group.userOrdinal == userOrdinal &&
+                group.selections.containsKey(chat.key.sessionId),
+          )
+          .firstOrNull;
+
+  Future<void> selectAnswer(
+    ProfileChat chat,
+    AnswerVersionGroup group,
+    int index,
+  ) async {
+    final resource = _owned(chat);
+    if (chat.busy || chat.changingAnswer || switching) return;
+    if (!resource.answerVersions.contains(group) ||
+        !group.selections.containsKey(chat.key.sessionId) ||
+        index < 0 ||
+        index >= group.sessions.length) {
+      throw ArgumentError('Unknown answer version');
+    }
+    chat.changingAnswer = true;
+    _changed();
+    try {
+      await openSession(
+        ProfileSessionKey(resource.scope, group.sessions[index]),
+      );
+    } finally {
+      chat.changingAnswer = false;
+      _changed();
+    }
+  }
+
+  /// Fork before regenerating so no operation rewrites the source transcript.
+  Future<ProfileChat?> branchAnswer(
+    ProfileChat source,
+    int messageIndex, {
+    bool regenerate = false,
+  }) async {
+    final resource = _owned(source);
+    if (source.busy || source.changingAnswer || switching) return null;
+    if (messageIndex < 0 || messageIndex >= source.messages.length) {
+      throw ArgumentError('Unknown answer');
+    }
+    final selected = source.messages[messageIndex];
+    final selectedId = answerMessageId(selected);
+    if (selectedId == null) {
+      throw StateError('Wait for this answer to be saved');
+    }
+    final navigation = _navigationGeneration;
+    final profileGeneration = _generation;
+    source.changingAnswer = true;
+    _changed();
+    try {
+      // Address the saved row, even when only the newest history page is visible.
+      final history = await resource.gateway.fullHistory(source.runtimeId);
+      final targetIndex = history.indexWhere(
+        (m) => answerMessageId(m) == selectedId,
+      );
+      final target = AnswerTarget.at(history, targetIndex);
+      if (target == null ||
+          answerMessageText(history[targetIndex]) !=
+              answerMessageText(selected)) {
+        throw StateError(
+          'History changed. Reconnect to reload before branching.',
+        );
+      }
+      if (regenerate && target.userOrdinal < 0) {
+        throw StateError('This answer has no saved prompt to regenerate');
+      }
+      final expected = history
+          .take(targetIndex + 1)
+          .where(isBranchMessage)
+          .toList();
+      final result = await resource.gateway.branch(
+        source.runtimeId,
+        target.branchCount,
+      );
+      final id = result['stored_session_id'];
+      if (id is! String ||
+          id.isEmpty ||
+          id == source.key.sessionId ||
+          resource.chats.containsKey(id)) {
+        throw const FormatException(
+          'Branch has no new durable session identity',
+        );
+      }
+      final child = ProfileChat(
+        key: ProfileSessionKey(resource.scope, id),
+        runtimeId: result['session_id'] as String,
+        projectId: source.projectId,
+        title: regenerate
+            ? source.title
+            : result['title']?.toString() ?? '${source.title} branch',
+      );
+      _hydrate(child, result);
+      child.messages = answerHistoryRows(
+        ProfileGateway.records(result['messages']),
+      );
+      resource.chats[id] = child;
+      // Retain the returned child even on validation failure, so it is reachable.
+      resource.sessions.insert(0, {
+        'id': id,
+        'title': child.title,
+        'profile': resource.scope.profileName,
+      });
+      final copied = child.messages.where(isBranchMessage).toList();
+      if (copied.length != expected.length ||
+          List.generate(expected.length, (i) => i).any(
+            (i) =>
+                copied[i]['role'] != expected[i]['role'] ||
+                answerMessageText(copied[i]) != answerMessageText(expected[i]),
+          )) {
+        throw StateError(
+          'The gateway did not copy the requested answer boundary. The original is unchanged.',
+        );
+      }
+      if (regenerate) {
+        final snapshot = jsonEncode(
+          resource.answerVersions.map((g) => g.toJson()).toList(),
+        );
+        var group = answerVersions(source, target.userOrdinal);
+        // Earlier answers are inherited by this continuation. Their controls
+        // must still be available when another, later answer is regenerated.
+        for (final earlier in resource.answerVersions.where(
+          (g) => g.userOrdinal < target.userOrdinal,
+        )) {
+          final selected = earlier.selections[source.key.sessionId];
+          if (selected != null) earlier.selections[id] = selected;
+        }
+        if (group == null) {
+          group = AnswerVersionGroup(
+            target.userOrdinal,
+            [source.key.sessionId],
+            {source.key.sessionId: 0},
+          );
+          resource.answerVersions.add(group);
+        }
+        group.selections[id] = group.sessions.length;
+        group.sessions.add(id);
+        group.answerIds[source.key.sessionId] = selectedId;
+        try {
+          if (!await preferences.setString(
+            _versionsKey(resource),
+            jsonEncode(resource.answerVersions.map((g) => g.toJson()).toList()),
+          )) {
+            throw StateError('Could not save answer links');
+          }
+        } catch (_) {
+          resource.answerVersions = AnswerVersionGroup.decode(snapshot);
+          rethrow;
+        }
+      }
+      if (current == resource &&
+          resource.chat == source &&
+          navigation == _navigationGeneration &&
+          profileGeneration == _generation &&
+          !switching) {
+        resource.selectedSession = id;
+      }
+      _changed();
+      if (regenerate && !await _regenerate(child, target)) {
+        // A rejected request produced no alternate answer. Keep the standalone
+        // child reachable in Chats, but do not count a copy as a new version.
+        for (final group in resource.answerVersions) {
+          group.selections.remove(id);
+          group.answerIds.remove(id);
+          final index = group.sessions.indexOf(id);
+          if (index >= 0) {
+            group.sessions.removeAt(index);
+            group.selections.updateAll(
+              (_, selected) => selected > index ? selected - 1 : selected,
+            );
+          }
+        }
+        resource.answerVersions.removeWhere(
+          (group) => group.sessions.length < 2,
+        );
+        if (!await preferences.setString(
+          _versionsKey(resource),
+          jsonEncode(resource.answerVersions.map((g) => g.toJson()).toList()),
+        )) {
+          throw StateError(
+            'Regeneration failed and answer links could not be updated',
+          );
+        }
+        if (current == resource &&
+            resource.chat == child &&
+            navigation == _navigationGeneration &&
+            profileGeneration == _generation) {
+          resource.selectedSession = source.key.sessionId;
+        }
+        throw StateError(child.error ?? 'Regeneration failed');
+      }
+      if (!regenerate) await refreshHistory(child);
+      return child;
+    } finally {
+      source.changingAnswer = false;
+      _changed();
+    }
+  }
+
+  Future<bool> _regenerate(ProfileChat chat, AnswerTarget target) async {
+    final resource = _owned(chat);
+    chat.status = ProfileTurnStatus.submitting;
+    _changed();
+    var submitted = false;
+    var rejected = false;
+    final original = chat.messages;
+    try {
+      await resource.gateway.requireProfile();
+      final history = await resource.gateway.fullHistory(chat.runtimeId);
+      final users = history.where(isAnswerPrompt).toList();
+      if (target.userOrdinal >= users.length ||
+          answerMessageText(users[target.userOrdinal]) != target.prompt) {
+        throw StateError(
+          'Could not locate the original prompt in the new session',
+        );
+      }
+      final prompt = users[target.userOrdinal];
+      final rowId = prompt['row_id'];
+      if (rowId is! int || rowId <= 0) {
+        throw StateError(
+          'The gateway did not return a saved prompt address for regeneration',
+        );
+      }
+      await _journal();
+      chat.messages = answerHistoryRows(
+        history.take(history.indexOf(prompt) + 1).toList(),
+      );
+      chat.streaming = '';
+      chat.status = ProfileTurnStatus.running;
+      submitted = true;
+      _changed();
+      await resource.gateway.call('prompt.submit', {
+        'session_id': chat.runtimeId,
+        'text': target.prompt,
+        'truncate_before_row_id': rowId,
+        'confirm_truncate': true,
+        'confirm_empty_truncate': true,
+      });
+    } catch (e) {
+      if (e is JsonRpcError || !submitted) {
+        rejected = true;
+        chat.messages = original;
+        chat.status = ProfileTurnStatus.failed;
+        chat.error = 'Could not regenerate: $e';
+      } else {
+        chat.status = ProfileTurnStatus.reconnecting;
+        chat.error =
+            'Regeneration status is uncertain. Reconnect to check history.';
+        _scheduleReconnect(resource);
+      }
+    }
+    await _journal();
+    _changed();
+    return !rejected;
+  }
+
   Future<void> send(ProfileChat chat) async {
     final resource = _owned(chat);
-    if (chat.busy || (chat.draft.trim().isEmpty && chat.attachments.isEmpty)) {
+    if (chat.busy ||
+        chat.changingAnswer ||
+        (chat.draft.trim().isEmpty && chat.attachments.isEmpty)) {
       return;
     }
     final text = chat.draft.trim();

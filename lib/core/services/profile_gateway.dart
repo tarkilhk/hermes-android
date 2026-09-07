@@ -311,6 +311,19 @@ class ProfileGateway {
     );
   }
 
+  Future<Map<String, dynamic>> branch(String runtimeId, int count) async {
+    if (count <= 0) throw ArgumentError.value(count, 'count');
+    await requireProfile();
+    return _ownedSession(
+      await call('session.branch', {'session_id': runtimeId, 'count': count}),
+    );
+  }
+
+  Future<List<Map<String, dynamic>>> fullHistory(String runtimeId) async =>
+      records(
+        (await call('session.history', {'session_id': runtimeId}))['messages'],
+      );
+
   Map<String, dynamic> _ownedSession(Map<String, dynamic> result) {
     if (result['info'] is! Map ||
         result['info']['profile_name'] != scope.profileName) {
