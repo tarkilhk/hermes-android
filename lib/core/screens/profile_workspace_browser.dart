@@ -531,6 +531,27 @@ class _ProfileWorkspaceBrowserState extends State<ProfileWorkspaceBrowser> {
       enabled: resource != null && !controller.switching,
       tooltip: 'Workspace options',
       onSelected: (value) {
+        if (value == 'include-automated' && resource != null) {
+          _searchDebounce?.cancel();
+          setState(() => _projectVisibleCount = ProfileGateway.sessionPageSize);
+          unawaited(
+            _run(() async {
+              await controller.setSessionVisibility(
+                controller.sessionVisibility == SessionVisibility.all
+                    ? SessionVisibility.chats
+                    : SessionVisibility.all,
+              );
+              if (mounted &&
+                  controller.current == resource &&
+                  _query.isNotEmpty &&
+                  resource.selectedProject == null &&
+                  !resource.archivedOnly &&
+                  resource.searchQuery != _query) {
+                await controller.searchChats(_query);
+              }
+            }),
+          );
+        }
         if (value == 'connections') _back();
         if (value == 'refresh') unawaited(_run(controller.refresh));
         if (value == 'new-project') unawaited(_run(widget.newProject));
@@ -558,6 +579,11 @@ class _ProfileWorkspaceBrowserState extends State<ProfileWorkspaceBrowser> {
             value: 'connections',
             child: Text('Switch connection'),
           ),
+        CheckedPopupMenuItem<String>(
+          value: 'include-automated',
+          checked: controller.sessionVisibility == SessionVisibility.all,
+          child: const Text('Include automated chats'),
+        ),
         const PopupMenuItem(value: 'refresh', child: Text('Refresh')),
         if (widget.appearance != null)
           const PopupMenuItem(value: 'appearance', child: Text('Accent color')),
@@ -742,52 +768,6 @@ class _ProfileWorkspaceBrowserState extends State<ProfileWorkspaceBrowser> {
                     trailing: TextButton(
                       onPressed: () => _run(controller.retry),
                       child: const Text('Retry'),
-                    ),
-                  ),
-                if (resource != null && {'home', 'archived'}.contains(_view))
-                  Padding(
-                    padding: const EdgeInsets.symmetric(
-                      horizontal: 16,
-                      vertical: 8,
-                    ),
-                    child: SingleChildScrollView(
-                      scrollDirection: Axis.horizontal,
-                      child: SegmentedButton<SessionVisibility>(
-                        key: const ValueKey('session-visibility'),
-                        showSelectedIcon: false,
-                        segments: [
-                          for (final value in SessionVisibility.values)
-                            ButtonSegment(
-                              value: value,
-                              label: Text(value.label),
-                            ),
-                        ],
-                        selected: {controller.sessionVisibility},
-                        onSelectionChanged: controller.switching
-                            ? null
-                            : (values) {
-                                _searchDebounce?.cancel();
-                                setState(
-                                  () => _projectVisibleCount =
-                                      ProfileGateway.sessionPageSize,
-                                );
-                                unawaited(
-                                  _run(() async {
-                                    await controller.setSessionVisibility(
-                                      values.single,
-                                    );
-                                    if (mounted &&
-                                        controller.current == resource &&
-                                        _query.isNotEmpty &&
-                                        resource.selectedProject == null &&
-                                        !resource.archivedOnly &&
-                                        resource.searchQuery != _query) {
-                                      await controller.searchChats(_query);
-                                    }
-                                  }),
-                                );
-                              },
-                      ),
                     ),
                   ),
                 Expanded(
