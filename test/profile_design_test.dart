@@ -87,25 +87,23 @@ void main() {
     },
   );
 
-  testWidgets(
-    'visible project overflow opens a compact menu, Back does not create',
-    (tester) async {
-      await show(tester);
-      final row = find.byKey(const ValueKey('project-p2'));
-      await tester.tap(
-        find.descendant(of: row, matching: find.byTooltip('Project actions')),
-      );
-      await tester.pumpAndSettle();
-      final action = find.byKey(const ValueKey('action-new'));
-      expect(tester.getSize(action).width, lessThan(320));
-      expect(tester.getSize(action).height, greaterThanOrEqualTo(48));
-      expect(find.text('New chat in project'), findsOneWidget);
-      await tester.binding.handlePopRoute();
-      await tester.pumpAndSettle();
-      expect(host.calls.where((call) => call.$2 == 'session.create'), isEmpty);
-      expect(controller.current!.chat, isNull);
-    },
-  );
+  testWidgets('project compose action creates a conversation directly', (
+    tester,
+  ) async {
+    await show(tester);
+    final row = find.byKey(const ValueKey('project-p2'));
+    await tester.tap(
+      find.descendant(of: row, matching: find.byTooltip('New conversation')),
+    );
+    await tester.pumpAndSettle();
+    expect(find.byKey(const ValueKey('action-new')), findsNothing);
+    expect(
+      host.calls.where((call) => call.$2 == 'session.create'),
+      hasLength(1),
+    );
+    expect(controller.current!.chat!.projectId, 'p2');
+    expect(controller.current!.chat!.key.workspace.profileName, 'personal');
+  });
 
   testWidgets(
     'accent selection is local, persists and survives profile changes',
@@ -156,19 +154,25 @@ void main() {
     },
   );
 
-  testWidgets('large-text workspace and menus fit a narrow screen', (
+  testWidgets('large-text workspace and compose actions fit a narrow screen', (
     tester,
   ) async {
     await show(tester, scale: 2);
     expect(tester.takeException(), isNull);
-    await tester.longPress(find.byKey(const ValueKey('project-p2')));
-    await tester.pumpAndSettle();
-    expect(find.text('New chat in project'), findsOneWidget);
-    expect(tester.takeException(), isNull);
-    final bounds = tester.getRect(find.byKey(const ValueKey('action-new')));
+    final row = find.byKey(const ValueKey('project-p2'));
+    final action = find.descendant(
+      of: row,
+      matching: find.byTooltip('New conversation'),
+    );
+    final bounds = tester.getRect(action);
     expect(bounds.left, greaterThanOrEqualTo(0));
     expect(bounds.right, lessThanOrEqualTo(360));
     expect(bounds.bottom, lessThanOrEqualTo(800));
+    expect(bounds.height, greaterThanOrEqualTo(48));
+    await tester.tap(action);
+    await tester.pumpAndSettle();
+    expect(controller.current!.chat!.projectId, 'p2');
+    expect(tester.takeException(), isNull);
   });
 
   testWidgets('five projects are compact full-width rows with usable actions', (
@@ -191,7 +195,7 @@ void main() {
       previousBottom = bounds.bottom;
       final action = find.descendant(
         of: row,
-        matching: find.byTooltip('Project actions'),
+        matching: find.byTooltip('New conversation'),
       );
       expect(tester.getSize(action).height, greaterThanOrEqualTo(48));
       final material = tester.widget<Material>(

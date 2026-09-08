@@ -102,23 +102,6 @@ Future<String?> _choose(
   );
 }
 
-Future<void> showProjectActions(
-  BuildContext context,
-  ProfileWorkspaceController controller,
-  Map<String, dynamic> project,
-) async {
-  final scope = controller.current!.scope;
-  final action = await _choose(
-    context,
-    project['name'] as String,
-    scope.profileName,
-    [('new', 'New chat in project', Icons.edit_square, true)],
-  );
-  if (action == 'new') {
-    await controller.createChat(inProject: project, owner: scope);
-  }
-}
-
 Future<void> showChatActions(
   BuildContext context,
   ProfileWorkspaceController controller,
