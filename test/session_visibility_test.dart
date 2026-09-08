@@ -125,6 +125,12 @@ void main() {
   });
   tearDown(() => controller.dispose());
 
+  test('missing and retired automated-only preferences default to chats', () {
+    expect(SessionVisibility.fromStored(null), SessionVisibility.chats);
+    expect(SessionVisibility.fromStored('automated'), SessionVisibility.chats);
+    expect(SessionVisibility.fromStored('all'), SessionVisibility.all);
+  });
+
   test(
     'Chats excludes automation before pagination and retains unknowns and branches',
     () {
@@ -143,22 +149,19 @@ void main() {
     },
   );
 
-  test(
-    'Automated pagination and All request the correct server scope',
-    () async {
-      await controller.setSessionVisibility(SessionVisibility.automated);
-      expect(controller.current!.sessions, hasLength(50));
-      while (controller.current!.nextSessionOffset != null) {
-        await controller.loadMoreSessions();
-      }
-      expect(controller.current!.sessions, hasLength(153));
-      expect(host.listRequests.last.$2['sources'], 'cron,tool,subagent,kanban');
-      expect(host.listRequests.last.$2['offset'], '150');
-      await controller.setSessionVisibility(SessionVisibility.all);
-      expect(host.listRequests.last.$2.containsKey('sources'), isFalse);
-      expect(host.listRequests.last.$2.containsKey('exclude_sources'), isFalse);
-    },
-  );
+  test('including automation paginates all sources', () async {
+    await controller.setSessionVisibility(SessionVisibility.all);
+    expect(controller.current!.sessions, hasLength(50));
+    while (controller.current!.nextSessionOffset != null) {
+      await controller.loadMoreSessions();
+    }
+    expect(controller.current!.sessions, hasLength(158));
+    expect(host.listRequests.last.$2.containsKey('exclude_sources'), isFalse);
+    expect(host.listRequests.last.$2['offset'], '150');
+    await controller.setSessionVisibility(SessionVisibility.all);
+    expect(host.listRequests.last.$2.containsKey('sources'), isFalse);
+    expect(host.listRequests.last.$2.containsKey('exclude_sources'), isFalse);
+  });
 
   test(
     'search uses the same exclusion and inclusion filters with profile ownership',
@@ -169,13 +172,13 @@ void main() {
         host.listRequests.last.$2['exclude_sources'],
         'cron,tool,subagent,kanban',
       );
-      await controller.setSessionVisibility(SessionVisibility.automated);
+      await controller.setSessionVisibility(SessionVisibility.all);
       expect(controller.current!.searchResults.map((r) => r['id']), [
         'tool',
         'subagent',
         'kanban',
       ]);
-      expect(host.listRequests.last.$2['sources'], 'cron,tool,subagent,kanban');
+      expect(host.listRequests.last.$2.containsKey('exclude_sources'), isFalse);
       expect(host.listRequests.last.$2['profile'], 'a');
     },
   );
@@ -183,18 +186,18 @@ void main() {
   test(
     'selection persists per verified connection and across profiles and archives',
     () async {
-      await controller.setSessionVisibility(SessionVisibility.automated);
+      await controller.setSessionVisibility(SessionVisibility.all);
       await controller.navigateProfile('b');
       expect(host.listRequests.last.$2['profile'], 'b');
-      expect(host.listRequests.last.$2['sources'], 'cron,tool,subagent,kanban');
+      expect(host.listRequests.last.$2.containsKey('exclude_sources'), isFalse);
       await controller.showArchived(true);
       expect(host.listRequests.last.$2['archived'], 'only');
-      expect(host.listRequests.last.$2['sources'], 'cron,tool,subagent,kanban');
+      expect(host.listRequests.last.$2.containsKey('exclude_sources'), isFalse);
       final restored = makeController();
       final other = makeController('another-server');
       addTearDown(restored.dispose);
       addTearDown(other.dispose);
-      expect(restored.sessionVisibility, SessionVisibility.automated);
+      expect(restored.sessionVisibility, SessionVisibility.all);
       expect(other.sessionVisibility, SessionVisibility.chats);
     },
   );
@@ -202,7 +205,7 @@ void main() {
   test(
     'late automated page cannot publish after switching back to Chats',
     () async {
-      await controller.setSessionVisibility(SessionVisibility.automated);
+      await controller.setSessionVisibility(SessionVisibility.all);
       final gate = Completer<void>();
       host.wait = (_, params) async {
         if (params['offset'] == '50') await gate.future;
@@ -242,7 +245,7 @@ void main() {
     'failed filter load is retriable without displaying the old page',
     () async {
       host.fail = true;
-      await controller.setSessionVisibility(SessionVisibility.automated);
+      await controller.setSessionVisibility(SessionVisibility.all);
       expect(controller.current!.sessions, isEmpty);
       expect(controller.current!.sessionsPageError, isNotNull);
       host.fail = false;
@@ -269,6 +272,8 @@ void main() {
         MaterialApp(home: ProfileWorkspaceScreen(controller: controller)),
       );
       await tester.pumpAndSettle();
+      expect(find.byType(SegmentedButton<SessionVisibility>), findsNothing);
+      expect(find.text('Include automated chats'), findsNothing);
       expect(find.byKey(const ValueKey('chat-tool')), findsNothing);
       expect(find.byKey(const ValueKey('chat-chat')), findsOneWidget);
       await controller.selectProject(controller.current!.projects.single);
@@ -283,10 +288,37 @@ void main() {
       await tester.pumpAndSettle();
       expect(find.byKey(const ValueKey('chat-project-tool')), findsNothing);
       expect(find.byKey(const ValueKey('chat-project-chat')), findsOneWidget);
-      await tester.tap(find.text('Automated'));
+      expect(find.byType(SegmentedButton<SessionVisibility>), findsNothing);
+      expect(find.text('Include automated chats'), findsNothing);
+      await tester.tap(find.byTooltip('Workspace options'));
+      await tester.pumpAndSettle();
+      expect(
+        tester
+            .widget<CheckedPopupMenuItem<String>>(
+              find.byType(CheckedPopupMenuItem<String>),
+            )
+            .checked,
+        isFalse,
+      );
+      await tester.tap(find.byType(CheckedPopupMenuItem<String>));
       await tester.pumpAndSettle();
       expect(find.byKey(const ValueKey('chat-project-tool')), findsOneWidget);
-      expect(find.byKey(const ValueKey('chat-project-chat')), findsNothing);
+      expect(find.byKey(const ValueKey('chat-project-chat')), findsOneWidget);
+      await tester.tap(find.byTooltip('Workspace options'));
+      await tester.pumpAndSettle();
+      expect(
+        tester
+            .widget<CheckedPopupMenuItem<String>>(
+              find.byType(CheckedPopupMenuItem<String>),
+            )
+            .checked,
+        isTrue,
+      );
+      await tester.tap(find.byType(CheckedPopupMenuItem<String>));
+      await tester.pumpAndSettle();
+      expect(find.byKey(const ValueKey('chat-project-tool')), findsNothing);
+      expect(find.byKey(const ValueKey('chat-project-chat')), findsOneWidget);
+      expect(controller.sessionVisibility, SessionVisibility.chats);
       expect(host.calls.where((c) => c.$2 == 'session.interrupt'), isEmpty);
     },
   );
