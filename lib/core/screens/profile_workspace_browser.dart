@@ -4,6 +4,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 
 import '../services/profile_workspace_controller.dart';
+import '../models/session_visibility.dart';
 import '../services/profile_gateway.dart';
 import '../theme/hermes_theme.dart';
 import '../theme/profile_workspace_theme.dart';
@@ -351,11 +352,17 @@ class _ProfileWorkspaceBrowserState extends State<ProfileWorkspaceBrowser> {
       final pending = resource.searchQuery != _query || resource.searchLoading;
       final results = <String, Map<String, dynamic>>{
         for (final row in resource.sessions.where(
-          (r) => r['title'].toString().toLowerCase().contains(_query),
+          (r) =>
+              controller.sessionVisibility.includes(r['source'] as String?) &&
+              r['title'].toString().toLowerCase().contains(_query),
         ))
           row['id'] as String: row,
         if (!pending && resource.searchQuery == _query)
-          for (final row in resource.searchResults) row['id'] as String: row,
+          for (final row in resource.searchResults.where(
+            (r) =>
+                controller.sessionVisibility.includes(r['source'] as String?),
+          ))
+            row['id'] as String: row,
       };
       return [
         _heading('Search results'),
@@ -395,18 +402,26 @@ class _ProfileWorkspaceBrowserState extends State<ProfileWorkspaceBrowser> {
     };
     for (final chat in resource.chats.values) {
       if (chat.archived == resource.archivedOnly &&
+          controller.sessionVisibility.includes(chat.source) &&
           (project == null || chat.projectId == project['id']) &&
           !rows.containsKey(chat.key.sessionId)) {
         rows[chat.key.sessionId] = {
           'id': chat.key.sessionId,
           'title': chat.title,
+          'source': chat.source,
           'last_active': chat.lastActive,
         };
       }
     }
     final matches =
         rows.values
-            .where((r) => r['title'].toString().toLowerCase().contains(_query))
+            .where(
+              (r) =>
+                  controller.sessionVisibility.includes(
+                    r['source'] as String?,
+                  ) &&
+                  r['title'].toString().toLowerCase().contains(_query),
+            )
             .toList()
           ..sort((a, b) => _activity(b).compareTo(_activity(a)));
     final pinned = matches.where((r) => r['pinned'] == true).toList();
@@ -729,6 +744,52 @@ class _ProfileWorkspaceBrowserState extends State<ProfileWorkspaceBrowser> {
                       child: const Text('Retry'),
                     ),
                   ),
+                if (resource != null && {'home', 'archived'}.contains(_view))
+                  Padding(
+                    padding: const EdgeInsets.symmetric(
+                      horizontal: 16,
+                      vertical: 8,
+                    ),
+                    child: SingleChildScrollView(
+                      scrollDirection: Axis.horizontal,
+                      child: SegmentedButton<SessionVisibility>(
+                        key: const ValueKey('session-visibility'),
+                        showSelectedIcon: false,
+                        segments: [
+                          for (final value in SessionVisibility.values)
+                            ButtonSegment(
+                              value: value,
+                              label: Text(value.label),
+                            ),
+                        ],
+                        selected: {controller.sessionVisibility},
+                        onSelectionChanged: controller.switching
+                            ? null
+                            : (values) {
+                                _searchDebounce?.cancel();
+                                setState(
+                                  () => _projectVisibleCount =
+                                      ProfileGateway.sessionPageSize,
+                                );
+                                unawaited(
+                                  _run(() async {
+                                    await controller.setSessionVisibility(
+                                      values.single,
+                                    );
+                                    if (mounted &&
+                                        controller.current == resource &&
+                                        _query.isNotEmpty &&
+                                        resource.selectedProject == null &&
+                                        !resource.archivedOnly &&
+                                        resource.searchQuery != _query) {
+                                      await controller.searchChats(_query);
+                                    }
+                                  }),
+                                );
+                              },
+                      ),
+                    ),
+                  ),
                 Expanded(
                   child: controller.switching || resource == null
                       ? Center(
@@ -745,7 +806,7 @@ class _ProfileWorkspaceBrowserState extends State<ProfileWorkspaceBrowser> {
                                 final rows = _tree();
                                 return ListView.builder(
                                   key: ValueKey(
-                                    '${resource.scope.storageNamespace}-${project?['id']}-$_view',
+                                    '${resource.scope.storageNamespace}-${project?['id']}-$_view-${controller.sessionVisibility.name}',
                                   ),
                                   physics:
                                       const AlwaysScrollableScrollPhysics(),

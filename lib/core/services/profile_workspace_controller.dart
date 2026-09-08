@@ -5,6 +5,7 @@ import 'package:flutter/foundation.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
 import '../models/attachment_draft.dart';
+import '../models/session_visibility.dart';
 import '../models/answer_versions.dart';
 import '../models/hermes_profile.dart';
 import '../models/slash_command.dart';
@@ -70,6 +71,7 @@ class ProfileChat {
   final ProfileSessionKey key;
   String runtimeId;
   String title;
+  String source;
   double lastActive = DateTime.now().millisecondsSinceEpoch / 1000;
   String? projectId;
   bool projectLoading = false;
@@ -102,6 +104,7 @@ class ProfileChat {
     required this.key,
     required this.runtimeId,
     required this.title,
+    this.source = '',
     this.projectId,
   });
 
@@ -197,6 +200,9 @@ class ProfileWorkspaceController extends ChangeNotifier {
   int _navigationGeneration = 0;
   bool _closed = false;
   Future<void> _journalQueue = Future.value();
+  SessionVisibility _sessionVisibility = SessionVisibility.chats;
+  SessionVisibility get sessionVisibility => _sessionVisibility;
+  String get _visibilityKey => 'session_visibility_v1_$connectionIdentity';
 
   ProfileWorkspaceController({
     required this.connection,
@@ -211,6 +217,43 @@ class ProfileWorkspaceController extends ChangeNotifier {
        attachments = attachmentService ?? AttachmentDraftService() {
     if (connectionIdentity.isEmpty) {
       throw ArgumentError('A verified connection identity is required');
+    }
+    _sessionVisibility = SessionVisibility.fromStored(
+      preferences.getString(_visibilityKey),
+    );
+  }
+
+  Future<void> setSessionVisibility(SessionVisibility value) async {
+    if (_closed || switching || value == _sessionVisibility) return;
+    final resource = current;
+    final query = resource?.searchQuery ?? '';
+    _sessionVisibility = value;
+    for (final data in _resources.values) {
+      _invalidateSessionLoad(data);
+      _clearSearch(data);
+      data.sessions = [];
+      data.nextSessionOffset = 0;
+      data.sessionsPageError = null;
+    }
+    _changed();
+    await preferences.setString(_visibilityKey, value.name);
+    if (resource == null ||
+        current != resource ||
+        _closed ||
+        _sessionVisibility != value) {
+      return;
+    }
+    try {
+      await _refreshSessions(resource);
+    } catch (_) {
+      if (!_closed && current == resource && _sessionVisibility == value) {
+        resource.sessionsPageError = 'Chats could not be loaded. Retry.';
+        _changed();
+      }
+    }
+    if (!_closed && current == resource && _sessionVisibility == value) {
+      if (query.isNotEmpty) await searchChats(query);
+      _changed();
     }
   }
 
@@ -290,6 +333,7 @@ class ProfileWorkspaceController extends ChangeNotifier {
       await target.gateway.connect();
       final archivedOnly = resetNavigation ? false : target.archivedOnly;
       final sessions = await target.gateway.sessions(
+        visibility: sessionVisibility,
         archivedOnly: archivedOnly,
       );
       List<Map<String, dynamic>> projects = [];
@@ -411,7 +455,10 @@ class ProfileWorkspaceController extends ChangeNotifier {
         !switching &&
         generation == resource.searchGeneration;
     try {
-      final rows = await resource.gateway.search(resource.searchQuery);
+      final rows = await resource.gateway.search(
+        resource.searchQuery,
+        visibility: sessionVisibility,
+      );
       if (valid()) resource.searchResults = rows;
     } catch (_) {
       if (valid()) {
@@ -564,6 +611,7 @@ class ProfileWorkspaceController extends ChangeNotifier {
         generation == resource.sessionGeneration;
     try {
       final page = await resource.gateway.sessions(
+        visibility: sessionVisibility,
         offset: offset,
         archivedOnly: resource.archivedOnly,
       );
@@ -586,6 +634,7 @@ class ProfileWorkspaceController extends ChangeNotifier {
     _invalidateSessionLoad(resource);
     final generation = resource.sessionGeneration;
     final page = await resource.gateway.sessions(
+      visibility: sessionVisibility,
       archivedOnly: resource.archivedOnly,
     );
     if (!_closed && generation == resource.sessionGeneration) {
@@ -624,6 +673,7 @@ class ProfileWorkspaceController extends ChangeNotifier {
       key: ProfileSessionKey(resource.scope, id),
       runtimeId: response['session_id'] as String,
       title: 'New chat',
+      source: 'desktop',
       projectId: project?['id'] as String?,
     );
     resource.chats[id] = chat;
@@ -653,6 +703,16 @@ class ProfileWorkspaceController extends ChangeNotifier {
       chat = ProfileChat(
         key: key,
         runtimeId: response['session_id'] as String,
+        source:
+            [
+                  ...resource.searchResults,
+                  ...resource.visibleSessions,
+                  ...resource.sessions,
+                ]
+                .where((s) => s['id'] == key.sessionId)
+                .firstOrNull?['source']
+                ?.toString() ??
+            '',
         title:
             [
                   ...resource.searchResults,
@@ -1184,6 +1244,7 @@ class ProfileWorkspaceController extends ChangeNotifier {
       final child = ProfileChat(
         key: ProfileSessionKey(resource.scope, id),
         runtimeId: result['session_id'] as String,
+        source: source.source,
         projectId: source.projectId,
         title: regenerate
             ? source.title
@@ -1198,6 +1259,7 @@ class ProfileWorkspaceController extends ChangeNotifier {
       resource.sessions.insert(0, {
         'id': id,
         'title': child.title,
+        'source': child.source,
         'profile': resource.scope.profileName,
       });
       final copied = child.messages.where(isBranchMessage).toList();
@@ -2144,6 +2206,8 @@ class ProfileWorkspaceController extends ChangeNotifier {
   }
 
   void _hydrate(ProfileChat chat, Map<String, dynamic> result) {
+    final source = (result['info'] as Map?)?['source'];
+    if (source is String && source.isNotEmpty) chat.source = source;
     final wasBusy = chat.busy;
     chat.runtimeId = result['session_id'] as String;
     _hydrateIntelligence(chat, result);

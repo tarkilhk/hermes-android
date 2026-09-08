@@ -1,0 +1,293 @@
+import 'dart:async';
+
+import 'package:flutter/material.dart';
+import 'package:flutter_test/flutter_test.dart';
+import 'package:hermes_android/core/models/hermes_profile.dart';
+import 'package:hermes_android/core/models/session_visibility.dart';
+import 'package:hermes_android/core/screens/profile_workspace_screen.dart';
+import 'package:hermes_android/core/services/connection_manager.dart';
+import 'package:hermes_android/core/services/profile_gateway.dart';
+import 'package:hermes_android/core/services/profile_workspace_controller.dart';
+import 'package:shared_preferences/shared_preferences.dart';
+
+import 'profile_workspace_controller_test.dart' show Host;
+
+class FilterHost extends Host {
+  final rows = <Map<String, dynamic>>[
+    for (var i = 0; i < 150; i++)
+      {'id': 'cron-$i', 'title': 'Scheduled $i', 'source': 'cron'},
+    {'id': 'tool', 'title': 'Integration run', 'source': 'tool'},
+    {'id': 'subagent', 'title': 'Delegate run', 'source': 'subagent'},
+    {'id': 'kanban', 'title': 'Worker run', 'source': 'kanban'},
+    {'id': 'chat', 'title': 'My conversation', 'source': 'desktop'},
+    {'id': 'unknown', 'title': 'Old conversation', 'source': 'unknown'},
+    {'id': 'missing', 'title': 'Unlabelled conversation'},
+    {
+      'id': 'branch',
+      'title': 'Branched conversation',
+      'source': 'cli',
+      'parent_session_id': 'chat',
+    },
+    {'id': 'custom', 'title': 'Custom source conversation', 'source': 'custom'},
+  ];
+  final listRequests = <(String, Map<String, String>)>[];
+  Future<void> Function(String, Map<String, String>)? wait;
+  bool fail = false;
+
+  @override
+  ProfileGateway gateway(WorkspaceScope scope) {
+    final base = super.gateway(scope);
+    final gateway = ProfileGateway(
+      scope: scope,
+      discover: discover,
+      connect: base.connect,
+      close: base.close,
+      rpc: (method, params) async {
+        final result = await base.call(method, params);
+        if (method == 'session.resume') {
+          result['stored_session_id'] = params['session_id'];
+          result['info'] = {
+            'source': 'tool',
+            'profile_name': scope.profileName,
+          };
+        }
+        return result;
+      },
+      get: (path, params) async {
+        if (path != 'sessions' && path != 'sessions/search') {
+          return base.read(path, params);
+        }
+        listRequests.add((path, params));
+        await wait?.call(path, params);
+        if (fail) throw StateError('offline');
+        final exclude = params['exclude_sources']?.split(',') ?? [];
+        final include = params['sources']?.split(',');
+        final matches = rows.where(
+          (row) =>
+              !exclude.contains(row['source']) &&
+              (include == null || include.contains(row['source'])) &&
+              (params['q'] == null ||
+                  row['title'].toString().toLowerCase().contains(
+                    params['q']!.toLowerCase(),
+                  )),
+        );
+        final page = matches
+            .skip(int.parse(params['offset'] ?? '0'))
+            .take(int.parse(params['limit']!));
+        return {
+          'offset': int.parse(params['offset'] ?? '0'),
+          'limit': int.parse(params['limit']!),
+          'total': matches.length,
+          path == 'sessions/search' ? 'results' : 'sessions': [
+            for (final row in page)
+              if (path == 'sessions/search')
+                {
+                  ...row,
+                  'id': null,
+                  'session_id': row['id'],
+                  'snippet': 'Matching content',
+                }
+              else
+                {...row, 'profile': scope.profileName},
+          ],
+        };
+      },
+    );
+    gateways[scope.profileName] = gateway;
+    return gateway;
+  }
+}
+
+void main() {
+  late FilterHost host;
+  late SharedPreferences prefs;
+  late ProfileWorkspaceController controller;
+  ProfileWorkspaceController makeController([
+    String identity = 'host-identity',
+  ]) => ProfileWorkspaceController(
+    connection: SavedConnection(
+      id: 'host',
+      label: 'Host',
+      host: 'localhost',
+      port: 1,
+      apiKey: '',
+    ),
+    connectionIdentity: identity,
+    preferences: prefs,
+    gatewayFactory: host.gateway,
+  );
+  setUp(() async {
+    SharedPreferences.setMockInitialValues({});
+    prefs = await SharedPreferences.getInstance();
+    host = FilterHost();
+    controller = makeController();
+    await controller.initialize();
+  });
+  tearDown(() => controller.dispose());
+
+  test(
+    'Chats excludes automation before pagination and retains unknowns and branches',
+    () {
+      expect(controller.current!.sessions.map((r) => r['id']), [
+        'chat',
+        'unknown',
+        'missing',
+        'branch',
+        'custom',
+      ]);
+      expect(
+        host.listRequests.single.$2['exclude_sources'],
+        'cron,tool,subagent,kanban',
+      );
+      expect(controller.current!.nextSessionOffset, isNull);
+    },
+  );
+
+  test(
+    'Automated pagination and All request the correct server scope',
+    () async {
+      await controller.setSessionVisibility(SessionVisibility.automated);
+      expect(controller.current!.sessions, hasLength(50));
+      while (controller.current!.nextSessionOffset != null) {
+        await controller.loadMoreSessions();
+      }
+      expect(controller.current!.sessions, hasLength(153));
+      expect(host.listRequests.last.$2['sources'], 'cron,tool,subagent,kanban');
+      expect(host.listRequests.last.$2['offset'], '150');
+      await controller.setSessionVisibility(SessionVisibility.all);
+      expect(host.listRequests.last.$2.containsKey('sources'), isFalse);
+      expect(host.listRequests.last.$2.containsKey('exclude_sources'), isFalse);
+    },
+  );
+
+  test(
+    'search uses the same exclusion and inclusion filters with profile ownership',
+    () async {
+      await controller.searchChats('run');
+      expect(controller.current!.searchResults, isEmpty);
+      expect(
+        host.listRequests.last.$2['exclude_sources'],
+        'cron,tool,subagent,kanban',
+      );
+      await controller.setSessionVisibility(SessionVisibility.automated);
+      expect(controller.current!.searchResults.map((r) => r['id']), [
+        'tool',
+        'subagent',
+        'kanban',
+      ]);
+      expect(host.listRequests.last.$2['sources'], 'cron,tool,subagent,kanban');
+      expect(host.listRequests.last.$2['profile'], 'a');
+    },
+  );
+
+  test(
+    'selection persists per verified connection and across profiles and archives',
+    () async {
+      await controller.setSessionVisibility(SessionVisibility.automated);
+      await controller.navigateProfile('b');
+      expect(host.listRequests.last.$2['profile'], 'b');
+      expect(host.listRequests.last.$2['sources'], 'cron,tool,subagent,kanban');
+      await controller.showArchived(true);
+      expect(host.listRequests.last.$2['archived'], 'only');
+      expect(host.listRequests.last.$2['sources'], 'cron,tool,subagent,kanban');
+      final restored = makeController();
+      final other = makeController('another-server');
+      addTearDown(restored.dispose);
+      addTearDown(other.dispose);
+      expect(restored.sessionVisibility, SessionVisibility.automated);
+      expect(other.sessionVisibility, SessionVisibility.chats);
+    },
+  );
+
+  test(
+    'late automated page cannot publish after switching back to Chats',
+    () async {
+      await controller.setSessionVisibility(SessionVisibility.automated);
+      final gate = Completer<void>();
+      host.wait = (_, params) async {
+        if (params['offset'] == '50') await gate.future;
+      };
+      final page = controller.loadMoreSessions();
+      await controller.setSessionVisibility(SessionVisibility.chats);
+      gate.complete();
+      await page;
+      expect(controller.current!.sessions, hasLength(5));
+      expect(
+        controller.current!.sessions.every((r) => r['source'] != 'cron'),
+        isTrue,
+      );
+    },
+  );
+
+  test(
+    'late search cannot restore automated results after a filter change',
+    () async {
+      await controller.setSessionVisibility(SessionVisibility.all);
+      final gate = Completer<void>();
+      host.wait = (_, params) async {
+        if (params['q'] == 'run' && !params.containsKey('exclude_sources')) {
+          await gate.future;
+        }
+      };
+      final search = controller.searchChats('run');
+      await controller.setSessionVisibility(SessionVisibility.chats);
+      gate.complete();
+      await search;
+      expect(controller.current!.searchResults, isEmpty);
+      expect(controller.current!.searchLoading, isFalse);
+    },
+  );
+
+  test(
+    'failed filter load is retriable without displaying the old page',
+    () async {
+      host.fail = true;
+      await controller.setSessionVisibility(SessionVisibility.automated);
+      expect(controller.current!.sessions, isEmpty);
+      expect(controller.current!.sessionsPageError, isNotNull);
+      host.fail = false;
+      await controller.loadMoreSessions();
+      expect(controller.current!.sessionsPageError, isNull);
+      expect(controller.current!.sessions, hasLength(50));
+    },
+  );
+
+  testWidgets(
+    'opened tool runs stay out of Chats and project rows use the same filter',
+    (tester) async {
+      await controller.setSessionVisibility(SessionVisibility.all);
+      while (controller.current!.nextSessionOffset != null) {
+        await controller.loadMoreSessions();
+      }
+      await controller.openSession(
+        ProfileSessionKey(controller.current!.scope, 'tool'),
+      );
+      expect(controller.current!.chat!.source, 'tool');
+      controller.showList();
+      await controller.setSessionVisibility(SessionVisibility.chats);
+      await tester.pumpWidget(
+        MaterialApp(home: ProfileWorkspaceScreen(controller: controller)),
+      );
+      await tester.pumpAndSettle();
+      expect(find.byKey(const ValueKey('chat-tool')), findsNothing);
+      expect(find.byKey(const ValueKey('chat-chat')), findsOneWidget);
+      await controller.selectProject(controller.current!.projects.single);
+      controller.current!.projectSessions = [
+        {'id': 'project-tool', 'title': 'Integration run', 'source': 'tool'},
+        {
+          'id': 'project-chat',
+          'title': 'Project conversation',
+          'source': 'desktop',
+        },
+      ];
+      await tester.pumpAndSettle();
+      expect(find.byKey(const ValueKey('chat-project-tool')), findsNothing);
+      expect(find.byKey(const ValueKey('chat-project-chat')), findsOneWidget);
+      await tester.tap(find.text('Automated'));
+      await tester.pumpAndSettle();
+      expect(find.byKey(const ValueKey('chat-project-tool')), findsOneWidget);
+      expect(find.byKey(const ValueKey('chat-project-chat')), findsNothing);
+      expect(host.calls.where((c) => c.$2 == 'session.interrupt'), isEmpty);
+    },
+  );
+}

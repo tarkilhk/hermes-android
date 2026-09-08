@@ -3,6 +3,7 @@
 
 import 'dart:async';
 
+import '../models/session_visibility.dart';
 import '../models/hermes_profile.dart';
 import '../models/answer_versions.dart';
 import 'connection_manager.dart';
@@ -216,6 +217,7 @@ class ProfileGateway {
   static const projectSessionScanLimit = 5000;
 
   Future<ProfileSessionPage> sessions({
+    SessionVisibility visibility = SessionVisibility.chats,
     int offset = 0,
     int limit = sessionPageSize,
     bool archivedOnly = false,
@@ -227,6 +229,7 @@ class ProfileGateway {
       'limit': '$limit',
       'offset': '$offset',
       'order': 'recent',
+      ...visibility.queryParameters,
       if (archivedOnly) 'archived': 'only',
     });
     if (result['offset'] != offset ||
@@ -412,12 +415,16 @@ class ProfileGateway {
 
   /// Stock search is profile-bound but does not stamp owners in its response.
   /// Keep results in this client's scope; reject any contradictory owner field.
-  Future<List<Map<String, dynamic>>> search(String query) async {
+  Future<List<Map<String, dynamic>>> search(
+    String query, {
+    SessionVisibility visibility = SessionVisibility.chats,
+  }) async {
     if (query.trim().isEmpty) return [];
     await requireProfile();
     final rows = records(
       (await read('sessions/search', {
         'q': query.trim(),
+        ...visibility.queryParameters,
         'limit': '100',
       }))['results'],
     );
