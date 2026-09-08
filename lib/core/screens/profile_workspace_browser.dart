@@ -1,6 +1,7 @@
 import 'dart:async';
 
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 
 import '../services/profile_workspace_controller.dart';
 import '../services/profile_gateway.dart';
@@ -511,6 +512,52 @@ class _ProfileWorkspaceBrowserState extends State<ProfileWorkspaceBrowser> {
     }
     final colors = Theme.of(context).colorScheme;
     final background = HermesTokens.of(context).surface;
+    final isWorkspaceHome =
+        project == null && _view == 'home' && resource?.archivedOnly != true;
+    final workspaceOptions = PopupMenuButton<String>(
+      enabled: resource != null && !controller.switching,
+      tooltip: 'Workspace options',
+      onSelected: (value) {
+        if (value == 'connections') _back();
+        if (value == 'refresh') unawaited(_run(controller.refresh));
+        if (value == 'new-project') unawaited(_run(widget.newProject));
+        if (value == 'appearance') unawaited(_run(widget.appearance!));
+        if (value == 'notifications') {
+          unawaited(_run(widget.enableNotifications!));
+        }
+        if (value == 'activity') {
+          unawaited(controller.selectProject(null));
+          setState(() => _view = 'activity');
+        }
+        if (value == 'archived') {
+          _search.clear();
+          _searchDebounce?.cancel();
+          setState(() {
+            _query = '';
+            _view = 'archived';
+          });
+          unawaited(_run(() => controller.showArchived(true)));
+        }
+      },
+      itemBuilder: (_) => [
+        if (isWorkspaceHome && Navigator.of(context).canPop())
+          const PopupMenuItem(
+            value: 'connections',
+            child: Text('Switch connection'),
+          ),
+        const PopupMenuItem(value: 'refresh', child: Text('Refresh')),
+        if (widget.appearance != null)
+          const PopupMenuItem(value: 'appearance', child: Text('Accent color')),
+        const PopupMenuItem(value: 'new-project', child: Text('New project')),
+        const PopupMenuItem(value: 'activity', child: Text('Activity')),
+        const PopupMenuItem(value: 'archived', child: Text('Archived chats')),
+        if (widget.enableNotifications != null)
+          const PopupMenuItem(
+            value: 'notifications',
+            child: Text('Enable completion notifications'),
+          ),
+      ],
+    );
     return PopScope(
       canPop:
           project == null && _view == 'home' && resource?.archivedOnly != true,
@@ -519,213 +566,203 @@ class _ProfileWorkspaceBrowserState extends State<ProfileWorkspaceBrowser> {
       },
       child: Scaffold(
         backgroundColor: background,
-        appBar: AppBar(
-          centerTitle: false,
-          toolbarHeight: 64 + (MediaQuery.textScalerOf(context).scale(24) - 24),
-          backgroundColor: background,
-          surfaceTintColor: Colors.transparent,
-          leading: IconButton(
-            tooltip: project == null ? 'Back' : 'Back to workspace',
-            icon: const Icon(Icons.arrow_back_rounded, size: 22),
-            onPressed: _back,
-          ),
-          title: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              Text(
-                project?['name']?.toString() ??
-                    (resource?.archivedOnly == true
-                        ? 'Archived chats'
-                        : _view == 'projects'
-                        ? 'All projects'
-                        : _view == 'activity'
-                        ? 'Activity'
-                        : 'Hermes'),
-                maxLines: 1,
-                overflow: TextOverflow.ellipsis,
-                style: const TextStyle(
-                  fontWeight: FontWeight.w700,
-                  fontSize: 24,
-                  letterSpacing: -1.0,
+        appBar: isWorkspaceHome
+            ? null
+            : AppBar(
+                centerTitle: false,
+                toolbarHeight:
+                    64 + (MediaQuery.textScalerOf(context).scale(24) - 24),
+                backgroundColor: background,
+                surfaceTintColor: Colors.transparent,
+                leading: IconButton(
+                  tooltip: project == null ? 'Back' : 'Back to workspace',
+                  icon: const Icon(Icons.arrow_back_rounded, size: 22),
+                  onPressed: _back,
                 ),
+                title: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      project?['name']?.toString() ??
+                          (resource?.archivedOnly == true
+                              ? 'Archived chats'
+                              : _view == 'projects'
+                              ? 'All projects'
+                              : _view == 'activity'
+                              ? 'Activity'
+                              : 'Hermes'),
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                      style: const TextStyle(
+                        fontWeight: FontWeight.w700,
+                        fontSize: 24,
+                        letterSpacing: -1.0,
+                      ),
+                    ),
+                    Text(
+                      '${controller.connection.label}${project == null ? '' : ' · ${resource!.scope.profileName}'}',
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                      style: TextStyle(
+                        fontSize: 12,
+                        color: Theme.of(context).colorScheme.onSurfaceVariant,
+                      ),
+                    ),
+                  ],
+                ),
+                actions: [workspaceOptions],
               ),
-              Text(
-                '${controller.connection.label}${project == null ? '' : ' · ${resource!.scope.profileName}'}',
-                maxLines: 1,
-                overflow: TextOverflow.ellipsis,
-                style: TextStyle(
-                  fontSize: 12,
-                  color: Theme.of(context).colorScheme.onSurfaceVariant,
+        body: AnnotatedRegion<SystemUiOverlayStyle>(
+          value:
+              Theme.of(context).appBarTheme.systemOverlayStyle ??
+              (Theme.of(context).brightness == Brightness.dark
+                  ? SystemUiOverlayStyle.light
+                  : SystemUiOverlayStyle.dark),
+          child: SafeArea(
+            bottom: false,
+            child: Column(
+              children: [
+                Row(
+                  children: [
+                    Expanded(
+                      child: SizedBox(
+                        key: const ValueKey('profile-selector'),
+                        height:
+                            48 +
+                            (MediaQuery.textScalerOf(context).scale(14) - 14),
+                        child: ListView(
+                          scrollDirection: Axis.horizontal,
+                          padding: const EdgeInsets.symmetric(horizontal: 16),
+                          children: [
+                            for (final profile
+                                in controller.discovery?.profiles ?? [])
+                              Padding(
+                                padding: const EdgeInsets.only(right: 8),
+                                child: Center(
+                                  child: TextButton(
+                                    key: ValueKey('profile-${profile.name}'),
+                                    style: TextButton.styleFrom(
+                                      minimumSize: const Size(48, 36),
+                                      tapTargetSize:
+                                          MaterialTapTargetSize.padded,
+                                      visualDensity: VisualDensity.standard,
+                                      padding: const EdgeInsets.symmetric(
+                                        horizontal: 12,
+                                      ),
+                                      foregroundColor: profileAccent(
+                                        context,
+                                        profile.name,
+                                      ),
+                                      backgroundColor:
+                                          profileAccent(
+                                            context,
+                                            profile.name,
+                                          ).withValues(
+                                            alpha:
+                                                resource?.scope.profileName ==
+                                                    profile.name
+                                                ? 0.22
+                                                : 0.09,
+                                          ),
+                                      side: BorderSide(
+                                        color:
+                                            profileAccent(
+                                              context,
+                                              profile.name,
+                                            ).withValues(
+                                              alpha:
+                                                  resource?.scope.profileName ==
+                                                      profile.name
+                                                  ? 1
+                                                  : 0.28,
+                                            ),
+                                        width:
+                                            resource?.scope.profileName ==
+                                                profile.name
+                                            ? 2
+                                            : 1,
+                                      ),
+                                      shape: RoundedRectangleBorder(
+                                        borderRadius: BorderRadius.circular(6),
+                                      ),
+                                    ),
+                                    child: Semantics(
+                                      selected:
+                                          resource?.scope.profileName ==
+                                          profile.name,
+                                      child: Text(
+                                        profile.label,
+                                        style: const TextStyle(
+                                          fontWeight: FontWeight.w600,
+                                          fontSize: 14,
+                                        ),
+                                      ),
+                                    ),
+                                    onPressed: () {
+                                      _searchDebounce?.cancel();
+                                      _search.clear();
+                                      setState(() {
+                                        _query = '';
+                                        _view = 'home';
+                                      });
+                                      unawaited(
+                                        _run(
+                                          () => controller.navigateProfile(
+                                            profile.name,
+                                          ),
+                                        ),
+                                      );
+                                    },
+                                  ),
+                                ),
+                              ),
+                          ],
+                        ),
+                      ),
+                    ),
+                    if (isWorkspaceHome) workspaceOptions,
+                  ],
                 ),
-              ),
-            ],
-          ),
-          actions: [
-            PopupMenuButton<String>(
-              enabled: resource != null && !controller.switching,
-              tooltip: 'Workspace options',
-              onSelected: (value) {
-                if (value == 'refresh') unawaited(_run(controller.refresh));
-                if (value == 'new-project') unawaited(_run(widget.newProject));
-                if (value == 'appearance') unawaited(_run(widget.appearance!));
-                if (value == 'notifications') {
-                  unawaited(_run(widget.enableNotifications!));
-                }
-                if (value == 'activity') {
-                  unawaited(controller.selectProject(null));
-                  setState(() => _view = 'activity');
-                }
-                if (value == 'archived') {
-                  _search.clear();
-                  _searchDebounce?.cancel();
-                  setState(() {
-                    _query = '';
-                    _view = 'archived';
-                  });
-                  unawaited(_run(() => controller.showArchived(true)));
-                }
-              },
-              itemBuilder: (_) => [
-                const PopupMenuItem(value: 'refresh', child: Text('Refresh')),
-                if (widget.appearance != null)
-                  const PopupMenuItem(
-                    value: 'appearance',
-                    child: Text('Accent color'),
+                if (controller.error != null)
+                  ListTile(
+                    title: Text(controller.error!),
+                    trailing: TextButton(
+                      onPressed: () => _run(controller.retry),
+                      child: const Text('Retry'),
+                    ),
                   ),
-                const PopupMenuItem(
-                  value: 'new-project',
-                  child: Text('New project'),
+                Expanded(
+                  child: controller.switching || resource == null
+                      ? Center(
+                          child: controller.error == null
+                              ? const CircularProgressIndicator()
+                              : const Text('Workspace unavailable'),
+                        )
+                      : RefreshIndicator(
+                          onRefresh: controller.refresh,
+                          child: NotificationListener<ScrollNotification>(
+                            onNotification: _onScroll,
+                            child: Builder(
+                              builder: (context) {
+                                final rows = _tree();
+                                return ListView.builder(
+                                  key: ValueKey(
+                                    '${resource.scope.storageNamespace}-${project?['id']}-$_view',
+                                  ),
+                                  physics:
+                                      const AlwaysScrollableScrollPhysics(),
+                                  padding: const EdgeInsets.only(bottom: 24),
+                                  itemCount: rows.length,
+                                  itemBuilder: (_, index) => rows[index],
+                                );
+                              },
+                            ),
+                          ),
+                        ),
                 ),
-                const PopupMenuItem(value: 'activity', child: Text('Activity')),
-                const PopupMenuItem(
-                  value: 'archived',
-                  child: Text('Archived chats'),
-                ),
-                if (widget.enableNotifications != null)
-                  const PopupMenuItem(
-                    value: 'notifications',
-                    child: Text('Enable completion notifications'),
-                  ),
               ],
             ),
-          ],
-        ),
-        body: Column(
-          children: [
-            SizedBox(
-              key: const ValueKey('profile-selector'),
-              height: 48 + (MediaQuery.textScalerOf(context).scale(14) - 14),
-              child: ListView(
-                scrollDirection: Axis.horizontal,
-                padding: const EdgeInsets.symmetric(horizontal: 16),
-                children: [
-                  for (final profile in controller.discovery?.profiles ?? [])
-                    Padding(
-                      padding: const EdgeInsets.only(right: 8),
-                      child: Center(
-                        child: TextButton(
-                          key: ValueKey('profile-${profile.name}'),
-                          style: TextButton.styleFrom(
-                            minimumSize: const Size(48, 36),
-                            tapTargetSize: MaterialTapTargetSize.padded,
-                            visualDensity: VisualDensity.standard,
-                            padding: const EdgeInsets.symmetric(horizontal: 12),
-                            foregroundColor: profileAccent(
-                              context,
-                              profile.name,
-                            ),
-                            backgroundColor:
-                                profileAccent(context, profile.name).withValues(
-                                  alpha:
-                                      resource?.scope.profileName ==
-                                          profile.name
-                                      ? 0.22
-                                      : 0.09,
-                                ),
-                            side: BorderSide(
-                              color: profileAccent(context, profile.name)
-                                  .withValues(
-                                    alpha:
-                                        resource?.scope.profileName ==
-                                            profile.name
-                                        ? 1
-                                        : 0.28,
-                                  ),
-                              width: resource?.scope.profileName == profile.name
-                                  ? 2
-                                  : 1,
-                            ),
-                            shape: RoundedRectangleBorder(
-                              borderRadius: BorderRadius.circular(6),
-                            ),
-                          ),
-                          child: Semantics(
-                            selected:
-                                resource?.scope.profileName == profile.name,
-                            child: Text(
-                              profile.label,
-                              style: const TextStyle(
-                                fontWeight: FontWeight.w600,
-                                fontSize: 14,
-                              ),
-                            ),
-                          ),
-                          onPressed: () {
-                            _searchDebounce?.cancel();
-                            _search.clear();
-                            setState(() {
-                              _query = '';
-                              _view = 'home';
-                            });
-                            unawaited(
-                              _run(
-                                () => controller.navigateProfile(profile.name),
-                              ),
-                            );
-                          },
-                        ),
-                      ),
-                    ),
-                ],
-              ),
-            ),
-            if (controller.error != null)
-              ListTile(
-                title: Text(controller.error!),
-                trailing: TextButton(
-                  onPressed: () => _run(controller.retry),
-                  child: const Text('Retry'),
-                ),
-              ),
-            Expanded(
-              child: controller.switching || resource == null
-                  ? Center(
-                      child: controller.error == null
-                          ? const CircularProgressIndicator()
-                          : const Text('Workspace unavailable'),
-                    )
-                  : RefreshIndicator(
-                      onRefresh: controller.refresh,
-                      child: NotificationListener<ScrollNotification>(
-                        onNotification: _onScroll,
-                        child: Builder(
-                          builder: (context) {
-                            final rows = _tree();
-                            return ListView.builder(
-                              key: ValueKey(
-                                '${resource.scope.storageNamespace}-${project?['id']}-$_view',
-                              ),
-                              physics: const AlwaysScrollableScrollPhysics(),
-                              padding: const EdgeInsets.only(bottom: 24),
-                              itemCount: rows.length,
-                              itemBuilder: (_, index) => rows[index],
-                            );
-                          },
-                        ),
-                      ),
-                    ),
-            ),
-          ],
+          ),
         ),
         bottomNavigationBar: _view == 'activity'
             ? null
