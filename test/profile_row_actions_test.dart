@@ -351,13 +351,16 @@ void main() {
     expect(host.deletes, isEmpty);
     await tester.pumpWidget(const SizedBox.shrink());
   });
-  testWidgets('project long press opens a new chat in that project', (
+  testWidgets('project compose button opens a new chat in that project', (
     tester,
   ) async {
     await show(tester);
-    await tester.longPress(find.byKey(const ValueKey('project-p2')));
-    await tester.pumpAndSettle();
-    await tester.tap(find.text('New chat in project'));
+    await tester.tap(
+      find.descendant(
+        of: find.byKey(const ValueKey('project-p2')),
+        matching: find.byTooltip('New conversation'),
+      ),
+    );
     await tester.pumpAndSettle();
     expect(controller.current!.chat!.projectId, 'p2');
     await tester.pumpWidget(const SizedBox.shrink());

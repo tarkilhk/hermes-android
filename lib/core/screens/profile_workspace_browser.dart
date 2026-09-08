@@ -189,22 +189,20 @@ class _ProfileWorkspaceBrowserState extends State<ProfileWorkspaceBrowser> {
             style: const TextStyle(fontSize: 15, fontWeight: FontWeight.w500),
           ),
           onTap: controller.switching ? null : () => _openProject(project),
-          onLongPress: controller.switching
-              ? null
-              : () => _run(
-                  () => showProjectActions(rowContext, controller, project),
-                ),
           trailing: IconButton(
-            tooltip: 'Project actions',
+            tooltip: 'New conversation',
             style: IconButton.styleFrom(
               minimumSize: const Size(48, 48),
               visualDensity: VisualDensity.standard,
             ),
-            icon: const Icon(Icons.more_horiz, size: 20),
+            icon: const Icon(Icons.edit_square, size: 20),
             onPressed: controller.switching
                 ? null
                 : () => _run(
-                    () => showProjectActions(rowContext, controller, project),
+                    () => controller.createChat(
+                      inProject: project,
+                      owner: controller.current!.scope,
+                    ),
                   ),
           ),
         ),
