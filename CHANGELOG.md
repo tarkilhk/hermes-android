@@ -4,6 +4,14 @@ All notable changes to this project are documented here. This project adheres to
 [Semantic Versioning](https://semver.org/spec/v2.0.0.html). Release notes for
 versions prior to 1.0.7 are in the **What's new** sections of the [README](README.md).
 
+## [2.1.1+2142] - 2026-09-08
+
+### Fixed
+
+- Forking a conversation now counts hidden stored notices before the selected
+  answer. The earlier repair was absent from the personal release checkout,
+  causing valid fork actions to report an incorrect copied-answer boundary.
+
 ## [2.1.1] - 2026-09-06
 
 ### Fixed
