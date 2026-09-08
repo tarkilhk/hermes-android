@@ -155,6 +155,7 @@ void main() {
       expect(controller.current!.searchResults.single['profile'], 'personal');
       expect(host.reads.last.$2, {
         'q': 'needle',
+        'exclude_sources': 'cron,tool,subagent,kanban',
         'limit': '100',
         'profile': 'personal',
       });

@@ -64,6 +64,7 @@ class ConfigBackupService {
     'session_search.',
     'chat_model_override.',
     'excluded_session_sources_',
+    'session_visibility_v1_',
     'chat_spaces_v1_',
   ];
 
