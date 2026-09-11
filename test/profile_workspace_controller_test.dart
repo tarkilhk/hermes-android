@@ -520,7 +520,10 @@ void main() {
       });
       final draft = await controller.createChat();
       expect(draft.projectId, project['id']);
-      expect(host.calls.last.$3['cwd'], '/a');
+      expect(
+        host.calls.lastWhere((call) => call.$2 == 'session.create').$3['cwd'],
+        '/a',
+      );
       await controller.selectProject(null);
       expect(controller.current!.visibleSessions.single['id'], 'same');
     },

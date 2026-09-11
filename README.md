@@ -21,12 +21,13 @@ The current connection flow opens `ProfileWorkspaceScreen`, which owns the drawe
 - Separate profile-owned conversations and running work, with reconnect and server-history refresh.
 - Projects, recent and pinned chats, paginated session/history loading, full-text conversation search, and an option to include automated chats.
 - Rename, pin/unpin, explicit read/unread, archive/unarchive, delete and move-to-project actions with server-side constraints.
-- Streaming conversations, selectable Markdown/code, basic tool activity and Stop.
+- Streaming conversations, horizontally scrollable tables, selectable fenced code with copy/wrap controls, basic tool activity and Stop. Tapped web images open in a zoomable preview with a browser fallback.
+- A thin context fuse displays server-reported usage, with estimated/unknown states and live updates.
 - Per-chat model and reasoning selection, with searchable, expandable technical-provider groups. Server session settings take precedence over former local model overrides.
 - Unsent text and staged attachments survive app restart, scoped to their original connection/profile/chat. An uncertain send retains its draft for checking against server history; it is never resent automatically.
 - Message actions and a long press on Send/Stop offer text-only follow-up queues and steering. Queues run in order while the client is connected, remain separate from the current draft, and pause after failed, stopped or uncertain sends. Queued items can be reviewed and removed.
-- Dynamic slash-command discovery, aliases, argument completion, skill dispatch, and dedicated current-session actions including steering and side questions.
-- Branching at saved answers, regeneration and answer-version navigation. Version grouping is currently stored locally and is a known mismatch with the planned server-owned behavior.
+- Dynamic slash-command discovery, aliases, argument completion, skill dispatch, and dedicated current-session actions including steering and identifiable side-question deliveries.
+- Saved-message Edit/resend with history-replacement confirmation, one-shot idle Fork, regeneration and answer-version navigation. Version grouping is currently stored locally and is a known mismatch with the planned server-owned behavior.
 - Phone file attachments, Android share/launcher intake, server-advertised approval scopes and structured clarification. Sudo, secret and vault requests have dedicated response forms; credentials are not saved with drafts or history.
 - Local completion/input notifications with independent device controls, optional chat titles, a test alert and original host/profile/chat routing, plus configuration restore from the connections screen.
 
@@ -52,12 +53,12 @@ The app's current slash/profile contracts and any separately maintained backend 
 
 ## Version and application identity
 
-Source version on 2026-09-12 is `2.1.4+2147` in [pubspec.yaml](pubspec.yaml). This is the checked-out version, not a claim that a matching public release has been published.
+Source version on 2026-09-12 is `2.1.5+2148` in [pubspec.yaml](pubspec.yaml). This is the checked-out version, not a claim that a matching public release has been published.
 
 - Personal release package: `com.tarkilhk.hermes.android`, labelled Hermes Personal.
 - Development package: `com.hermesagent.hermes_android.dev`.
 - The inherited upstream package is separate and is not this fork's release identity.
-- ABI-split codes derive from the base build number; the current ARM64 split uses `21472`.
+- ABI-split codes derive from the base build number; the current ARM64 split uses `21482`.
 
 The [release plan](docs/ANDROID_RELEASE_PLAN.md) and [build configuration](android/app/build.gradle.kts) document identity, signing and version-code rules. The selected S08 work will expose this client's version/build and update information in the app, separately from the backend version.
 

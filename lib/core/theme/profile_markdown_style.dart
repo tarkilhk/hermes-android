@@ -50,7 +50,10 @@ MarkdownStyleSheet profileMarkdownStyle(
       color: colors.surfaceContainerLow,
       borderRadius: BorderRadius.circular(10),
     ),
-    tableColumnWidth: const FlexColumnWidth(),
+    // The Markdown renderer scrolls intrinsic tables horizontally rather than
+    // crushing every column into the phone's width.
+    tableColumnWidth: const IntrinsicColumnWidth(),
+    tableScrollbarThumbVisibility: true,
     tableBorder: TableBorder.all(color: colors.outlineVariant),
     tableCellsPadding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
     horizontalRuleDecoration: BoxDecoration(

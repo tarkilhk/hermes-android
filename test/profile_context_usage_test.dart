@@ -1,0 +1,81 @@
+import 'dart:async';
+import 'package:flutter_test/flutter_test.dart';
+import 'package:shared_preferences/shared_preferences.dart';
+import 'package:hermes_android/core/services/profile_gateway.dart';
+import 'package:hermes_android/core/services/profile_workspace_controller.dart';
+import 'profile_connection_identity_test.dart' show identityTestConnection;
+import 'profile_workspace_controller_test.dart' show Host;
+
+void main() {
+  late Host host;
+  late ProfileWorkspaceController controller;
+  Completer<Map<String, dynamic>>? pending;
+  const snapshot = {
+    'context_used': 250,
+    'context_max': 1000,
+    'context_percent': 25,
+  };
+  setUp(() async {
+    SharedPreferences.setMockInitialValues({});
+    host = Host();
+    pending = null;
+    controller = ProfileWorkspaceController(
+      connection: identityTestConnection(),
+      connectionIdentity: 'context-test',
+      preferences: await SharedPreferences.getInstance(),
+      gatewayFactory: (scope) {
+        final base = host.gateway(scope);
+        return host.gateways[scope.profileName] = ProfileGateway(
+          scope: scope,
+          discover: base.discover,
+          get: base.read,
+          rpc: (method, params) {
+            if (method == 'session.context_breakdown') {
+              host.calls.add((scope.profileName, method, params));
+              return pending?.future ?? Future.value(snapshot);
+            }
+            return base.call(method, params);
+          },
+        );
+      },
+    );
+    await controller.initialize();
+  });
+  tearDown(() => controller.dispose());
+
+  test(
+    'usage belongs to the original chat and partial events retain server limits',
+    () async {
+      final a = await controller.createChat();
+      await controller.refreshContext(a);
+      expect(a.context!.percent, 25);
+      expect(host.calls.last.$3, {'session_id': 'a-runtime', 'profile': 'a'});
+      await controller.switchProfile('b');
+      final b = await controller.createChat();
+      await controller.refreshContext(b);
+      host.event('a', 'session.usage', {
+        'usage': {'context_used': 750, 'context_percent': 75},
+      });
+      expect(a.context!.percent, 75);
+      expect(a.context!.max, 1000);
+      expect(b.context!.percent, 25);
+    },
+  );
+
+  test('late breakdown cannot overwrite a newer live usage event', () async {
+    final chat = await controller.createChat();
+    await controller.refreshContext(chat);
+    pending = Completer();
+    final refresh = controller.refreshContext(chat);
+    host.event('a', 'session.usage', {
+      'usage': {'context_used': 900, 'context_percent': 90},
+    });
+    pending!.complete(snapshot);
+    await refresh;
+    expect(chat.context!.percent, 90);
+    host.event('a', 'session.usage', {
+      'usage': {'context_max': 0},
+    });
+    expect(chat.context, isNull);
+  });
+}

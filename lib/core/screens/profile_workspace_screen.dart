@@ -15,7 +15,9 @@ import '../widgets/gateway_clarify_dialog.dart';
 import '../theme/profile_workspace_theme.dart';
 import '../widgets/profile_chat_indicator.dart';
 import '../widgets/chat_intelligence_picker.dart';
+import '../widgets/context_fuse.dart';
 import '../widgets/slash_command_suggestions.dart';
+import '../widgets/side_question_delivery_card.dart';
 import 'profile_workspace_browser.dart';
 import 'profile_transcript.dart';
 import '../widgets/app_drawer.dart';
@@ -251,6 +253,8 @@ class _ProfileWorkspaceScreenState extends State<ProfileWorkspaceScreen>
 
   Widget _answer(ProfileChat chat, Map<String, dynamic> message) {
     if (isHiddenAnswerMessage(message)) return const SizedBox.shrink();
+    final savedPrompt =
+        isAnswerPrompt(message) && answerMessageId(message) != null;
     final savedAnswer =
         message['role'] == 'assistant' &&
         answerMessageId(message) != null &&
@@ -261,11 +265,38 @@ class _ProfileWorkspaceScreenState extends State<ProfileWorkspaceScreen>
         !chat.busy &&
         !chat.changingAnswer &&
         !chat.changingIntelligence &&
+        !chat.commandRunning &&
         !controller.switching;
     return Column(
       crossAxisAlignment: CrossAxisAlignment.stretch,
       children: [
-        ProfileMessage(message: message),
+        if (savedPrompt)
+          Stack(
+            children: [
+              Padding(
+                padding: const EdgeInsets.only(right: 40),
+                child: ProfileMessage(message: message),
+              ),
+              Positioned(
+                right: 0,
+                bottom: 12,
+                child: IconButton(
+                  key: ValueKey('edit-message-${answerMessageId(message)}'),
+                  tooltip: 'Edit message',
+                  constraints: const BoxConstraints.tightFor(
+                    width: 40,
+                    height: 40,
+                  ),
+                  onPressed: enabled
+                      ? () => _editSavedMessage(chat, message)
+                      : null,
+                  icon: const Icon(Icons.edit_outlined, size: 18),
+                ),
+              ),
+            ],
+          )
+        else
+          ProfileMessage(message: message),
         if (savedAnswer)
           AnswerActions(
             key: ValueKey('answer-actions-${answerMessageId(message)}'),
@@ -301,6 +332,103 @@ class _ProfileWorkspaceScreenState extends State<ProfileWorkspaceScreen>
                 : null,
           ),
       ],
+    );
+  }
+
+  Future<void> _editSavedMessage(
+    ProfileChat chat,
+    Map<String, dynamic> message,
+  ) async {
+    var input = answerMessageText(message);
+    var submitting = false;
+    String? inlineError;
+    await showDialog<void>(
+      context: context,
+      builder: (dialogContext) => StatefulBuilder(
+        builder: (context, setDialogState) {
+          final canSubmit =
+              !submitting && !chat.busy && input.trim().isNotEmpty;
+          return AlertDialog(
+            scrollable: true,
+            title: const Text('Edit and resend?'),
+            content: Column(
+              mainAxisSize: MainAxisSize.min,
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                const Text(
+                  "This replaces this message's turn and all later history in this chat.",
+                ),
+                const SizedBox(height: 16),
+                TextFormField(
+                  initialValue: input,
+                  autofocus: true,
+                  minLines: 2,
+                  maxLines: 6,
+                  onChanged: (value) => setDialogState(() {
+                    input = value;
+                    inlineError = null;
+                  }),
+                ),
+                if (inlineError != null) ...[
+                  const SizedBox(height: 12),
+                  Text(
+                    inlineError!,
+                    key: const ValueKey('edit-message-error'),
+                    style: TextStyle(
+                      color: Theme.of(context).colorScheme.error,
+                    ),
+                  ),
+                ],
+              ],
+            ),
+            actions: [
+              TextButton(
+                onPressed: submitting
+                    ? null
+                    : () => Navigator.pop(dialogContext),
+                child: const Text('Cancel'),
+              ),
+              FilledButton(
+                onPressed: canSubmit
+                    ? () async {
+                        setDialogState(() {
+                          submitting = true;
+                          inlineError = null;
+                        });
+                        var accepted = false;
+                        try {
+                          accepted = await controller.editSavedPrompt(
+                            chat,
+                            message,
+                            input,
+                          );
+                        } catch (_) {
+                          // Keep the correction in place for a deliberate retry.
+                        }
+                        if (!dialogContext.mounted) return;
+                        if (accepted) {
+                          Navigator.pop(dialogContext);
+                          return;
+                        }
+                        setDialogState(() {
+                          submitting = false;
+                          inlineError =
+                              chat.error ??
+                              'Hermes did not accept the edited message.';
+                        });
+                      }
+                    : null,
+                child: submitting
+                    ? const SizedBox.square(
+                        dimension: 18,
+                        child: CircularProgressIndicator(strokeWidth: 2),
+                      )
+                    : const Text('Replace and resend'),
+              ),
+            ],
+          );
+        },
+      ),
     );
   }
 
@@ -446,6 +574,11 @@ class _ProfileWorkspaceScreenState extends State<ProfileWorkspaceScreen>
                 padding: const EdgeInsets.symmetric(vertical: 8),
                 child: SelectableText(output),
               ),
+            for (final delivery in chat.sideQuestionDeliveries)
+              SideQuestionDeliveryCard(
+                key: ValueKey((chat.key, delivery.taskId, delivery.state)),
+                delivery: delivery,
+              ),
             if (chat.pendingQuestion != null) _questionPanel(chat),
           ],
         ),
@@ -568,6 +701,10 @@ class _ProfileWorkspaceScreenState extends State<ProfileWorkspaceScreen>
                         vertical: 12,
                       ),
                     ),
+                  ),
+                  Padding(
+                    padding: const EdgeInsets.symmetric(horizontal: 12),
+                    child: ContextFuse(occupancy: chat.context),
                   ),
                   Row(
                     crossAxisAlignment: CrossAxisAlignment.end,
@@ -742,11 +879,26 @@ class _ProfileWorkspaceScreenState extends State<ProfileWorkspaceScreen>
     }
   }
 
+  bool _canForkDraft(ProfileChat chat) =>
+      !chat.busy &&
+      !chat.queueDraining &&
+      chat.draft.trim().isNotEmpty &&
+      !chat.draft.trimLeft().startsWith('/') &&
+      chat.attachments.isEmpty &&
+      chat.messages.any(
+        (message) =>
+            message['role'] == 'assistant' &&
+            answerMessageId(message) != null &&
+            isBranchMessage(message),
+      );
+
   bool _hasMessageActions(ProfileChat chat) =>
       !controller.switching &&
       !chat.commandRunning &&
       !chat.changingAnswer &&
-      (chat.queuedPrompts.isNotEmpty ||
+      !chat.changingIntelligence &&
+      (_canForkDraft(chat) ||
+          chat.queuedPrompts.isNotEmpty ||
           (chat.busy &&
               chat.draft.trim().isNotEmpty &&
               !chat.draft.trimLeft().startsWith('/') &&
@@ -764,6 +916,15 @@ class _ProfileWorkspaceScreenState extends State<ProfileWorkspaceScreen>
             height: MediaQuery.sizeOf(sheetContext).height * .55,
             child: ListView(
               children: [
+                if (_canForkDraft(chat))
+                  ListTile(
+                    leading: const Icon(Icons.fork_right),
+                    title: const Text('Fork into a new chat'),
+                    subtitle: const Text(
+                      'Branch at the latest saved answer and send this message',
+                    ),
+                    onTap: () => Navigator.pop(sheetContext, 'fork'),
+                  ),
                 if (text.isNotEmpty &&
                     !text.startsWith('/') &&
                     chat.busy &&
@@ -843,7 +1004,11 @@ class _ProfileWorkspaceScreenState extends State<ProfileWorkspaceScreen>
       ),
     );
     if (!mounted || action == null) return;
-    if (action == 'steer') {
+    if (action == 'fork') {
+      await _run(() async {
+        await controller.forkPrompt(chat, text);
+      });
+    } else if (action == 'steer') {
       final accepted = await _runValue(() => controller.steer(chat, text));
       if (accepted == true && mounted && chat.draft.trim() == text) {
         await controller.updateDraft(chat, '');

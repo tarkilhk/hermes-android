@@ -5,10 +5,12 @@ import 'package:flutter/foundation.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
 import '../models/attachment_draft.dart';
+import '../models/context_occupancy.dart';
 import '../models/session_visibility.dart';
 import '../models/answer_versions.dart';
 import '../models/hermes_profile.dart';
 import '../models/profile_live_activity.dart';
+import '../models/side_question_delivery.dart';
 import '../models/slash_command.dart';
 import 'attachment_draft_service.dart';
 import 'composer_draft_store.dart';
@@ -71,6 +73,8 @@ enum ProfileTurnStatus {
 }
 
 class ProfileChat {
+  ContextOccupancy? context;
+  int contextGeneration = 0;
   final ProfileSessionKey key;
   String runtimeId;
   String title;
@@ -93,6 +97,7 @@ class ProfileChat {
   bool changingAnswer = false;
   bool commandRunning = false;
   final List<String> commandOutput = [];
+  final List<SideQuestionDelivery> sideQuestionDeliveries = [];
   Map<String, dynamic>? approval;
   bool approvalResponding = false;
   Map<String, dynamic>? clarification;
@@ -659,6 +664,7 @@ class ProfileWorkspaceController extends ChangeNotifier {
           ? null
           : chat.messages.length;
       await _refreshAnswerIds(chat);
+      unawaited(refreshContext(chat));
     } catch (_) {
       if (!_closed && chat.historyGeneration == generation) {
         chat.historyError = 'History could not be loaded. Retry to reload.';
@@ -669,6 +675,44 @@ class ProfileWorkspaceController extends ChangeNotifier {
         _changed();
       }
     }
+  }
+
+  Future<void> refreshContext(ProfileChat chat) async {
+    final gateway = _owned(chat).gateway;
+    final runtime = chat.runtimeId;
+    final generation = ++chat.contextGeneration;
+    ContextOccupancy? value;
+    try {
+      value = ContextOccupancy.fromJson(
+        await gateway.call('session.context_breakdown', {
+          'session_id': runtime,
+        }),
+      );
+    } catch (_) {
+      // Unsupported/unavailable context is unknown, not an empty context window.
+    }
+    if (_closed ||
+        chat.runtimeId != runtime ||
+        chat.contextGeneration != generation) {
+      return;
+    }
+    chat.context = value;
+    _changed();
+  }
+
+  void _updateContext(ProfileChat chat, Map usage) {
+    if (!usage.keys.any((key) => key.toString().startsWith('context_'))) return;
+    final previous = chat.context;
+    chat.contextGeneration++;
+    chat.context = ContextOccupancy.fromJson({
+      if (previous != null) ...{
+        'context_used': previous.used,
+        'context_max': previous.max,
+        'context_percent': previous.percent,
+        'context_estimated': previous.estimated,
+      },
+      ...Map<String, dynamic>.from(usage),
+    });
   }
 
   Future<void> loadOlderMessages(ProfileChat chat) async {
@@ -1640,6 +1684,132 @@ class ProfileWorkspaceController extends ChangeNotifier {
     return !rejected;
   }
 
+  /// Replaces one saved user turn and everything after it in this session.
+  Future<bool> editSavedPrompt(
+    ProfileChat chat,
+    Map<String, dynamic> selected,
+    String rawText,
+  ) async {
+    final resource = _owned(chat);
+    final text = rawText.trim();
+    final selectedId = answerMessageId(selected);
+    if (text.isEmpty) return false;
+    if (chat.busy ||
+        chat.changingAnswer ||
+        chat.changingIntelligence ||
+        chat.commandRunning ||
+        chat.queueDraining ||
+        switching) {
+      return false;
+    }
+    if (!isAnswerPrompt(selected) || selectedId == null) {
+      throw StateError('Wait for this message to be saved');
+    }
+    chat.changingAnswer = true;
+    chat.error = null;
+    _changed();
+    var submitted = false;
+    var acknowledged = false;
+    final originalMessages = chat.messages;
+    final originalStatus = chat.status;
+    try {
+      if (chat.queuedPrompts.isNotEmpty) {
+        chat.queuePaused = true;
+        await _persistDraft(chat);
+      }
+      await resource.gateway.requireProfile();
+      final history = await resource.gateway.fullHistory(chat.runtimeId);
+      final targetIndex = history.indexWhere(
+        (message) => answerMessageId(message) == selectedId,
+      );
+      if (targetIndex < 0 ||
+          !isAnswerPrompt(history[targetIndex]) ||
+          answerMessageText(history[targetIndex]) !=
+              answerMessageText(selected)) {
+        throw StateError(
+          'History changed. Reconnect to reload before editing.',
+        );
+      }
+      final rowId = history[targetIndex]['row_id'];
+      if (rowId is! int || rowId <= 0) {
+        throw StateError('The gateway did not return a saved message address');
+      }
+      await _journal();
+      chat.messages = [
+        ...answerHistoryRows(history.take(targetIndex).toList()),
+        {'role': 'user', 'content': text},
+      ];
+      chat.streaming = '';
+      chat.status = ProfileTurnStatus.running;
+      submitted = true;
+      _changed();
+      await resource.gateway.call('prompt.submit', {
+        'session_id': chat.runtimeId,
+        'text': text,
+        'truncate_before_row_id': rowId,
+        'confirm_truncate': true,
+        'confirm_empty_truncate': true,
+      });
+      acknowledged = true;
+    } catch (e) {
+      if (e is JsonRpcError || !submitted) {
+        chat.messages = originalMessages;
+        chat.status = originalStatus;
+        chat.error = 'Hermes did not accept the edited message.';
+      } else {
+        chat.status = ProfileTurnStatus.reconnecting;
+        chat.error = 'Edit status is uncertain. Reconnect to check history.';
+        _scheduleReconnect(resource);
+      }
+    } finally {
+      chat.changingAnswer = false;
+      await _journal();
+      _changed();
+    }
+    return acknowledged;
+  }
+
+  /// Branches at the latest saved answer and sends one composer message there.
+  Future<ProfileChat?> forkPrompt(ProfileChat source, String rawText) async {
+    _owned(source);
+    final text = rawText.trim();
+    if (text.isEmpty ||
+        text.startsWith('/') ||
+        source.attachments.isNotEmpty ||
+        source.busy ||
+        source.changingAnswer ||
+        source.changingIntelligence ||
+        source.commandRunning ||
+        source.queueDraining ||
+        switching) {
+      return null;
+    }
+    final boundary = source.messages.lastIndexWhere(
+      (message) =>
+          message['role'] == 'assistant' &&
+          answerMessageId(message) != null &&
+          isBranchMessage(message),
+    );
+    if (boundary < 0) {
+      throw StateError('Wait for a saved answer before forking');
+    }
+    final draftAtFork = source.draft;
+    final child = await branchAnswer(source, boundary);
+    if (child == null) return null;
+    final accepted = await _sendPrompt(child, prompt: text);
+    if (!accepted) {
+      source.error =
+          'Fork delivery is uncertain. Check the child chat before reusing this draft.';
+      _changed();
+    } else if (source.draft == draftAtFork) {
+      source.draft = '';
+      source.draftSubmissionUncertain = false;
+      await _persistDraft(source);
+      _changed();
+    }
+    return child;
+  }
+
   void _hydrateIntelligence(ProfileChat chat, Map<String, dynamic> response) {
     final info = response['info'];
     if (info is Map) {
@@ -1769,6 +1939,8 @@ class ProfileWorkspaceController extends ChangeNotifier {
     _changed();
     try {
       await _writeIntelligence(chat, selection);
+      chat.context = null;
+      unawaited(refreshContext(chat));
     } finally {
       chat.changingIntelligence = false;
       _changed();
@@ -2063,13 +2235,37 @@ class ProfileWorkspaceController extends ChangeNotifier {
         chat.commandOutput.add('Conversation history refreshed.');
       case 'bg':
       case 'background':
-      case 'btw':
         if (argument.isEmpty) throw StateError('Usage: /$name <message>');
-        await resource.gateway.call(
-          name == 'btw' ? 'prompt.btw' : 'prompt.background',
-          {'session_id': chat.runtimeId, 'text': argument},
-        );
+        await resource.gateway.call('prompt.background', {
+          'session_id': chat.runtimeId,
+          'text': argument,
+        });
         chat.commandOutput.add('Started /$name on the Hermes host.');
+      case 'btw':
+        if (argument.isEmpty) throw StateError('Usage: /btw <message>');
+        final result = await resource.gateway.call('prompt.btw', {
+          'session_id': chat.runtimeId,
+          'text': argument,
+        });
+        final taskId = result['task_id'];
+        if (taskId is! String || taskId.trim().isEmpty) {
+          throw const FormatException(
+            'The Hermes host did not identify the side question.',
+          );
+        }
+        final normalizedTaskId = taskId.trim();
+        if (!chat.sideQuestionDeliveries.any(
+          (delivery) => delivery.taskId == normalizedTaskId,
+        )) {
+          chat.sideQuestionDeliveries.add(
+            SideQuestionDelivery(
+              taskId: normalizedTaskId,
+              question: argument,
+              state: SideQuestionDeliveryState.pending,
+            ),
+          );
+        }
+        chat.commandOutput.add('Started /btw on the Hermes host.');
       case 'stop':
       case 'interrupt':
         await stop(chat);
@@ -2528,6 +2724,13 @@ class ProfileWorkspaceController extends ChangeNotifier {
     switch (event.type) {
       case 'session.info':
         _hydrateIntelligence(chat, {'info': event.data});
+        if (event.data['usage'] is Map) {
+          _updateContext(chat, event.data['usage'] as Map);
+        }
+      case 'session.usage':
+        if (event.data['usage'] is Map) {
+          _updateContext(chat, event.data['usage'] as Map);
+        }
       case 'message.delta':
         chat.streaming += event.data['text']?.toString() ?? '';
       case 'message.interim':
@@ -2544,6 +2747,33 @@ class ProfileWorkspaceController extends ChangeNotifier {
       case 'tool.complete':
         chat.tool = null;
       case 'btw.complete':
+        final text = event.data['text']?.toString().trim() ?? '';
+        if (text.isEmpty) break;
+        final rawTaskId = event.data['task_id'];
+        final taskId = rawTaskId is String && rawTaskId.trim().isNotEmpty
+            ? rawTaskId.trim()
+            : null;
+        final question = event.data['question']?.toString().trim() ?? '';
+        final index = taskId == null
+            ? -1
+            : chat.sideQuestionDeliveries.indexWhere(
+                (delivery) => delivery.taskId == taskId,
+              );
+        if (index >= 0) {
+          chat.sideQuestionDeliveries[index] = chat
+              .sideQuestionDeliveries[index]
+              .complete(result: text, question: question);
+        } else {
+          chat.sideQuestionDeliveries.add(
+            SideQuestionDelivery(
+              taskId: taskId,
+              question: question,
+              state: SideQuestionDeliveryState.completed,
+              result: text,
+            ),
+          );
+        }
+        _notify(chat, false);
       case 'background.complete':
         chat.commandOutput.add(
           event.data['text']?.toString() ?? 'Background command finished.',
@@ -2773,6 +3003,8 @@ class ProfileWorkspaceController extends ChangeNotifier {
     final wasBusy = chat.busy;
     final runtime = result['session_id'] as String;
     if (chat.runtimeId != runtime) {
+      chat.context = null;
+      chat.contextGeneration++;
       chat.sensitivePrompt = null;
       chat.sensitivePromptResponding = false;
     }

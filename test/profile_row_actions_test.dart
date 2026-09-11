@@ -179,7 +179,10 @@ void main() {
         owner: owner,
       );
       expect(chat.projectId, project['id']);
-      expect(host.calls.last.$3['cwd'], project['primary_path']);
+      expect(
+        host.calls.lastWhere((call) => call.$2 == 'session.create').$3['cwd'],
+        project['primary_path'],
+      );
       await controller.navigateProfile('work');
       await expectLater(
         controller.createChat(inProject: project, owner: owner),

@@ -4,6 +4,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:hermes_android/core/models/slash_command.dart';
 import 'package:hermes_android/core/models/hermes_profile.dart';
+import 'package:hermes_android/core/models/side_question_delivery.dart';
 import 'package:hermes_android/core/screens/profile_workspace_screen.dart';
 import 'package:hermes_android/core/services/connection_manager.dart';
 import 'package:hermes_android/core/services/profile_gateway.dart';
@@ -19,6 +20,7 @@ class CommandHost extends Host {
   Future<Map<String, dynamic>> Function(String, Map<String, dynamic>)? respond;
   String yolo = '0';
   String? yoloSetResult;
+  final List<String> sideQuestionTaskIds = ['side-task-1'];
   Map<String, dynamic> catalog(String profile) => {
     'pairs': [
       ['/$profile-skill', 'Profile $profile skill'],
@@ -63,6 +65,9 @@ class CommandHost extends Host {
         if (method == 'config.set' && params['key'] == 'yolo') {
           yolo = params['value']!.toString();
           return {'value': yoloSetResult ?? yolo};
+        }
+        if (method == 'prompt.btw') {
+          return {'task_id': sideQuestionTaskIds.removeAt(0)};
         }
         if (method == 'command.dispatch' ||
             method == 'slash.exec' ||
@@ -316,22 +321,86 @@ void main() {
   });
 
   test(
-    'side-question completion remains with its originating profile',
+    'side-question acknowledgement and completion stay with their owner',
     () async {
       chat.draft = '/btw What changed?';
       await controller.send(chat);
+      expect(
+        chat.sideQuestionDeliveries.single.state,
+        SideQuestionDeliveryState.pending,
+      );
+      expect(chat.sideQuestionDeliveries.single.taskId, 'side-task-1');
+      expect(chat.sideQuestionDeliveries.single.question, 'What changed?');
       await controller.switchProfile('b');
       final other = await controller.createChat();
-      host.event('a', 'btw.complete', {'text': 'Side answer'});
-      expect(chat.commandOutput.last, 'Side answer');
+      host.event('a', 'btw.complete', {
+        'task_id': 'side-task-1',
+        'question': 'What changed?',
+        'text': ' Side answer ',
+      });
+      final delivery = chat.sideQuestionDeliveries.single;
+      expect(delivery.state, SideQuestionDeliveryState.completed);
+      expect(delivery.result, 'Side answer');
+      expect(chat.commandOutput, ['Started /btw on the Hermes host.']);
       expect(other.commandOutput, isEmpty);
-      expect(
-        host.commandCalls.singleWhere((c) => c.$1 == 'prompt.btw').$2['text'],
-        'What changed?',
-      );
+      expect(other.sideQuestionDeliveries, isEmpty);
+      expect(host.commandCalls.singleWhere((c) => c.$1 == 'prompt.btw').$2, {
+        'session_id': 'a-runtime',
+        'text': 'What changed?',
+        'profile': 'a',
+      });
       expect(host.commandCalls.where((c) => c.$1 == 'slash.exec'), isEmpty);
     },
   );
+
+  test(
+    'side-question completions correlate out of order and skip blanks',
+    () async {
+      host.sideQuestionTaskIds.add('side-task-2');
+      chat.draft = '/btw First question';
+      await controller.send(chat);
+      chat.draft = '/btw Second question';
+      await controller.send(chat);
+
+      host.event('a', 'btw.complete', {
+        'task_id': 'side-task-2',
+        'question': 'Second question',
+        'text': 'Second answer',
+      });
+      host.event('a', 'btw.complete', {
+        'task_id': 'side-task-1',
+        'question': 'First question',
+        'text': 'First answer',
+      });
+      host.event('a', 'btw.complete', {
+        'task_id': 'ignored',
+        'question': 'Blank',
+        'text': '   ',
+      });
+
+      expect(chat.sideQuestionDeliveries, hasLength(2));
+      expect(chat.sideQuestionDeliveries[0].result, 'First answer');
+      expect(chat.sideQuestionDeliveries[1].result, 'Second answer');
+      expect(
+        chat.sideQuestionDeliveries.map((delivery) => delivery.state),
+        everyElement(SideQuestionDeliveryState.completed),
+      );
+    },
+  );
+
+  test('event-only side-question completion is still delivered', () async {
+    host.event('a', 'btw.complete', {
+      'task_id': 'desktop-task',
+      'question': 'Asked elsewhere',
+      'text': 'Remote answer',
+    });
+
+    final delivery = chat.sideQuestionDeliveries.single;
+    expect(delivery.taskId, 'desktop-task');
+    expect(delivery.question, 'Asked elsewhere');
+    expect(delivery.state, SideQuestionDeliveryState.completed);
+    expect(delivery.result, 'Remote answer');
+  });
 
   test('yolo toggles the hydrated live session while busy', () async {
     chat.status = ProfileTurnStatus.running;

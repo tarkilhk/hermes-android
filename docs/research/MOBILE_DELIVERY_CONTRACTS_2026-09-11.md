@@ -53,3 +53,17 @@ Desktop starts a side question with `prompt.btw {session_id,text}` and uses the 
 The inspected source does not establish a recovery/list API for side questions. Android's existing direct `prompt.background` path also needs deployed-gateway verification: Desktop uses slash dispatch for `/bg`, and its event rendering does not demonstrate `background.complete` support. Keep these limits explicit rather than inventing background task recovery.
 
 Evidence: Desktop `app/session/hooks/use-prompt-actions/slash.ts`, `app/session/hooks/use-message-stream/gateway-event/status.ts`, `btw-complete-event.test.tsx`, and `desktop-slash-commands.ts` at the pinned commit above.
+
+## Execution output (D14; investigation on 2026-09-12)
+
+Android already groups stored tool rows into expandable sections. Its active controller only keeps a live tool name, despite reusable `GatewayToolActivity` and `GatewayReasoningUpdate` parsers elsewhere in the repository. Wire those into the active view rather than introducing another protocol/model layer.
+
+Desktop upserts `tool.start`, `tool.progress` and `tool.complete` by tool ID; `tool.generating` is a name-only status and does not create an unfinished row. Useful payload fields include args/arguments, context, preview, result, summary, error and server `duration_s`. Keep raw args/results collapsed. Read-only todo snapshots arrive as `todo.updated`, or `todo_state {revision,todos}` on create/resume. Todo items have `id`, `content`, `status` and optional `parent`; known statuses are pending, in_progress, completed and cancelled. Ignore older revisions. No local task editing is implied.
+
+`reasoning.delta` appends and `reasoning.available` replaces. Historical assistant rows can expose `reasoning`, `reasoning_content` or string `reasoning_details`. Whole-turn duration is renderer state in Desktop, not a durable backend message field; server tool duration can be displayed without inventing persisted timings.
+
+Evidence: pinned Desktop `app/session/hooks/use-message-stream/gateway-event/tools.ts`, `tool-parts.ts`, `message-stream.ts`; `lib/chat-messages/types.ts`, `hydration.ts`; `lib/todos.ts`, `store/todos.ts`; and `components/assistant-ui/tool/fallback.tsx`.
+
+## History and read state (D18/D19; Android audit on 2026-09-12)
+
+The active Android client already paginates server history, preserves its reading anchor, exposes Latest/New activity, searches unloaded conversations through `sessions/search`, and writes read/unread through the profile-scoped session patch. Existing tests cover stale queries, profile changes, failures and retry. The main gaps are find inside the current chat and remaining selected Chats filters. Do not replace these working server paths or represent a search of loaded rows as a search of all history.

@@ -4,6 +4,7 @@ import 'package:flutter_markdown/flutter_markdown.dart';
 import 'package:url_launcher/url_launcher.dart';
 
 import 'markdown_code_block.dart';
+import 'chat_image_preview.dart';
 import 'profile_tool_activity.dart';
 import '../theme/profile_markdown_style.dart';
 
@@ -50,6 +51,23 @@ class ProfileMessage extends StatelessWidget {
         ),
       );
     }
+  }
+
+  void _previewImage(BuildContext context, String href, String title) {
+    final uri = externalLink(href);
+    if (uri == null) {
+      _open(context, href);
+      return;
+    }
+    Navigator.of(context).push(
+      MaterialPageRoute<void>(
+        builder: (previewContext) => ChatImagePreview(
+          uri: uri,
+          title: title,
+          onOpenExternal: () => _open(previewContext, href),
+        ),
+      ),
+    );
   }
 
   Widget _copy(BuildContext context, String content) => IconButton(
@@ -170,9 +188,10 @@ class ProfileMessage extends StatelessWidget {
                                     },
                                     sizedImageBuilder: (config) =>
                                         OutlinedButton.icon(
-                                          onPressed: () => _open(
+                                          onPressed: () => _previewImage(
                                             context,
                                             config.uri.toString(),
+                                            config.alt ?? 'Image',
                                           ),
                                           icon: const Icon(
                                             Icons.image_outlined,

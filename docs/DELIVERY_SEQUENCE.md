@@ -125,9 +125,17 @@ For each active slice, append a short record here or link its implementation not
 | D07 | Implemented; live QA pending | Dedicated sudo/secret/vault response forms, scoped expiry and duplicate-response guards; credentials remain unsaved | Controller delivery tests and six widget tests | Resume exposes approval/clarify only; restoring sensitive prompts after process death requires backend metadata |
 | D08 | Implemented; live QA pending | Independent completion/attention switches, optional chat titles, permission/test alert and existing notification routing | Settings widget tests | End-to-end notification permission/tap checks remain; locked/terminated-app push remains D26/D27 |
 | D09 | Implemented; live QA pending | Desktop-style text queues with review/removal and one-shot Steer through Message actions or long press | Queue tests cover ordered drain, separate drafts/attachments, restart, lost acknowledgement, stop/failure and repeated resume; Steer checks queued/rejected outcomes | Phone must be connected to drain; attachments cannot be queued in this slice |
-| D10-D30 | Planned | Not started | None | Check relevant deployed contracts at slice start |
+| D10 | Partial; live QA pending | Saved-message Edit/resend and one-shot idle Fork; existing regeneration retained | Saved-boundary, draft preservation and confirmation tests | Server-owned answer-version relationships remain unavailable in inspected contract |
+| D11 | Partial; live QA pending | Identifiable side-question cards and out-of-order completion by task ID | Scoped command/delivery tests | `/bg` and task recovery still need verified server contracts |
+| D12 | Partial | Wide tables, selectable streamed/nested fenced code and larger copy/wrap controls | Narrow-phone checks at 100%/200% text size | Rich diagrams still render as source fallback |
+| D13 | Partial | Tap-to-preview zoomable web images and external-link fallback | Navigation/error widget checks | Additional media and backend file previews remain |
+| D14 | Planned | Execution-output refinement not started | Existing tool display retained | Verify server todos/reasoning payloads |
+| D15 | Implemented; live QA pending | Thin server-reported context fuse; live usage and unknown/estimated states | Model/widget tests and stale-response/profile isolation checks | Requires context breakdown or usage fields from gateway |
+| D16-D30 | Planned | Not started | None | Check relevant deployed contracts at slice start |
 
 D05/D07/D08/D09 delivery on 2026-09-12: analyzer clean, full suite 921 passed and four opt-in skips. Signed Personal 2.1.4 / 21472 passed package/certificate checks, installed in place on the owner's phone at the requested wireless endpoint, and launched successfully. See [supervision and queue notes](SUPERVISION_AND_QUEUES.md). Phone evidence is installed version/process metadata; live gateway feature checks remain as listed above.
+
+D10-D13/D15 batch on 2026-09-12: analyzer clean, full suite 944 passed and four opt-in skips. Signed Personal 2.1.5 / 21482 passed package/certificate checks, installed in place wirelessly on the owner's phone, and launched successfully. See [conversation actions and reading](CONVERSATION_ACTIONS_AND_READING.md) for delivered portions and remaining diagram/media/version/background gaps. No live gateway feature verification is implied by package/process checks.
 
 The feature ledger in PRODUCT_PLAN.md remains the coverage checklist. Mark a feature Done only after all of its selected portions are delivered; Q10, Q03, C08 and notifications deliberately span multiple slices. R18 error clarity, B15 ownership and M08 server authority apply throughout.
 

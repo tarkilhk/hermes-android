@@ -10,23 +10,39 @@ import 'package:flutter/services.dart';
 /// builder (which leaves its internal inline state unbalanced).
 List<Object> splitMarkdownCodeBlocks(String content) {
   final result = <Object>[];
-  final regex = RegExp(
-    r'```([\w+-]*)[ \t]*\r?\n([\s\S]*?)```',
+  final opening = RegExp(
+    r'^ {0,3}(`{3,}|~{3,})([^\r\n]*)\r?$',
     multiLine: true,
   );
   var cursor = 0;
-
-  for (final match in regex.allMatches(content)) {
-    if (match.start > cursor) {
-      result.add(content.substring(cursor, match.start));
+  while (cursor < content.length) {
+    final match = opening.firstMatch(content.substring(cursor));
+    if (match == null) break;
+    final start = cursor + match.start;
+    final fence = match.group(1)!;
+    final info = match.group(2)!.trim();
+    final bodyStart = cursor + match.end;
+    final closing = RegExp(
+      '^ {0,3}${RegExp.escape(fence[0])}{${fence.length},}[ \\t]*\\r?\$',
+      multiLine: true,
+    ).firstMatch(content.substring(bodyStart));
+    final bodyEnd = closing == null
+        ? content.length
+        : bodyStart + closing.start;
+    // An unfinished streaming fence uses the same selectable code renderer.
+    final codeStart = bodyStart < content.length && content[bodyStart] == '\n'
+        ? bodyStart + 1
+        : bodyStart;
+    if (start > cursor) {
+      result.add(content.substring(cursor, start));
     }
     result.add(
       MarkdownCodeBlock(
-        code: match.group(2)!,
-        language: match.group(1)?.isEmpty ?? true ? null : match.group(1),
+        code: content.substring(codeStart, bodyEnd),
+        language: info.isEmpty ? null : info.split(RegExp(r'\s+')).first,
       ),
     );
-    cursor = match.end;
+    cursor = closing == null ? content.length : bodyStart + closing.end;
   }
 
   if (cursor < content.length) {
@@ -128,26 +144,17 @@ class _MarkdownCodeBlockState extends State<MarkdownCodeBlock> {
                     overflow: TextOverflow.ellipsis,
                   ),
                 ),
-                if (_wrap)
-                  Tooltip(
-                    message: 'Scroll horizontally',
-                    child: IconButton(
-                      icon: const Icon(Icons.swap_horiz, size: 18),
-                      onPressed: () => setState(() => _wrap = false),
-                      constraints: const BoxConstraints.tightFor(
-                        width: 40,
-                        height: 40,
-                      ),
-                    ),
-                  ),
                 Tooltip(
-                  message: 'Wrap lines',
+                  message: _wrap ? 'Scroll horizontally' : 'Wrap lines',
                   child: IconButton(
-                    icon: const Icon(Icons.wrap_text, size: 18),
-                    onPressed: () => setState(() => _wrap = true),
+                    icon: Icon(
+                      _wrap ? Icons.swap_horiz : Icons.wrap_text,
+                      size: 18,
+                    ),
+                    onPressed: () => setState(() => _wrap = !_wrap),
                     constraints: const BoxConstraints.tightFor(
-                      width: 40,
-                      height: 40,
+                      width: 48,
+                      height: 48,
                     ),
                   ),
                 ),
@@ -157,8 +164,8 @@ class _MarkdownCodeBlockState extends State<MarkdownCodeBlock> {
                     icon: const Icon(Icons.copy_outlined, size: 18),
                     onPressed: _copy,
                     constraints: const BoxConstraints.tightFor(
-                      width: 40,
-                      height: 40,
+                      width: 48,
+                      height: 48,
                     ),
                   ),
                 ),
