@@ -71,14 +71,28 @@ class RemoteFileDownload {
 abstract class RemoteFilesDataSource {
   Future<RemoteDirectory> defaultDirectory();
   Future<List<RemoteFileEntry>> listDirectory(String path);
-  Future<RemoteTextPreview> readText(String path);
-  Future<RemoteFileDownload> download(String path);
+  Future<RemoteTextPreview> readText(
+    String path, {
+    required String profileName,
+    required String storedSessionId,
+  });
+  Future<RemoteFileDownload> download(
+    String path, {
+    required String profileName,
+    required String storedSessionId,
+  });
 }
 
 class RemoteFilesClient implements RemoteFilesDataSource {
-  final DashboardClient dashboard;
+  static const defaultMaxDownloadBytes = 32 * 1024 * 1024;
 
-  RemoteFilesClient({required this.dashboard});
+  final DashboardClient dashboard;
+  final int maxDownloadBytes;
+
+  RemoteFilesClient({
+    required this.dashboard,
+    this.maxDownloadBytes = defaultMaxDownloadBytes,
+  });
 
   factory RemoteFilesClient.fromConnection(SavedConnection connection) {
     final baseUri = Uri.parse(
@@ -130,29 +144,64 @@ class RemoteFilesClient implements RemoteFilesDataSource {
   }
 
   @override
-  Future<RemoteTextPreview> readText(String path) async {
+  Future<RemoteTextPreview> readText(
+    String path, {
+    required String profileName,
+    required String storedSessionId,
+  }) async {
+    final owner = _owner(profileName, storedSessionId);
     final data = await dashboard.apiGet(
       'fs/read-text',
-      queryParameters: {'path': path},
+      queryParameters: {'path': path, ...owner},
     );
     return RemoteTextPreview.fromJson(data);
   }
 
   @override
-  Future<RemoteFileDownload> download(String path) async {
+  Future<RemoteFileDownload> download(
+    String path, {
+    required String profileName,
+    required String storedSessionId,
+  }) async {
+    final owner = _owner(profileName, storedSessionId);
     final response = await dashboard.apiGetBytes(
       'fs/download',
-      queryParameters: {'path': path},
+      queryParameters: {'path': path, ...owner},
+      maxBytes: maxDownloadBytes,
     );
     final disposition = response.headers['content-disposition'] ?? '';
-    final match = RegExp(
-      r'''filename\*?=(?:UTF-8''|["'])?([^"';]+)''',
+    final encoded = RegExp(
+      r'''filename\*=(?:UTF-8'')?([^;]+)''',
       caseSensitive: false,
-    ).firstMatch(disposition);
+    ).firstMatch(disposition)?.group(1);
+    final plain = RegExp(
+      r'''filename=["']?([^"';]+)''',
+      caseSensitive: false,
+    ).firstMatch(disposition)?.group(1);
     return RemoteFileDownload(
-      filename: match?.group(1)?.trim() ?? path.split('/').last,
+      filename: _safeBasename(encoded ?? plain ?? path),
       bytes: response.bodyBytes,
     );
+  }
+
+  Map<String, String> _owner(String profileName, String storedSessionId) {
+    final profile = profileName.trim();
+    final session = storedSessionId.trim();
+    if (profile.isEmpty || session.isEmpty) {
+      throw ArgumentError('A profile and saved chat identity are required');
+    }
+    return {'profile': profile, 'session_id': session};
+  }
+
+  String _safeBasename(String value) {
+    var decoded = value.trim().replaceAll(RegExp(r'''^["']|["']$'''), '');
+    try {
+      decoded = Uri.decodeComponent(decoded);
+    } on FormatException {
+      // Keep the literal server name when percent encoding is malformed.
+    }
+    final name = decoded.split(RegExp(r'[\\/]')).last.trim();
+    return name.isEmpty || name == '.' || name == '..' ? 'download' : name;
   }
 
   void close() => dashboard.close();

@@ -9,11 +9,15 @@ import '../models/context_occupancy.dart';
 import '../models/session_visibility.dart';
 import '../models/answer_versions.dart';
 import '../models/hermes_profile.dart';
+import '../models/gateway_activity.dart';
+import '../models/gateway_insight.dart';
+import '../models/gateway_todo.dart';
 import '../models/profile_live_activity.dart';
 import '../models/side_question_delivery.dart';
 import '../models/slash_command.dart';
 import 'attachment_draft_service.dart';
 import 'composer_draft_store.dart';
+import 'remote_files_client.dart';
 import 'connection_manager.dart';
 import 'profile_gateway.dart';
 import 'profile_selection_store.dart';
@@ -93,6 +97,11 @@ class ProfileChat {
   bool draftSubmissionUncertain = false;
   String streaming = '';
   String? tool;
+  final List<GatewayToolActivity> toolActivities = [];
+  String reasoning = '';
+  bool reasoningVerbose = false;
+  List<GatewayTodo> todos = [];
+  int? todoRevision;
   String? error;
   bool changingAnswer = false;
   bool commandRunning = false;
@@ -659,6 +668,7 @@ class ProfileWorkspaceController extends ChangeNotifier {
           ? chat.messages.take(anchor).toList()
           : <Map<String, dynamic>>[];
       chat.messages = [...prefix, ...page.rows];
+      chat.toolActivities.removeWhere((activity) => activity.isTerminal);
       chat.historySessionId = page.sessionId;
       chat.nextHistoryOffset = page.nextOffset == null
           ? null
@@ -675,6 +685,14 @@ class ProfileWorkspaceController extends ChangeNotifier {
         _changed();
       }
     }
+  }
+
+  Future<List<Map<String, dynamic>>> savedHistory(ProfileChat chat) =>
+      _owned(chat).gateway.savedHistory(chat.key.sessionId);
+
+  RemoteFilesClient outputFiles(ProfileChat chat) {
+    _owned(chat);
+    return RemoteFilesClient.fromConnection(connection);
   }
 
   Future<void> refreshContext(ProfileChat chat) async {
@@ -876,6 +894,7 @@ class ProfileWorkspaceController extends ChangeNotifier {
     );
     resource.chats[id] = chat;
     _hydrateIntelligence(chat, response);
+    _applyTodoSnapshot(chat, response['todo_state']);
     await _restoreDraft(chat);
     if (current == resource && !switching) resource.selectedSession = id;
     _changed();
@@ -2326,6 +2345,9 @@ class ProfileWorkspaceController extends ChangeNotifier {
         : List<AttachmentDraft>.of(chat.attachments);
     chat.status = ProfileTurnStatus.submitting;
     chat.error = null;
+    chat.reasoning = '';
+    chat.reasoningVerbose = false;
+    chat.toolActivities.clear();
     _changed();
     var submitted = false;
     var acknowledged = false;
@@ -2715,6 +2737,43 @@ class ProfileWorkspaceController extends ChangeNotifier {
     return error.message.toLowerCase().contains('no pending $field request');
   }
 
+  void _upsertToolActivity(
+    ProfileChat chat,
+    String eventType,
+    Map<String, dynamic> data,
+  ) {
+    final update = GatewayToolActivity.fromGatewayEvent(eventType, data);
+    if (update == null) return;
+    var index = update.toolId == null
+        ? -1
+        : chat.toolActivities.indexWhere(
+            (activity) => activity.toolId == update.toolId,
+          );
+    if (index < 0 && update.toolId == null) {
+      index = chat.toolActivities.lastIndexWhere(
+        (activity) => activity.name == update.name && !activity.isTerminal,
+      );
+    }
+    if (index < 0) {
+      chat.toolActivities.add(update);
+    } else {
+      chat.toolActivities[index] = chat.toolActivities[index].merge(update);
+    }
+  }
+
+  void _applyTodoSnapshot(ProfileChat chat, dynamic value) {
+    final snapshot = GatewayTodoSnapshot.parse(value);
+    if (snapshot == null) return;
+    final current = chat.todoRevision;
+    if (snapshot.revision != null &&
+        current != null &&
+        snapshot.revision! < current) {
+      return;
+    }
+    chat.todos = snapshot.todos;
+    if (snapshot.revision != null) chat.todoRevision = snapshot.revision;
+  }
+
   void _event(ProfileWorkspaceData resource, StreamEvent event) {
     if (_closed) return;
     final chat = resource.chats.values
@@ -2736,16 +2795,40 @@ class ProfileWorkspaceController extends ChangeNotifier {
       case 'message.interim':
         final text = event.data['text']?.toString() ?? chat.streaming;
         if (text.isNotEmpty) {
-          chat.messages.add({'role': 'assistant', 'content': text});
+          chat.messages.add({
+            'role': 'assistant',
+            'content': text,
+            if (chat.reasoning.isNotEmpty) '_gateway_reasoning': chat.reasoning,
+          });
         }
         chat.streaming = '';
+        chat.reasoning = '';
+        chat.reasoningVerbose = false;
+      case 'tool.generating':
+        chat.tool = event.data['name']?.toString() ?? 'Preparing tool';
       case 'tool.start':
         chat.tool =
             event.data['name']?.toString() ??
             event.data['tool']?.toString() ??
             'Working';
+        _upsertToolActivity(chat, event.type, event.data);
+      case 'tool.progress':
+        _upsertToolActivity(chat, event.type, event.data);
       case 'tool.complete':
+        _upsertToolActivity(chat, event.type, event.data);
         chat.tool = null;
+      case 'todo.updated':
+        _applyTodoSnapshot(chat, event.data);
+      case 'reasoning.delta':
+      case 'reasoning.available':
+        final update = GatewayReasoningUpdate.fromGatewayEvent(
+          event.type,
+          event.data,
+        );
+        if (update != null) {
+          chat.reasoning = update.applyTo(chat.reasoning);
+          chat.reasoningVerbose = update.verbose;
+        }
       case 'btw.complete':
         final text = event.data['text']?.toString().trim() ?? '';
         if (text.isEmpty) break;
@@ -2870,13 +2953,20 @@ class ProfileWorkspaceController extends ChangeNotifier {
     chat.sensitivePromptResponding = false;
     final finalText = completion['text']?.toString() ?? chat.streaming;
     if (finalText.isNotEmpty) {
-      chat.messages.add({'role': 'assistant', 'content': finalText});
+      chat.messages.add({
+        'role': 'assistant',
+        'content': finalText,
+        if (chat.reasoning.isNotEmpty) '_gateway_reasoning': chat.reasoning,
+      });
     }
     chat.streaming = '';
     chat.error = failure;
     try {
       await refreshHistory(chat);
       if (chat.historyError != null) throw StateError('History refresh failed');
+      chat.toolActivities.clear();
+      chat.reasoning = '';
+      chat.reasoningVerbose = false;
       if (!switching) await _refreshSessions(resource);
       try {
         resource.projects = await resource.gateway.projects();
@@ -3005,11 +3095,17 @@ class ProfileWorkspaceController extends ChangeNotifier {
     if (chat.runtimeId != runtime) {
       chat.context = null;
       chat.contextGeneration++;
+      chat.toolActivities.clear();
+      chat.reasoning = '';
+      chat.reasoningVerbose = false;
+      chat.todos = [];
+      chat.todoRevision = null;
       chat.sensitivePrompt = null;
       chat.sensitivePromptResponding = false;
     }
     chat.runtimeId = runtime;
     _hydrateIntelligence(chat, result);
+    _applyTodoSnapshot(chat, result['todo_state']);
     final inflight = result['inflight'] as Map?;
     chat.streaming = inflight?['assistant']?.toString() ?? '';
     chat.approval = result['pending_approval'] is Map

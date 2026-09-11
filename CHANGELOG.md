@@ -4,6 +4,109 @@ All notable changes to this project are documented here. This project adheres to
 [Semantic Versioning](https://semver.org/spec/v2.0.0.html). Release notes for
 versions prior to 1.0.7 are in the **What's new** sections of the [README](README.md).
 
+Feature releases increment the minor version, fixes increment the patch version,
+and breaking changes increment the major version. The Android build number after
+`+` always increases. Update this changelog for every release milestone.
+
+## [2.2.0+2149] - 2026-09-12
+
+### Added
+
+- Added expandable live execution details for tools, server todos and available
+  reasoning, with bounded raw payload display and server-reported duration.
+- Added Find in chat over bounded, server-owned saved history. Results report the
+  full match count while displaying at most 100 expandable matches.
+- Added per-chat Outputs for delivered files, images and links, with authenticated
+  reads and downloads scoped to the original host, profile and conversation.
+- Added zoomable authenticated and embedded image previews, selectable text/code
+  previews, and Android save/share delivery using the retrieved file bytes.
+
+### Changed
+
+- Saved-history loading now uses bounded oldest-first pages, includes compacted
+  rows and reports incomplete or malformed history instead of caching it locally.
+- Downloads enforce a 32 MiB limit and reduce server-provided filenames to safe
+  decoded basenames.
+
+### Known limitations
+
+- Output discovery is derived from transcript references, so it can miss silent
+  outputs or show a path whose file was removed.
+- Interactive backend HTML and specialized audio, video and PDF viewers remain
+  incomplete. Live behavior on the owner's gateway has not yet been verified.
+
+## [2.1.5+2148] - 2026-09-12
+
+### Added
+
+- Added saved-message Edit and resend with explicit history-replacement
+  confirmation, row-addressed server truncation and correction retention until
+  acknowledgement.
+- Added a one-shot, text-only Fork action from the latest loaded saved answer.
+- Added distinct `/btw` result cards correlated by server task ID.
+- Added narrow-screen Markdown table and fenced-code improvements, zoomable web
+  image preview and a server-reported context fuse beside the composer.
+
+### Changed
+
+- Edit and Fork preserve unrelated draft text and attachments. Edit pauses queued
+  follow-ups, and Fork clears its source draft only after the child send is
+  acknowledged.
+
+### Known limitations
+
+- Answer-version grouping remains local to the phone. Diagram rendering,
+  authenticated backend media and specialized media previews were not completed.
+- Source checks and fixtures do not establish live gateway compatibility.
+
+## [2.1.4+2147] - 2026-09-12
+
+### Added
+
+- Added per-profile Activity discovery for ongoing work, retaining each chat's
+  original owner and reporting profiles that could not be queried.
+- Added dedicated sudo, secret and vault request forms with request expiry and
+  duplicate-response guards. Sensitive values are not saved in drafts or chat.
+- Added independent completion and attention notification switches, optional chat
+  titles and a permission-and-test notification action.
+- Added text-only per-chat queues and one-shot Steer through Message actions and
+  holding Send/Stop. Queues can be reviewed, removed, paused and resumed.
+
+### Changed
+
+- Queued messages send in order after completed turns and pause after stop,
+  failure or uncertain delivery. Separately typed drafts and attachments remain.
+
+### Known limitations
+
+- The phone must stay connected to drain queued work. Attachment queueing,
+  process-death restoration of sensitive prompts and background push remain
+  unavailable. Live gateway behavior was not verified for this milestone.
+
+## [2.1.3+2146] - 2026-09-11
+
+### Added
+
+- Added durable unsent drafts and staged attachment references scoped to the
+  verified connection identity, profile and saved conversation.
+- Added provider-grouped model selection that preserves the exact server route,
+  plus session-scoped `/yolo` state and changes.
+- Added server-advertised approval scopes and independent device settings for
+  completion and attention alerts.
+
+### Fixed
+
+- Reopening a loaded chat now refreshes server execution and pending-input state.
+- Accepted sends clear only the submitted draft. Text typed during acknowledgement
+  remains, missing staged files retain draft text, and lost acknowledgements never
+  trigger automatic resubmission.
+
+### Known limitations
+
+- This release adds no offline transcript, accepted-work outbox, global model
+  override or background push. Live gateway and phone workflow checks remained
+  outstanding after the automated release checks.
+
 ## [2.1.2+2145] - 2026-09-11
 
 ### Changed

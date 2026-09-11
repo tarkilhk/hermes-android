@@ -67,3 +67,21 @@ Evidence: pinned Desktop `app/session/hooks/use-message-stream/gateway-event/too
 ## History and read state (D18/D19; Android audit on 2026-09-12)
 
 The active Android client already paginates server history, preserves its reading anchor, exposes Latest/New activity, searches unloaded conversations through `sessions/search`, and writes read/unread through the profile-scoped session patch. Existing tests cover stale queries, profile changes, failures and retry. The main gaps are find inside the current chat and remaining selected Chats filters. Do not replace these working server paths or represent a search of loaded rows as a search of all history.
+
+## Chat outputs (D16/D17; investigation on 2026-09-12)
+
+Desktop has no authoritative outputs enumeration API in the inspected client. `app/artifacts/index.tsx` derives candidates from server messages using `artifact-utils.ts`. Its global screen scans recent sessions, but Android's selected scope uses exactly one chat. Assistant collection covers MEDIA references, Markdown destinations, qualifying URLs and file paths. Tool collection is narrower: producer names and explicit result keys such as output_path, generated_file, files_created, saved_to and screenshot_path. This is an ephemeral heuristic, not new server-owned metadata.
+
+Desktop reads saved messages oldest-first in pages of 500 with `include_compacted=true` and a JSON-size cap. The client-owned fenced-code artifact store is separate from backend files; a code fence does not establish that a file exists.
+
+Remote open carries the original connection, profile and durable session ID into `GET /api/fs/download?path=...&session_id=...&profile=...`. The server's Content-Disposition supplies the filename. Desktop also has a 404-only data-URL fallback; Android intentionally uses the modern download route. Text preview is `/api/fs/read-text` with path/profile; Android additionally carries the session identity for relative-path resolution. Images can use authenticated downloaded bytes. Interactive HTML is a separate renderer/staging path in Desktop, not something an ordinary Android external link can reproduce.
+
+The existing Android RemoteFilesClient provides the transport seam but originally omitted owner parameters and buffered arbitrary download sizes. D16 adds mandatory owner fields and a byte cap. Deployed file authorization, relative/tilde path resolution and MIME/range behavior still need live verification. Source evidence includes Desktop `app/artifacts/artifact-utils.ts`, `app/artifacts/index.test.ts`, `remote-open.test.tsx`, `gateway-file-download.test.ts` and `api/sessions` at the pinned commit.
+
+## Project actions (D20; investigation on 2026-09-12)
+
+The active Android project flow already creates a named project with a host folder using `projects.create {name,folders:[path],primary_path:path}`. Returning to all chats is client navigation and sends no backend active-profile mutation. Rename/delete and icon/color editing are missing from this active flow, though separate retained project services contain related methods.
+
+Desktop uses `projects.update {id,name?,color?,icon?,profile}` and `projects.delete {id,profile}`. An empty string clears an icon/color; omitted or null values leave them unchanged. The existing Android `projects.tree` parser retains these server fields, but the current project row substitutes a folder icon and an ID-derived accent. Reuse that row for a small actions menu, render server appearance and refresh server metadata after writes. No repository discovery/adoption feature or broader administration scope is implied by these contracts.
+
+Evidence: pinned Desktop `store/projects.ts` (`createProject`, `renameProject`, `setProjectAppearance`, `deleteProject`) and the earlier [project contract notes](FEATURE_PLAN_CONTRACT_NOTES_2026-09-11.md).

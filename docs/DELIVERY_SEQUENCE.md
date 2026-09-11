@@ -10,7 +10,7 @@ Start a slice by checking its existing behavior and the relevant deployed backen
 
 Implement one useful outcome at a time. Prefer one focused commit and a short set of acceptance checks. If a slice becomes too large, split it at a usable intermediate outcome, such as displaying server project appearance before adding its editor. Do not bundle unrelated work to fill a release.
 
-For each phone build, record the included slices, version, checks and remaining limits. The owner tries the change during normal use; correct problems before adding another layer to that workflow. Closely related small slices can share a build. One slice is not a promise of one day or one conversation of development.
+For each phone build, record the included slices, version, checks and remaining limits in the [changelog](../CHANGELOG.md). Use semantic versions: minor for added features, patch for fixes, major for breaking changes. Increase the Android build number for each release and preserve published version history. Update the changelog with each milestone commit and push to `main`. The owner tries the change during normal use; correct problems before adding another layer to that workflow. Closely related small slices can share a build. One slice is not a promise of one day or one conversation of development.
 
 Research is on `main` as `acd8c40`; the accepted shell baseline is committed and pushed as `87ddb44`. Commit and push after each verified milestone. Use smaller, cheaper agents for bounded tasks, integrate their changes, and report progress regularly. Reuse working code and remove obsolete implementations. This is a new product: do not add backward-compatibility layers.
 
@@ -129,13 +129,18 @@ For each active slice, append a short record here or link its implementation not
 | D11 | Partial; live QA pending | Identifiable side-question cards and out-of-order completion by task ID | Scoped command/delivery tests | `/bg` and task recovery still need verified server contracts |
 | D12 | Partial | Wide tables, selectable streamed/nested fenced code and larger copy/wrap controls | Narrow-phone checks at 100%/200% text size | Rich diagrams still render as source fallback |
 | D13 | Partial | Tap-to-preview zoomable web images and external-link fallback | Navigation/error widget checks | Additional media and backend file previews remain |
-| D14 | Planned | Execution-output refinement not started | Existing tool display retained | Verify server todos/reasoning payloads |
+| D14 | Implemented; live QA pending | Expandable live tools with args/results/server duration, revisioned server todos, live/historical reasoning | Event and widget tests; existing stored-tool display retained | Only server-exposed reasoning/timing can be shown |
 | D15 | Implemented; live QA pending | Thin server-reported context fuse; live usage and unknown/estimated states | Model/widget tests and stale-response/profile isolation checks | Requires context breakdown or usage fields from gateway |
-| D16-D30 | Planned | Not started | None | Check relevant deployed contracts at slice start |
+| D16 | Initial flow implemented; live QA pending | Per-chat transcript-derived Outputs; scoped authenticated bytes into Android save/share | Extraction/scoping/size-limit and actual-byte delivery tests | Candidate paths are heuristic; live relative-path resolution and endpoint support unverified |
+| D17 | Partial | Authenticated/embedded image preview, text/code preview and binary save/share | Preview navigation/failure checks | Interactive HTML and specialized media/PDF views remain |
+| D18 | Implemented; live QA pending | Find in selected chat with expandable matches, accurate counts and retry; existing pagination/search/Latest retained | Saved-page, Find and existing transcript/search tests | Complete-history loader has explicit size limits |
+| D19-D30 | Planned | Not started | None | Check relevant deployed contracts at slice start |
 
 D05/D07/D08/D09 delivery on 2026-09-12: analyzer clean, full suite 921 passed and four opt-in skips. Signed Personal 2.1.4 / 21472 passed package/certificate checks, installed in place on the owner's phone at the requested wireless endpoint, and launched successfully. See [supervision and queue notes](SUPERVISION_AND_QUEUES.md). Phone evidence is installed version/process metadata; live gateway feature checks remain as listed above.
 
 D10-D13/D15 batch on 2026-09-12: analyzer clean, full suite 944 passed and four opt-in skips. Signed Personal 2.1.5 / 21482 passed package/certificate checks, installed in place wirelessly on the owner's phone, and launched successfully. See [conversation actions and reading](CONVERSATION_ACTIONS_AND_READING.md) for delivered portions and remaining diagram/media/version/background gaps. No live gateway feature verification is implied by package/process checks.
+
+D14/D16-D18 batch on 2026-09-12: analyzer clean, full suite 970 passed and four opt-in skips; release-identity checks passed after the semantic version adjustment. Signed Personal 2.2.0 / 21492 passed package/certificate checks, installed in place wirelessly on the owner's phone, and launched successfully. See [execution, Find and Outputs](EXECUTION_FIND_AND_OUTPUTS.md) for the delivered behavior and limits. Phone checks cover package/process metadata, not live gateway feature verification. The [changelog](../CHANGELOG.md) now backfills the prior milestones and records this release; previously published version numbers are preserved.
 
 The feature ledger in PRODUCT_PLAN.md remains the coverage checklist. Mark a feature Done only after all of its selected portions are delivered; Q10, Q03, C08 and notifications deliberately span multiple slices. R18 error clarity, B15 ownership and M08 server authority apply throughout.
 

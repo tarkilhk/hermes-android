@@ -1,17 +1,22 @@
 import 'package:flutter/material.dart';
+import 'dart:typed_data';
 
 /// Opened only after tapping an image in a conversation.
 class ChatImagePreview extends StatelessWidget {
-  final Uri uri;
+  final Uri? uri;
+  final Uint8List? bytes;
   final String title;
   final VoidCallback onOpenExternal;
+  final String actionLabel;
 
   const ChatImagePreview({
     super.key,
-    required this.uri,
+    this.uri,
+    this.bytes,
     required this.title,
     required this.onOpenExternal,
-  });
+    this.actionLabel = 'Open in browser',
+  }) : assert((uri == null) != (bytes == null));
 
   @override
   Widget build(BuildContext context) => Scaffold(
@@ -19,7 +24,7 @@ class ChatImagePreview extends StatelessWidget {
       title: Text(title, maxLines: 1, overflow: TextOverflow.ellipsis),
       actions: [
         IconButton(
-          tooltip: 'Open in browser',
+          tooltip: actionLabel,
           icon: const Icon(Icons.open_in_new),
           onPressed: onOpenExternal,
         ),
@@ -29,8 +34,10 @@ class ChatImagePreview extends StatelessWidget {
       child: InteractiveViewer(
         minScale: 0.5,
         maxScale: 5,
-        child: Image.network(
-          uri.toString(),
+        child: Image(
+          image: bytes == null
+              ? NetworkImage(uri.toString())
+              : MemoryImage(bytes!),
           semanticLabel: title,
           fit: BoxFit.contain,
           loadingBuilder: (context, child, progress) => progress == null
@@ -41,14 +48,12 @@ class ChatImagePreview extends StatelessWidget {
             child: Column(
               mainAxisSize: MainAxisSize.min,
               children: [
-                const Text(
-                  'This image could not be previewed. Try opening it in your browser.',
-                ),
+                const Text('This image could not be previewed.'),
                 const SizedBox(height: 12),
                 OutlinedButton.icon(
                   onPressed: onOpenExternal,
                   icon: const Icon(Icons.open_in_new),
-                  label: const Text('Open in browser'),
+                  label: Text(actionLabel),
                 ),
               ],
             ),

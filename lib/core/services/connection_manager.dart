@@ -3,6 +3,7 @@
 import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
+import 'dart:typed_data';
 import 'package:flutter_secure_storage/flutter_secure_storage.dart';
 import 'package:http/http.dart' as http;
 import 'package:http/io_client.dart' show IOClient;
@@ -89,6 +90,15 @@ class DashboardHttpException implements Exception {
 
   @override
   String toString() => 'HTTP $statusCode';
+}
+
+class DashboardResponseTooLargeException implements Exception {
+  final int maxBytes;
+
+  const DashboardResponseTooLargeException(this.maxBytes);
+
+  @override
+  String toString() => 'Response exceeds the $maxBytes byte limit';
 }
 
 class _ConnectionCredentials {
@@ -1276,23 +1286,51 @@ class DashboardClient {
   Future<http.Response> apiGetBytes(
     String endpoint, {
     Map<String, String>? queryParameters,
+    int? maxBytes,
     bool retried = false,
   }) async {
     final headers = await _authHeaders();
     final uri = Uri.parse(
       '$_baseUrl/api/$endpoint',
     ).replace(queryParameters: queryParameters);
-    final res = await _http.get(uri, headers: headers);
+    final request = http.Request('GET', uri)..headers.addAll(headers);
+    final res = await _http.send(request);
     if (res.statusCode == 401 && !retried) {
+      await res.stream.drain<void>();
       _resetAuth();
       return apiGetBytes(
         endpoint,
         queryParameters: queryParameters,
+        maxBytes: maxBytes,
         retried: true,
       );
     }
-    if (res.statusCode != 200) throw Exception('HTTP ${res.statusCode}');
-    return res;
+    if (res.statusCode != 200) {
+      await res.stream.drain<void>();
+      throw DashboardHttpException(res.statusCode, endpoint);
+    }
+    if (maxBytes != null &&
+        res.contentLength != null &&
+        res.contentLength! > maxBytes) {
+      await res.stream.listen(null).cancel();
+      throw DashboardResponseTooLargeException(maxBytes);
+    }
+    final body = BytesBuilder(copy: false);
+    var received = 0;
+    await for (final chunk in res.stream) {
+      received += chunk.length;
+      if (maxBytes != null && received > maxBytes) {
+        throw DashboardResponseTooLargeException(maxBytes);
+      }
+      body.add(chunk);
+    }
+    return http.Response.bytes(
+      body.takeBytes(),
+      res.statusCode,
+      headers: res.headers,
+      request: request,
+      reasonPhrase: res.reasonPhrase,
+    );
   }
 
   Future<List<dynamic>> apiGetList(

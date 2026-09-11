@@ -42,6 +42,20 @@ void main() {
       expect(activity!.phase, GatewayToolActivityPhase.completed);
       expect(activity.detail, 'Found the official activity contract');
       expect(activity.statusLabel, 'Completed in 420 ms');
+      expect(activity.result, 'Large result is intentionally not surfaced');
+    });
+
+    test('bounds raw arguments and result payloads', () {
+      final activity = GatewayToolActivity.fromGatewayEvent('tool.complete', {
+        'tool_id': 'tool-1',
+        'name': 'read_file',
+        'args': {'path': '/tmp/file'},
+        'result': 'x' * 13000,
+      })!;
+
+      expect(activity.arguments, '{"path":"/tmp/file"}');
+      expect(activity.result, hasLength(12000));
+      expect(activity.result, endsWith('…'));
     });
 
     test('uses the error as the safe failure summary', () {
@@ -55,6 +69,17 @@ void main() {
       expect(activity!.phase, GatewayToolActivityPhase.failed);
       expect(activity.detail, 'Synthetic command failed');
       expect(activity.statusLabel, 'Failed');
+    });
+
+    test('treats a boolean error marker as failure', () {
+      final activity = GatewayToolActivity.fromGatewayEvent('tool.complete', {
+        'tool_id': 'tool-2',
+        'name': 'browser',
+        'error': true,
+      })!;
+
+      expect(activity.phase, GatewayToolActivityPhase.failed);
+      expect(activity.detail, 'Tool failed');
     });
 
     test('keeps compatibility with legacy REST progress fields', () {

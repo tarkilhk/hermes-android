@@ -6,6 +6,18 @@ import 'package:http/testing.dart';
 import 'package:hermes_android/core/services/connection_manager.dart';
 import 'package:hermes_android/core/services/remote_files_client.dart';
 
+class _StreamingClient extends http.BaseClient {
+  @override
+  Future<http.StreamedResponse> send(http.BaseRequest request) async =>
+      http.StreamedResponse(
+        Stream<List<int>>.fromIterable([
+          [1, 2],
+          [3],
+        ]),
+        200,
+      );
+}
+
 void main() {
   DashboardClient dashboardWith(
     Future<http.Response> Function(http.Request request) handler,
@@ -65,6 +77,8 @@ void main() {
     final dashboard = dashboardWith((request) async {
       expect(request.url.path, '/api/fs/read-text');
       expect(request.url.queryParameters['path'], '/srv/project/main.dart');
+      expect(request.url.queryParameters['profile'], 'writer');
+      expect(request.url.queryParameters['session_id'], 'chat-7');
       return http.Response(
         jsonEncode({
           'path': '/srv/project/main.dart',
@@ -80,7 +94,11 @@ void main() {
     });
     final client = RemoteFilesClient(dashboard: dashboard);
 
-    final preview = await client.readText('/srv/project/main.dart');
+    final preview = await client.readText(
+      '/srv/project/main.dart',
+      profileName: 'writer',
+      storedSessionId: 'chat-7',
+    );
 
     expect(preview.text, 'void main() {}');
     expect(preview.language, 'dart');
@@ -92,6 +110,8 @@ void main() {
     final dashboard = dashboardWith((request) async {
       expect(request.url.path, '/api/fs/download');
       expect(request.url.queryParameters['path'], '/srv/project/report.pdf');
+      expect(request.url.queryParameters['profile'], 'writer');
+      expect(request.url.queryParameters['session_id'], 'chat-7');
       return http.Response.bytes(
         [1, 2, 3],
         200,
@@ -100,10 +120,103 @@ void main() {
     });
     final client = RemoteFilesClient(dashboard: dashboard);
 
-    final download = await client.download('/srv/project/report.pdf');
+    final download = await client.download(
+      '/srv/project/report.pdf',
+      profileName: 'writer',
+      storedSessionId: 'chat-7',
+    );
 
     expect(download.filename, 'report.pdf');
     expect(download.bytes, [1, 2, 3]);
+    client.close();
+  });
+
+  test('download rejects a declared body above the mobile limit', () async {
+    final dashboard = dashboardWith(
+      (_) async => http.Response.bytes([1, 2, 3], 200),
+    );
+    final client = RemoteFilesClient(
+      dashboard: dashboard,
+      maxDownloadBytes: 2,
+    );
+
+    await expectLater(
+      client.download(
+        '/srv/project/large.bin',
+        profileName: 'writer',
+        storedSessionId: 'chat-7',
+      ),
+      throwsA(isA<DashboardResponseTooLargeException>()),
+    );
+    client.close();
+  });
+
+  test('download also bounds a chunked body without a declared size', () async {
+    final dashboard = DashboardClient(
+      host: 'hermes.local',
+      port: 9119,
+      proxied: true,
+      httpClient: _StreamingClient(),
+    );
+    final client = RemoteFilesClient(
+      dashboard: dashboard,
+      maxDownloadBytes: 2,
+    );
+
+    await expectLater(
+      client.download(
+        '/srv/project/chunked.bin',
+        profileName: 'writer',
+        storedSessionId: 'chat-7',
+      ),
+      throwsA(isA<DashboardResponseTooLargeException>()),
+    );
+    client.close();
+  });
+
+  test('download reduces encoded server filenames to a basename', () async {
+    final dashboard = dashboardWith(
+      (_) async => http.Response.bytes(
+        [1],
+        200,
+        headers: {
+          'content-disposition':
+              "attachment; filename*=UTF-8''..%2Fprivate%2Freport%20one.pdf",
+        },
+      ),
+    );
+    final client = RemoteFilesClient(dashboard: dashboard);
+
+    final download = await client.download(
+      '/srv/private/internal-name',
+      profileName: 'writer',
+      storedSessionId: 'chat-7',
+    );
+
+    expect(download.filename, 'report one.pdf');
+    client.close();
+  });
+
+  test('file reads require both chat owner fields', () async {
+    final dashboard = dashboardWith((_) async => http.Response('{}', 200));
+    final client = RemoteFilesClient(dashboard: dashboard);
+
+    await expectLater(
+      client.readText(
+        '/srv/project/report.md',
+        profileName: '',
+        storedSessionId: 'chat-7',
+      ),
+      throwsArgumentError,
+    );
+    await expectLater(
+      client.download(
+        '/srv/project/report.md',
+        profileName: 'writer',
+        storedSessionId: '',
+      ),
+      throwsArgumentError,
+    );
     client.close();
   });
 }

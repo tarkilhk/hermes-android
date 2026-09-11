@@ -2,6 +2,7 @@
 // ignore_for_file: prefer_initializing_formals
 
 import 'dart:async';
+import 'dart:convert';
 
 import '../models/session_visibility.dart';
 import '../models/hermes_profile.dart';
@@ -380,6 +381,45 @@ class ProfileGateway {
       records(
         (await call('session.history', {'session_id': runtimeId}))['messages'],
       );
+
+  /// Reads one chat's saved transcript for Find and Outputs, without changing
+  /// the visible history page or creating a second durable history store.
+  Future<List<Map<String, dynamic>>> savedHistory(String sessionId) async {
+    const pageSize = 500;
+    final rows = <Map<String, dynamic>>[];
+    final seen = <int>{};
+    var size = 0;
+    for (var offset = 0; offset < 10000; offset += pageSize) {
+      final response =
+          await read('sessions/${Uri.encodeComponent(sessionId)}/messages', {
+            'limit': '$pageSize',
+            'offset': '$offset',
+            'order': 'oldest',
+            'include_compacted': 'true',
+          });
+      if (response['session_id'] != sessionId ||
+          response['messages'] is! List) {
+        throw const FormatException(
+          'The server returned a different chat history.',
+        );
+      }
+      final page = records(response['messages']);
+      if (page.length != (response['messages'] as List).length ||
+          page.length > pageSize ||
+          page.any((row) => row['id'] is! int || !seen.add(row['id'] as int))) {
+        throw const FormatException(
+          'The server returned an invalid history page.',
+        );
+      }
+      size += jsonEncode(page).length;
+      if (size > 32 * 1024 * 1024) break;
+      rows.addAll(page);
+      if (page.length < pageSize) return rows;
+    }
+    throw StateError(
+      'This chat is too large to load here. Use the paginated conversation view.',
+    );
+  }
 
   Map<String, dynamic> _ownedSession(Map<String, dynamic> result) {
     if (result['info'] is! Map ||

@@ -30,6 +30,7 @@ class Host {
   int connectCalls = 0;
   int resumeFailures = 0;
   Map<String, dynamic>? inflight;
+  Map<String, dynamic>? todoState;
   Completer<void>? projectDelay;
   bool wrongProjectOwner = false;
   Map<String, dynamic> clarifyResult = {'status': 'ok'};
@@ -141,6 +142,7 @@ class Host {
             'messages': <Map<String, dynamic>>[],
             'running': method == 'session.resume' && running,
             'inflight': inflight,
+            'todo_state': todoState,
             'info': {'profile_name': name},
           };
         }

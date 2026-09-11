@@ -1,3 +1,5 @@
+import 'dart:convert';
+
 enum GatewayToolActivityPhase {
   running,
   generating,
@@ -9,6 +11,7 @@ enum GatewayToolActivityPhase {
 class GatewayToolActivity {
   static const _maxNameLength = 120;
   static const _maxDetailLength = 500;
+  static const _maxPayloadLength = 12000;
 
   final String? toolId;
   final String name;
@@ -16,6 +19,8 @@ class GatewayToolActivity {
   final String? detail;
   final double? durationSeconds;
   final String? emoji;
+  final String? arguments;
+  final String? result;
 
   const GatewayToolActivity({
     required this.name,
@@ -24,6 +29,8 @@ class GatewayToolActivity {
     this.detail,
     this.durationSeconds,
     this.emoji,
+    this.arguments,
+    this.result,
   });
 
   bool get isTerminal =>
@@ -72,8 +79,13 @@ class GatewayToolActivity {
     final rawName = _firstText(data, const ['name', 'tool', 'label']) ?? 'tool';
     final name = _normalizeText(rawName, _maxNameLength) ?? 'tool';
     final durationSeconds = _duration(data['duration_s']);
+    final rawError = data['error'];
     final error = _normalizeText(
-      _firstText(data, const ['error']),
+      rawError is String
+          ? rawError
+          : rawError == true
+          ? 'Tool failed'
+          : null,
       _maxDetailLength,
     );
 
@@ -105,6 +117,8 @@ class GatewayToolActivity {
       detail: detail,
       durationSeconds: durationSeconds,
       emoji: _normalizeText(_firstText(data, const ['emoji']), 8),
+      arguments: _payload(data['args'] ?? data['arguments'] ?? data['input']),
+      result: _payload(data['result'] ?? data['result_text']),
     );
   }
 
@@ -116,6 +130,8 @@ class GatewayToolActivity {
       detail: update.detail ?? detail,
       durationSeconds: update.durationSeconds ?? durationSeconds,
       emoji: update.emoji ?? emoji,
+      arguments: update.arguments ?? arguments,
+      result: update.result ?? result,
     );
   }
 
@@ -178,6 +194,21 @@ class GatewayToolActivity {
       return value.toDouble();
     }
     return null;
+  }
+
+  static String? _payload(dynamic value) {
+    if (value == null) return null;
+    String text;
+    try {
+      text = value is String ? value : jsonEncode(value);
+    } catch (_) {
+      text = value.toString();
+    }
+    final safe = text.replaceAll('\u0000', '').trim();
+    if (safe.isEmpty) return null;
+    return safe.length <= _maxPayloadLength
+        ? safe
+        : '${safe.substring(0, _maxPayloadLength - 1)}…';
   }
 
   static String _formatDuration(double value) {

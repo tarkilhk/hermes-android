@@ -12,14 +12,17 @@ import '../models/gateway_clarify.dart';
 import '../models/gateway_approval.dart';
 import '../widgets/gateway_sensitive_prompt_panel.dart';
 import '../widgets/gateway_clarify_dialog.dart';
+import '../widgets/chat_find_sheet.dart';
 import '../theme/profile_workspace_theme.dart';
 import '../widgets/profile_chat_indicator.dart';
 import '../widgets/chat_intelligence_picker.dart';
 import '../widgets/context_fuse.dart';
+import '../widgets/profile_execution_activity.dart';
 import '../widgets/slash_command_suggestions.dart';
 import '../widgets/side_question_delivery_card.dart';
 import 'profile_workspace_browser.dart';
 import 'profile_transcript.dart';
+import 'chat_outputs_screen.dart';
 import '../widgets/app_drawer.dart';
 import 'app_settings_content.dart';
 import 'workspace_overview_content.dart';
@@ -199,10 +202,31 @@ class _ProfileWorkspaceScreenState extends State<ProfileWorkspaceScreen>
                   onPressed: () => Scaffold.of(context).openDrawer(),
                 ),
               ),
-              IconButton(
-                tooltip: 'Refresh workspace',
-                icon: const Icon(Icons.refresh),
-                onPressed: () => _run(controller.refresh),
+              PopupMenuButton<String>(
+                tooltip: 'Chat actions',
+                icon: const Icon(Icons.more_vert),
+                onSelected: (action) {
+                  if (action == 'refresh') {
+                    unawaited(_run(controller.refresh));
+                  } else if (action == 'find') {
+                    unawaited(
+                      showChatFindSheet(
+                        context,
+                        loadHistory: () => controller.savedHistory(chat),
+                      ),
+                    );
+                  } else if (action == 'outputs') {
+                    unawaited(_run(() => _openOutputs(chat)));
+                  }
+                },
+                itemBuilder: (_) => const [
+                  PopupMenuItem(value: 'outputs', child: Text('Outputs')),
+                  PopupMenuItem(value: 'find', child: Text('Find in chat')),
+                  PopupMenuItem(
+                    value: 'refresh',
+                    child: Text('Refresh workspace'),
+                  ),
+                ],
               ),
             ],
           ),
@@ -226,6 +250,33 @@ class _ProfileWorkspaceScreenState extends State<ProfileWorkspaceScreen>
       );
     },
   );
+
+  Future<void> _openOutputs(ProfileChat chat) async {
+    final files = controller.outputFiles(chat);
+    final owner = chat.key;
+    try {
+      await Navigator.of(context).push(
+        MaterialPageRoute<void>(
+          builder: (_) => ChatOutputsScreen(
+            chatTitle: chat.title,
+            loadHistory: () => controller.savedHistory(chat),
+            download: (path) => files.download(
+              path,
+              profileName: owner.workspace.profileName,
+              storedSessionId: owner.sessionId,
+            ),
+            readText: (path) => files.readText(
+              path,
+              profileName: owner.workspace.profileName,
+              storedSessionId: owner.sessionId,
+            ),
+          ),
+        ),
+      );
+    } finally {
+      files.close();
+    }
+  }
 
   Widget _questionPanel(ProfileChat chat) {
     final payload = chat.clarification!;
@@ -253,6 +304,7 @@ class _ProfileWorkspaceScreenState extends State<ProfileWorkspaceScreen>
 
   Widget _answer(ProfileChat chat, Map<String, dynamic> message) {
     if (isHiddenAnswerMessage(message)) return const SizedBox.shrink();
+    final reasoning = profileMessageReasoning(message);
     final savedPrompt =
         isAnswerPrompt(message) && answerMessageId(message) != null;
     final savedAnswer =
@@ -270,6 +322,7 @@ class _ProfileWorkspaceScreenState extends State<ProfileWorkspaceScreen>
     return Column(
       crossAxisAlignment: CrossAxisAlignment.stretch,
       children: [
+        if (reasoning.isNotEmpty) ProfileReasoningDisclosure(text: reasoning),
         if (savedPrompt)
           Stack(
             children: [
@@ -466,7 +519,8 @@ class _ProfileWorkspaceScreenState extends State<ProfileWorkspaceScreen>
                 message: {'role': 'assistant', 'content': chat.streaming},
                 streaming: true,
               ),
-            if (chat.tool != null)
+            if (chat.tool != null &&
+                !chat.toolActivities.any((activity) => !activity.isTerminal))
               ExpansionTile(
                 minTileHeight: 48,
                 shape: const Border(),
@@ -478,6 +532,14 @@ class _ProfileWorkspaceScreenState extends State<ProfileWorkspaceScreen>
                   overflow: TextOverflow.ellipsis,
                 ),
                 children: const [Text('Running on the connected Hermes host')],
+              ),
+            if (chat.toolActivities.isNotEmpty)
+              ProfileLiveToolActivity(activities: chat.toolActivities),
+            if (chat.todos.isNotEmpty) ProfileTodoPanel(todos: chat.todos),
+            if (chat.reasoning.isNotEmpty)
+              ProfileReasoningDisclosure(
+                text: chat.reasoning,
+                running: chat.busy,
               ),
             if (chat.error != null)
               Text(
