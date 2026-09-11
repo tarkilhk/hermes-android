@@ -77,6 +77,7 @@ class AndroidShareIntentService {
       ValueNotifier<AndroidSharePayload?>(null);
 
   bool _initialized = false;
+  final _waitingShares = <AndroidSharePayload>[];
 
   Future<void> initialize() async {
     if (_initialized) return;
@@ -89,10 +90,12 @@ class AndroidShareIntentService {
     }
   }
 
-  AndroidSharePayload? takePendingShare() {
-    final value = pendingShare.value;
-    pendingShare.value = null;
-    return value;
+  bool acknowledgeShare(AndroidSharePayload payload) {
+    if (!identical(pendingShare.value, payload)) return false;
+    pendingShare.value = _waitingShares.isEmpty
+        ? null
+        : _waitingShares.removeAt(0);
+    return true;
   }
 
   Future<void> _handleMethodCall(MethodCall call) async {
@@ -104,7 +107,11 @@ class AndroidShareIntentService {
   void _publish(Object? raw) {
     final payload = AndroidSharePayload.fromPlatform(raw);
     if (payload.isEmpty) return;
-    pendingShare.value = payload;
+    if (pendingShare.value == null) {
+      pendingShare.value = payload;
+    } else {
+      _waitingShares.add(payload);
+    }
   }
 
   void dispose() {

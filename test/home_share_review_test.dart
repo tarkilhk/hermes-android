@@ -1,0 +1,174 @@
+import 'package:flutter/material.dart';
+import 'package:flutter_test/flutter_test.dart';
+import 'package:hermes_android/core/services/android_share_intent_service.dart';
+import 'package:hermes_android/core/services/connection_manager.dart';
+import 'package:hermes_android/core/services/profile_gateway.dart';
+import 'package:hermes_android/core/services/profile_workspace_controller.dart';
+import 'package:hermes_android/core/services/profiles_repository.dart';
+import 'package:hermes_android/core/models/hermes_profile.dart';
+import 'package:hermes_android/core/screens/profile_workspace_screen.dart';
+import 'package:hermes_android/main.dart';
+import 'package:shared_preferences/shared_preferences.dart';
+
+class _Credentials implements CredentialStore {
+  final values = <String, String>{};
+
+  @override
+  Future<void> delete(String key) async {
+    values.remove(key);
+  }
+
+  @override
+  Future<String?> read(String key) async => values[key];
+
+  @override
+  String? readCached(String key) => values[key];
+
+  @override
+  Future<void> write(String key, String value) async => values[key] = value;
+}
+
+Future<ConnectionManager> _manager() async {
+  SharedPreferences.setMockInitialValues({});
+  final prefs = await SharedPreferences.getInstance();
+  return ConnectionManager.create(prefs, credentialStore: _Credentials());
+}
+
+ProfileWorkspaceController _controller(
+  SavedConnection connection,
+  SharedPreferences prefs,
+) {
+  final controller = ProfileWorkspaceController(
+    connection: connection,
+    connectionIdentity: 'home-share-${connection.id}',
+    preferences: prefs,
+    gatewayFactory: (scope) => ProfileGateway(
+      scope: scope,
+      discover: () async => const ProfileDiscovery(
+        profiles: [HermesProfile(name: 'default')],
+        currentName: 'default',
+        activeName: 'default',
+      ),
+      get: (_, query) async => {
+        'sessions': <Map<String, dynamic>>[],
+        'offset': int.parse(query['offset']!),
+        'limit': int.parse(query['limit']!),
+        'total': 0,
+      },
+      rpc: (method, _) async => method == 'session.create'
+          ? {
+              'session_id': 'runtime-${connection.id}',
+              'stored_session_id': 'stored-${connection.id}',
+              'info': {'profile_name': 'default'},
+            }
+          : {'projects': <Map<String, dynamic>>[]},
+    ),
+  );
+  return controller;
+}
+
+Future<void> _pumpHome(
+  WidgetTester tester,
+  ConnectionManager manager,
+  AndroidShareIntentService shareIntents,
+) async {
+  await tester.pumpWidget(
+    MaterialApp(
+      home: HomeScreen(
+        connManager: manager,
+        shareIntents: shareIntents,
+        profileController: (connection) =>
+            _controller(connection, manager.prefs),
+      ),
+    ),
+  );
+  await tester.pump();
+}
+
+void main() {
+  TestWidgetsFlutterBinding.ensureInitialized();
+
+  testWidgets(
+    'share chooses its saved connection and acknowledges only after Add to draft',
+    (tester) async {
+      tester.view.physicalSize = const Size(800, 1200);
+      tester.view.devicePixelRatio = 1;
+      addTearDown(tester.view.reset);
+      final manager = await _manager();
+      await manager.saveConnection('Work', 'work.local', 8642, 'work-key');
+      await manager.saveConnection('Home', 'home.local', 8642, 'home-key');
+      final shares = AndroidShareIntentService();
+      addTearDown(shares.dispose);
+      final payload = const AndroidSharePayload(
+        text: 'Shared from another app',
+      );
+
+      await _pumpHome(tester, manager, shares);
+      shares.pendingShare.value = payload;
+      await tester.pump();
+
+      expect(
+        find.text('Choose a connection for this shared draft'),
+        findsOneWidget,
+      );
+      expect(shares.pendingShare.value, same(payload));
+      final workChoice = find
+          .ancestor(of: find.text('Work'), matching: find.byType(ListTile))
+          .last;
+      tester.widget<ListTile>(workChoice).onTap!();
+      await tester.pumpAndSettle();
+      await tester.pumpAndSettle();
+
+      expect(find.text('Add shared content'), findsOneWidget);
+      expect(find.text('Connection: Work'), findsOneWidget);
+      expect(shares.pendingShare.value, same(payload));
+      expect(find.byType(ProfileWorkspaceScreen), findsNothing);
+
+      await tester.tap(find.byKey(const Key('share-add-to-draft')));
+      await tester.pumpAndSettle();
+
+      expect(find.byType(ProfileWorkspaceScreen), findsOneWidget);
+      expect(shares.pendingShare.value, isNull);
+      expect(
+        tester
+            .widget<TextField>(
+              find.byKey(const Key('profile-message-composer')),
+            )
+            .controller!
+            .text,
+        payload.text,
+      );
+    },
+  );
+
+  testWidgets(
+    'cancel keeps Home review controls and Discard clears the share',
+    (tester) async {
+      final manager = await _manager();
+      await manager.saveConnection('Work', 'work.local', 8642, 'work-key');
+      final shares = AndroidShareIntentService();
+      addTearDown(shares.dispose);
+      final payload = const AndroidSharePayload(
+        text: 'Keep pending until reviewed',
+      );
+
+      await _pumpHome(tester, manager, shares);
+      shares.pendingShare.value = payload;
+      await tester.pump();
+      await tester.pumpAndSettle();
+      expect(find.text('Add shared content'), findsOneWidget);
+
+      await tester.pageBack();
+      await tester.pumpAndSettle();
+      expect(find.text('Shared draft ready'), findsOneWidget);
+      expect(find.text('Review'), findsOneWidget);
+      expect(find.text('Discard'), findsOneWidget);
+      expect(shares.pendingShare.value, same(payload));
+
+      await tester.tap(find.text('Discard'));
+      await tester.pump();
+      expect(shares.pendingShare.value, isNull);
+      expect(find.text('Shared draft ready'), findsNothing);
+    },
+  );
+}

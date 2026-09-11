@@ -11,6 +11,7 @@ import 'core/services/config_backup_service.dart';
 import 'core/services/connection_manager.dart';
 import 'core/services/text_size_preference.dart';
 import 'core/screens/profile_workspace_screen.dart';
+import 'core/screens/shared_draft_review.dart';
 import 'core/services/profile_workspace_controller.dart';
 import 'core/services/profile_connection_identity.dart';
 import 'core/services/profile_workspace_registry.dart';
@@ -311,6 +312,7 @@ class HomeScreenState extends State<HomeScreen> {
   final _scaffoldKey = GlobalKey<ScaffoldState>();
   bool _autoNavigated = false;
   bool _opening = false;
+  bool _reviewingShare = false;
   AppDestination _destination = AppDestination.connections;
   static const String _lastConnectionKey = 'last_connection_id';
 
@@ -392,11 +394,64 @@ class HomeScreenState extends State<HomeScreen> {
   }
 
   void _onSharedText() {
-    if (!mounted || widget.shareIntents?.pendingShare.value == null) return;
-    final connection = _connectionForExternalAction();
-    if (connection == null) return;
+    if (!mounted) return;
+    setState(() {});
+    if (widget.shareIntents?.pendingShare.value == null ||
+        _reviewingShare ||
+        _connections.isEmpty) {
+      return;
+    }
     _autoNavigated = true;
-    _navigateToWorkspace(connection);
+    unawaited(_reviewIncomingShare());
+  }
+
+  Future<void> _reviewIncomingShare() async {
+    final payload = widget.shareIntents?.pendingShare.value;
+    if (payload == null || _reviewingShare) return;
+    _reviewingShare = true;
+    try {
+      final connection = _connections.length == 1
+          ? _connections.single
+          : await showModalBottomSheet<SavedConnection>(
+              context: context,
+              showDragHandle: true,
+              builder: (context) => SafeArea(
+                child: ListView(
+                  shrinkWrap: true,
+                  children: [
+                    const ListTile(
+                      title: Text('Choose a connection for this shared draft'),
+                    ),
+                    for (final connection in _connections)
+                      ListTile(
+                        title: Text(connection.label),
+                        onTap: () => Navigator.pop(context, connection),
+                      ),
+                  ],
+                ),
+              ),
+            );
+      if (connection != null && mounted) {
+        await _navigateToWorkspace(connection, sharedPayload: payload);
+      }
+    } catch (_) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text(
+              'The shared draft could not be opened. It is still available to review.',
+            ),
+          ),
+        );
+      }
+    } finally {
+      _reviewingShare = false;
+      if (mounted) {
+        setState(() {});
+        final next = widget.shareIntents?.pendingShare.value;
+        if (next != null && !identical(next, payload)) _onSharedText();
+      }
+    }
   }
 
   void _onQuickChat() {
@@ -444,8 +499,9 @@ class HomeScreenState extends State<HomeScreen> {
   Future<void> _navigateToWorkspace(
     SavedConnection conn, {
     AppDestination destination = AppDestination.chats,
+    AndroidSharePayload? sharedPayload,
   }) async {
-    if (_opening) return;
+    if (_opening || (_reviewingShare && sharedPayload == null)) return;
     setState(() => _opening = true);
     final ProfileWorkspaceController controller;
     try {
@@ -466,7 +522,22 @@ class HomeScreenState extends State<HomeScreen> {
     }
     if (!mounted) return;
     widget.connManager.prefs.setString(_lastConnectionKey, conn.id);
-    final sharedPayload = widget.shareIntents?.takePendingShare();
+    if (sharedPayload != null) {
+      if (controller.discovery == null) await controller.initialize();
+      final profile = controller.current?.scope.profileName;
+      if (profile == null) {
+        throw StateError('No profile is available for this shared draft.');
+      }
+      await controller.navigateProfile(profile);
+      if (!mounted) return;
+      final applied = await reviewSharedDraft(
+        context,
+        controller,
+        sharedPayload,
+      );
+      if (!mounted || !applied) return;
+      widget.shareIntents?.acknowledgeShare(sharedPayload);
+    }
     final initialQuickChat =
         widget.launchIntents?.takePendingQuickChat() == true &&
         sharedPayload == null;
@@ -486,7 +557,6 @@ class HomeScreenState extends State<HomeScreen> {
             Navigator.of(context).popUntil((route) => route.isFirst);
           },
           onPreferencesChanged: widget.onPreferencesChanged,
-          initialSharedPayload: sharedPayload,
           initialQuickChat: initialQuickChat,
         ),
       ),
@@ -666,6 +736,43 @@ class HomeScreenState extends State<HomeScreen> {
             : Column(
                 children: [
                   if (_opening) const LinearProgressIndicator(),
+                  if (widget.shareIntents?.pendingShare.value != null)
+                    ListTile(
+                      title: const Text('Shared draft ready'),
+                      subtitle: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          const Text('Choose where to add it before sending.'),
+                          Wrap(
+                            children: [
+                              TextButton(
+                                onPressed:
+                                    _reviewingShare || _connections.isEmpty
+                                    ? null
+                                    : _onSharedText,
+                                child: const Text('Review'),
+                              ),
+                              TextButton(
+                                onPressed: _reviewingShare
+                                    ? null
+                                    : () {
+                                        final pending = widget
+                                            .shareIntents
+                                            ?.pendingShare
+                                            .value;
+                                        if (pending != null) {
+                                          widget.shareIntents?.acknowledgeShare(
+                                            pending,
+                                          );
+                                        }
+                                      },
+                                child: const Text('Discard'),
+                              ),
+                            ],
+                          ),
+                        ],
+                      ),
+                    ),
                   Expanded(
                     child: _connections.isEmpty
                         ? ListView(

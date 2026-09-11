@@ -26,6 +26,7 @@ import 'ws_client.dart';
 import '../widgets/chat_intelligence_picker.dart';
 import '../models/gateway_approval.dart';
 import '../models/gateway_sensitive_prompt.dart';
+import 'android_share_intent_service.dart';
 
 class ProfileSessionKey {
   final WorkspaceScope workspace;
@@ -1418,6 +1419,84 @@ class ProfileWorkspaceController extends ChangeNotifier {
     chat.draftSubmissionUncertain = false;
     _changed();
     return _persistDraft(chat);
+  }
+
+  Future<void> stageSharedDraft(
+    ProfileChat chat,
+    AndroidSharePayload payload,
+  ) async {
+    _owned(chat);
+    if (chat.busy) throw StateError('Wait for the current turn');
+    final sharedText = payload.text?.trim() ?? '';
+    if (sharedText.isEmpty && payload.files.isEmpty) return;
+
+    final originalText = chat.draft;
+    final originalAttachments = List<AttachmentDraft>.of(chat.attachments);
+    final originalQueue = List<String>.of(chat.queuedPrompts);
+    final originalQueuePaused = chat.queuePaused;
+    final originalUncertain = chat.draftSubmissionUncertain;
+    final originalStatus = chat.status;
+    final staged = <AttachmentDraft>[];
+    try {
+      for (final file in payload.files) {
+        final combined = [...originalAttachments, ...staged];
+        final draft = file.isImage
+            ? await attachments.prepareImage(
+                sourcePath: file.path,
+                displayName: file.name,
+                existingDrafts: combined,
+                mode: AttachmentDraftMode.remoteGateway,
+              )
+            : await attachments.prepareGenericFile(
+                sourcePath: file.path,
+                displayName: file.name,
+                mediaType: file.mediaType,
+                existingDrafts: combined,
+              );
+        staged.add(draft);
+      }
+      attachments.validateRemoteDrafts([...originalAttachments, ...staged]);
+      _owned(chat);
+      if (chat.busy ||
+          chat.status != originalStatus ||
+          chat.draft != originalText ||
+          chat.draftSubmissionUncertain != originalUncertain ||
+          chat.queuePaused != originalQueuePaused ||
+          !listEquals(chat.attachments, originalAttachments) ||
+          !listEquals(chat.queuedPrompts, originalQueue)) {
+        throw StateError(
+          'The draft changed while shared files were being prepared. Try sharing again.',
+        );
+      }
+
+      chat.draft = _appendSharedText(originalText, sharedText);
+      chat.attachments.addAll(staged);
+      try {
+        await _persistDraft(chat);
+      } catch (_) {
+        chat.draft = originalText;
+        chat.attachments
+          ..clear()
+          ..addAll(originalAttachments);
+        rethrow;
+      }
+      _changed();
+    } catch (_) {
+      for (final draft in staged) {
+        try {
+          await attachments.removeCachedFile(draft);
+        } catch (_) {}
+      }
+      rethrow;
+    }
+  }
+
+  String _appendSharedText(String current, String incoming) {
+    if (incoming.isEmpty) return current;
+    if (current.trim().isEmpty) return incoming;
+    if (current.endsWith('\n\n')) return '$current$incoming';
+    if (current.endsWith('\n')) return '$current\n$incoming';
+    return '$current\n\n$incoming';
   }
 
   Future<void> _restoreDraft(ProfileChat chat) async {

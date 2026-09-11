@@ -8,6 +8,30 @@ Feature releases increment the minor version, fixes increment the patch version,
 and breaking changes increment the major version. The Android build number after
 `+` always increases. Update this changelog for every release milestone.
 
+## [2.4.0+2151] - 2026-09-12
+
+### Added
+
+- Added review of incoming Android shares with explicit connection, profile and
+  new/existing conversation selection. Add to draft preserves existing unsent
+  text and files and never sends automatically.
+- Added Photos and Files choices to the attachment button using the existing
+  picker and image preparation pipeline.
+
+### Fixed
+
+- Shared files are prepared and checked together before changing the destination
+  draft. Failed preparation no longer leaves a partially added set of files.
+- Incoming shares remain pending until applied or explicitly discarded. A later
+  share waits instead of replacing the content currently being reviewed.
+
+### Known limitations
+
+- Incoming content is durable after Add to draft. Before destination selection,
+  pending share metadata is in memory and native intake files remain temporary.
+- Camera capture is still planned. The reported context-fuse loading problem on
+  existing chats remains an active D15 bug pending deployed-server evidence.
+
 ## [2.3.0+2150] - 2026-09-12
 
 ### Added

@@ -4,7 +4,6 @@ import 'package:file_picker/file_picker.dart';
 import 'package:flutter/material.dart';
 
 import '../services/profile_workspace_controller.dart';
-import '../services/android_share_intent_service.dart';
 import '../widgets/profile_message.dart';
 import '../models/answer_versions.dart';
 import '../widgets/answer_actions.dart';
@@ -31,7 +30,6 @@ import 'workspace_overview_content.dart';
 /// Network work and drafts belong to the application controller.
 class ProfileWorkspaceScreen extends StatefulWidget {
   final ProfileWorkspaceController controller;
-  final AndroidSharePayload? initialSharedPayload;
   final bool initialQuickChat;
   final Future<void> Function()? enableNotifications;
   final VoidCallback? onConnections;
@@ -40,7 +38,6 @@ class ProfileWorkspaceScreen extends StatefulWidget {
   const ProfileWorkspaceScreen({
     super.key,
     required this.controller,
-    this.initialSharedPayload,
     this.initialQuickChat = false,
     this.enableNotifications,
     this.onConnections,
@@ -75,17 +72,9 @@ class _ProfileWorkspaceScreenState extends State<ProfileWorkspaceScreen>
     if (_destination == AppDestination.activity) {
       await controller.refreshActivity();
     }
-    if (widget.initialQuickChat || widget.initialSharedPayload != null) {
+    if (widget.initialQuickChat) {
       await _run(() async {
-        final chat = await controller.createChat();
-        await controller.updateDraft(
-          chat,
-          widget.initialSharedPayload?.text ?? '',
-        );
-        for (final file
-            in widget.initialSharedPayload?.files ?? <AndroidSharedFile>[]) {
-          await controller.addAttachment(chat, file.path, file.name);
-        }
+        await controller.createChat();
         if (mounted) setState(() {});
       });
     }
@@ -783,8 +772,43 @@ class _ProfileWorkspaceScreenState extends State<ProfileWorkspaceScreen>
                                     controller.switching
                                 ? null
                                 : () => _run(() async {
+                                    final type =
+                                        await showModalBottomSheet<FileType>(
+                                          context: context,
+                                          showDragHandle: true,
+                                          builder: (context) => SafeArea(
+                                            child: Column(
+                                              mainAxisSize: MainAxisSize.min,
+                                              children: [
+                                                ListTile(
+                                                  leading: const Icon(
+                                                    Icons
+                                                        .photo_library_outlined,
+                                                  ),
+                                                  title: const Text('Photos'),
+                                                  onTap: () => Navigator.pop(
+                                                    context,
+                                                    FileType.image,
+                                                  ),
+                                                ),
+                                                ListTile(
+                                                  leading: const Icon(
+                                                    Icons
+                                                        .insert_drive_file_outlined,
+                                                  ),
+                                                  title: const Text('Files'),
+                                                  onTap: () => Navigator.pop(
+                                                    context,
+                                                    FileType.any,
+                                                  ),
+                                                ),
+                                              ],
+                                            ),
+                                          ),
+                                        );
+                                    if (type == null) return;
                                     final result = await FilePicker.platform
-                                        .pickFiles();
+                                        .pickFiles(type: type);
                                     final file = result?.files.single;
                                     if (file?.path != null) {
                                       await controller.addAttachment(

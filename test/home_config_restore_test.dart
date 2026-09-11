@@ -184,67 +184,14 @@ void main() {
     expect(launchIntents.pendingQuickChat.value, isFalse);
   });
 
-  testWidgets('a cold-start share uses the saved connection exactly once', (
-    tester,
-  ) async {
-    const channel = MethodChannel(AndroidShareIntentService.channelName);
-    TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger
-        .setMockMethodCallHandler(
-          channel,
-          (_) async => 'Summarize https://example.com/shared',
-        );
-    addTearDown(
-      () => TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger
-          .setMockMethodCallHandler(channel, null),
-    );
-
-    final shareIntents = AndroidShareIntentService();
-    await shareIntents.initialize();
-    addTearDown(shareIntents.dispose);
-    final manager = await buildManager();
-    await manager.saveConnection('Miniserver', 'host', 8642, 'key');
-
-    await tester.pumpWidget(
-      MaterialApp(
-        home: HomeScreen(
-          profileController: (conn) => profileController(conn, manager.prefs),
-          connManager: manager,
-          shareIntents: shareIntents,
-        ),
-      ),
-    );
-    await tester.pump();
-    await tester.pump(const Duration(milliseconds: 500));
-
-    expect(find.byType(ProfileWorkspaceScreen), findsOneWidget);
-    expect(find.byKey(const Key('profile-message-composer')), findsOneWidget);
-    expect(
-      tester
-          .widget<TextField>(find.byKey(const Key('profile-message-composer')))
-          .controller!
-          .text,
-      'Summarize https://example.com/shared',
-    );
-    expect(shareIntents.pendingShare.value, isNull);
-  });
-
   testWidgets(
-    'a file-only share opens scoped composer and reports missing source',
+    'a cold-start share is reviewed before its draft is acknowledged',
     (tester) async {
       const channel = MethodChannel(AndroidShareIntentService.channelName);
       TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger
           .setMockMethodCallHandler(
             channel,
-            (_) async => {
-              'files': [
-                {
-                  'path': '/cache/shared/report.pdf',
-                  'name': 'report.pdf',
-                  'mediaType': 'application/pdf',
-                  'byteLength': 42,
-                },
-              ],
-            },
+            (_) async => 'Summarize https://example.com/shared',
           );
       addTearDown(
         () => TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger
@@ -269,12 +216,73 @@ void main() {
       await tester.pump();
       await tester.pump(const Duration(milliseconds: 500));
 
+      expect(find.byType(ProfileWorkspaceScreen), findsNothing);
+      expect(shareIntents.pendingShare.value, isNotNull);
+      await tester.tap(find.byKey(const ValueKey('share-add-to-draft')));
+      await tester.pumpAndSettle();
       expect(find.byType(ProfileWorkspaceScreen), findsOneWidget);
       expect(find.byKey(const Key('profile-message-composer')), findsOneWidget);
-      expect(find.textContaining('empty or unreadable'), findsOneWidget);
+      expect(
+        tester
+            .widget<TextField>(
+              find.byKey(const Key('profile-message-composer')),
+            )
+            .controller!
+            .text,
+        'Summarize https://example.com/shared',
+      );
       expect(shareIntents.pendingShare.value, isNull);
     },
   );
+
+  testWidgets('a failed file-only share stays in review and remains pending', (
+    tester,
+  ) async {
+    const channel = MethodChannel(AndroidShareIntentService.channelName);
+    TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger
+        .setMockMethodCallHandler(
+          channel,
+          (_) async => {
+            'files': [
+              {
+                'path': '/cache/shared/report.pdf',
+                'name': 'report.pdf',
+                'mediaType': 'application/pdf',
+                'byteLength': 42,
+              },
+            ],
+          },
+        );
+    addTearDown(
+      () => TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger
+          .setMockMethodCallHandler(channel, null),
+    );
+
+    final shareIntents = AndroidShareIntentService();
+    await shareIntents.initialize();
+    addTearDown(shareIntents.dispose);
+    final manager = await buildManager();
+    await manager.saveConnection('Miniserver', 'host', 8642, 'key');
+
+    await tester.pumpWidget(
+      MaterialApp(
+        home: HomeScreen(
+          profileController: (conn) => profileController(conn, manager.prefs),
+          connManager: manager,
+          shareIntents: shareIntents,
+        ),
+      ),
+    );
+    await tester.pump();
+    await tester.pump(const Duration(milliseconds: 500));
+
+    expect(find.byType(ProfileWorkspaceScreen), findsNothing);
+    await tester.tap(find.byKey(const ValueKey('share-add-to-draft')));
+    await tester.pumpAndSettle();
+    expect(find.textContaining('empty or unreadable'), findsOneWidget);
+    expect(shareIntents.pendingShare.value, isNotNull);
+    expect(find.byKey(const ValueKey('share-add-to-draft')), findsOneWidget);
+  });
 
   testWidgets('restore stays reachable once connections exist', (tester) async {
     final manager = await buildManager();

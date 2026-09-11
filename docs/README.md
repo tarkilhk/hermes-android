@@ -32,6 +32,7 @@ The inventories describe their inspection dates and source commits. Do not silen
 - [Conversation actions and reading](CONVERSATION_ACTIONS_AND_READING.md), saved-message actions, side-question deliveries, phone reading improvements and the context fuse.
 - [Execution, Find and Outputs](EXECUTION_FIND_AND_OUTPUTS.md), live tool/todo/reasoning views, current-chat search and scoped output retrieval.
 - [Filters and projects](FILTERS_AND_PROJECTS.md), paginated unread filtering, Activity status filters and server project management.
+- [Sharing and capture](SHARING_AND_CAPTURE.md), reviewed destinations, preserved drafts and Photos/Files choices, with intake recovery and Camera limits.
 
 - [Slash commands](SLASH_COMMAND_SUPPORT.md).
 - [Answer actions and versions](ANSWER_VERSIONS.md). Its description of local version links is current implementation evidence; the product plan calls for server ownership as this feature evolves.
