@@ -45,7 +45,16 @@ class CommandHost extends Host {
     final gateway = ProfileGateway(
       scope: scope,
       discover: discover,
-      get: base.read,
+      get: (endpoint, query) async {
+        final result = await base.read(endpoint, query);
+        if (!endpoint.endsWith('/messages')) return result;
+        // Command tests start with the same empty history over REST and RPC.
+        return {
+          ...result,
+          'messages': <Map<String, dynamic>>[],
+          'pagination': {...result['pagination'] as Map, 'returned': 0},
+        };
+      },
       rpc: (method, params) async {
         commandCalls.add((method, params));
         if (method == 'commands.catalog') return catalog(scope.profileName);

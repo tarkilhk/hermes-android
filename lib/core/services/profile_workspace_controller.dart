@@ -490,7 +490,10 @@ class ProfileWorkspaceController extends ChangeNotifier {
     chat.historyError = null;
     _changed();
     try {
-      final page = await resource.gateway.history(chat.key.sessionId);
+      final page = await resource.gateway.history(
+        chat.key.sessionId,
+        runtimeId: chat.runtimeId,
+      );
       if (_closed || chat.historyGeneration != generation) return;
       final anchor =
           page.rows.isEmpty || chat.historySessionId != page.sessionId
@@ -680,6 +683,7 @@ class ProfileWorkspaceController extends ChangeNotifier {
     _hydrateIntelligence(chat, response);
     if (current == resource && !switching) resource.selectedSession = id;
     _changed();
+    await refreshHistory(chat);
     return chat;
   }
 

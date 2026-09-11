@@ -49,8 +49,16 @@ class ProfileHistoryPage {
   final List<Map<String, dynamic>> rows;
   final int offset;
   final int limit;
-  const ProfileHistoryPage(this.sessionId, this.rows, this.offset, this.limit);
-  int? get nextOffset => rows.length == limit ? offset + rows.length : null;
+  final bool isComplete;
+  const ProfileHistoryPage(
+    this.sessionId,
+    this.rows,
+    this.offset,
+    this.limit, {
+    this.isComplete = false,
+  });
+  int? get nextOffset =>
+      !isComplete && rows.length == limit ? offset + rows.length : null;
 }
 
 /// The stock modern Hermes contract. All profile-owned traffic passes through
@@ -388,14 +396,37 @@ class ProfileGateway {
   }
 
   static const historyPageSize = 50;
-  Future<ProfileHistoryPage> history(String id, {int offset = 0}) async {
+  Future<ProfileHistoryPage> history(
+    String id, {
+    int offset = 0,
+    String? runtimeId,
+  }) async {
     if (id.isEmpty || offset < 0) throw ArgumentError('Invalid history page');
-    final result = await read('sessions/${Uri.encodeComponent(id)}/messages', {
-      'limit': '$historyPageSize',
-      'offset': '$offset',
-      'order': 'latest',
-      'include_compacted': 'true',
-    });
+    final Map<String, dynamic> result;
+    try {
+      result = await read('sessions/${Uri.encodeComponent(id)}/messages', {
+        'limit': '$historyPageSize',
+        'offset': '$offset',
+        'order': 'latest',
+        'include_compacted': 'true',
+      });
+    } on DashboardHttpException catch (error) {
+      if (error.statusCode != 404 ||
+          offset != 0 ||
+          runtimeId == null ||
+          runtimeId.isEmpty) {
+        rethrow;
+      }
+      // A live session can precede its database row. Read its actual history;
+      // a missing durable row alone does not establish an empty transcript.
+      return ProfileHistoryPage(
+        id,
+        await fullHistory(runtimeId),
+        0,
+        historyPageSize,
+        isComplete: true,
+      );
+    }
     final pagination = result['pagination'];
     final rows = records(result['messages']);
     final resolved = result['session_id'];
