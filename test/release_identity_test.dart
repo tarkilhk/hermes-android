@@ -4,7 +4,7 @@ import 'package:flutter_test/flutter_test.dart';
 
 void main() {
   test(
-    'Personal session filter has the exact release identity and an upgrade-safe code',
+    'Personal app shell has the exact release identity and an upgrade-safe code',
     () {
       final pubspec = File('pubspec.yaml').readAsStringSync();
       final match = RegExp(
@@ -13,11 +13,11 @@ void main() {
       ).firstMatch(pubspec);
 
       expect(match, isNotNull);
-      expect(match!.group(1), '2.1.1');
-      expect(int.parse(match.group(2)!), 2144);
-      expect(int.parse(match.group(2)!), greaterThan(2142));
+      expect(match!.group(1), '2.1.2');
+      expect(int.parse(match.group(2)!), 2145);
+      expect(int.parse(match.group(2)!), greaterThan(2144));
       // F-Droid ABI split: packaged arm64 code is base * 10 + ABI code.
-      expect(int.parse(match.group(2)!) * 10 + 2, 21442);
+      expect(int.parse(match.group(2)!) * 10 + 2, 21452);
     },
   );
 
@@ -42,7 +42,7 @@ void main() {
     );
     expect(gradle, contains('variant.versionCode * 10 + abiVersionCode'));
     expect(releaseWorkflow, contains("MINIMUM_INSTALLED_VERSION_CODE: '2127'"));
-    expect(releaseWorkflow, contains("REQUIRED_BASE_VERSION_CODE: '2144'"));
+    expect(releaseWorkflow, contains("REQUIRED_BASE_VERSION_CODE: '2145'"));
     expect(releaseWorkflow, contains("ARM64_ABI_CODE: '2'"));
     expect(
       releaseWorkflow,
@@ -56,6 +56,6 @@ void main() {
     expect(releaseWorkflow, contains('Refuse an unsigned tagged release'));
     expect(releaseWorkflow, contains("env.HAS_RELEASE_KEYSTORE == 'true'"));
     expect(qualityWorkflow, contains("MINIMUM_INSTALLED_VERSION_CODE: '2127'"));
-    expect(qualityWorkflow, contains("REQUIRED_BASE_VERSION_CODE: '2144'"));
+    expect(qualityWorkflow, contains("REQUIRED_BASE_VERSION_CODE: '2145'"));
   });
 }

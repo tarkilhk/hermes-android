@@ -16,14 +16,12 @@ import 'profile_row_actions.dart';
 class ProfileWorkspaceBrowser extends StatefulWidget {
   final ProfileWorkspaceController controller;
   final Future<void> Function() newProject;
-  final Future<void> Function()? enableNotifications;
-  final Future<void> Function()? appearance;
+  final Widget? drawer;
   const ProfileWorkspaceBrowser({
     super.key,
     required this.controller,
     required this.newProject,
-    this.enableNotifications,
-    this.appearance,
+    this.drawer,
   });
   @override
   State<ProfileWorkspaceBrowser> createState() =>
@@ -35,6 +33,7 @@ class _ProfileWorkspaceBrowserState extends State<ProfileWorkspaceBrowser> {
   String _query = '';
   String _view = 'home';
   final _search = TextEditingController();
+  final _scaffoldKey = GlobalKey<ScaffoldState>();
   Timer? _searchDebounce;
   void _setQuery(String value) {
     _searchDebounce?.cancel();
@@ -319,23 +318,6 @@ class _ProfileWorkspaceBrowserState extends State<ProfileWorkspaceBrowser> {
 
   List<Widget> _tree() {
     final resource = controller.current!;
-    if (_view == 'activity') {
-      return [
-        for (final chat in controller.activity)
-          ListTile(
-            title: Text(
-              chat.title,
-              maxLines: 1,
-              overflow: TextOverflow.ellipsis,
-            ),
-            subtitle: Text(
-              '${chat.key.workspace.profileName} · ${chat.status.name}',
-            ),
-            onTap: () => _run(() => controller.openSession(chat.key)),
-          ),
-        if (controller.activity.isEmpty) _empty('No active work'),
-      ];
-    }
     if (_view == 'projects' && resource.selectedProject == null) {
       return [
         if (resource.projectsError != null) _empty(resource.projectsError!),
@@ -552,17 +534,8 @@ class _ProfileWorkspaceBrowserState extends State<ProfileWorkspaceBrowser> {
             }),
           );
         }
-        if (value == 'connections') _back();
         if (value == 'refresh') unawaited(_run(controller.refresh));
         if (value == 'new-project') unawaited(_run(widget.newProject));
-        if (value == 'appearance') unawaited(_run(widget.appearance!));
-        if (value == 'notifications') {
-          unawaited(_run(widget.enableNotifications!));
-        }
-        if (value == 'activity') {
-          unawaited(controller.selectProject(null));
-          setState(() => _view = 'activity');
-        }
         if (value == 'archived') {
           _search.clear();
           _searchDebounce?.cancel();
@@ -574,83 +547,75 @@ class _ProfileWorkspaceBrowserState extends State<ProfileWorkspaceBrowser> {
         }
       },
       itemBuilder: (_) => [
-        if (isWorkspaceHome && Navigator.of(context).canPop())
-          const PopupMenuItem(
-            value: 'connections',
-            child: Text('Switch connection'),
-          ),
         CheckedPopupMenuItem<String>(
           value: 'include-automated',
           checked: controller.sessionVisibility == SessionVisibility.all,
           child: const Text('Include automated chats'),
         ),
         const PopupMenuItem(value: 'refresh', child: Text('Refresh')),
-        if (widget.appearance != null)
-          const PopupMenuItem(value: 'appearance', child: Text('Accent color')),
         const PopupMenuItem(value: 'new-project', child: Text('New project')),
-        const PopupMenuItem(value: 'activity', child: Text('Activity')),
         const PopupMenuItem(value: 'archived', child: Text('Archived chats')),
-        if (widget.enableNotifications != null)
-          const PopupMenuItem(
-            value: 'notifications',
-            child: Text('Enable completion notifications'),
-          ),
       ],
     );
     return PopScope(
       canPop:
           project == null && _view == 'home' && resource?.archivedOnly != true,
       onPopInvokedWithResult: (didPop, _) {
-        if (!didPop) _back();
+        if (!didPop) {
+          if (_scaffoldKey.currentState?.isDrawerOpen == true) {
+            _scaffoldKey.currentState!.closeDrawer();
+          } else {
+            _back();
+          }
+        }
       },
       child: Scaffold(
+        key: _scaffoldKey,
         backgroundColor: background,
-        appBar: isWorkspaceHome
-            ? null
-            : AppBar(
-                centerTitle: false,
-                toolbarHeight:
-                    64 + (MediaQuery.textScalerOf(context).scale(24) - 24),
-                backgroundColor: background,
-                surfaceTintColor: Colors.transparent,
-                leading: IconButton(
+        drawer: widget.drawer,
+        appBar: AppBar(
+          centerTitle: false,
+          toolbarHeight: 64 + (MediaQuery.textScalerOf(context).scale(24) - 24),
+          backgroundColor: background,
+          surfaceTintColor: Colors.transparent,
+          leading: isWorkspaceHome
+              ? null
+              : IconButton(
                   tooltip: project == null ? 'Back' : 'Back to workspace',
                   icon: const Icon(Icons.arrow_back_rounded, size: 22),
                   onPressed: _back,
                 ),
-                title: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Text(
-                      project?['name']?.toString() ??
-                          (resource?.archivedOnly == true
-                              ? 'Archived chats'
-                              : _view == 'projects'
-                              ? 'All projects'
-                              : _view == 'activity'
-                              ? 'Activity'
-                              : 'Hermes'),
-                      maxLines: 1,
-                      overflow: TextOverflow.ellipsis,
-                      style: const TextStyle(
-                        fontWeight: FontWeight.w700,
-                        fontSize: 24,
-                        letterSpacing: -1.0,
-                      ),
-                    ),
-                    Text(
-                      '${controller.connection.label}${project == null ? '' : ' · ${resource!.scope.profileName}'}',
-                      maxLines: 1,
-                      overflow: TextOverflow.ellipsis,
-                      style: TextStyle(
-                        fontSize: 12,
-                        color: Theme.of(context).colorScheme.onSurfaceVariant,
-                      ),
-                    ),
-                  ],
+          title: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Text(
+                project?['name']?.toString() ??
+                    (resource?.archivedOnly == true
+                        ? 'Archived chats'
+                        : _view == 'projects'
+                        ? 'All projects'
+                        : 'Chats'),
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
+                style: const TextStyle(
+                  fontWeight: FontWeight.w700,
+                  fontSize: 24,
+                  letterSpacing: -1.0,
                 ),
-                actions: [workspaceOptions],
               ),
+              Text(
+                '${controller.connection.label}${project == null ? '' : ' · ${resource!.scope.profileName}'}',
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
+                style: TextStyle(
+                  fontSize: 12,
+                  color: Theme.of(context).colorScheme.onSurfaceVariant,
+                ),
+              ),
+            ],
+          ),
+          actions: [workspaceOptions],
+        ),
         body: AnnotatedRegion<SystemUiOverlayStyle>(
           value:
               Theme.of(context).appBarTheme.systemOverlayStyle ??
@@ -759,7 +724,6 @@ class _ProfileWorkspaceBrowserState extends State<ProfileWorkspaceBrowser> {
                         ),
                       ),
                     ),
-                    if (isWorkspaceHome) workspaceOptions,
                   ],
                 ),
                 if (controller.error != null)
@@ -803,85 +767,81 @@ class _ProfileWorkspaceBrowserState extends State<ProfileWorkspaceBrowser> {
             ),
           ),
         ),
-        bottomNavigationBar: _view == 'activity'
-            ? null
-            : SafeArea(
-                top: false,
-                child: Padding(
-                  padding: const EdgeInsets.fromLTRB(16, 8, 16, 12),
-                  child: DecoratedBox(
-                    decoration: BoxDecoration(
-                      color: colors.surfaceContainerLow,
-                      borderRadius: BorderRadius.circular(24),
-                      border: Border.all(color: colors.outlineVariant),
-                      boxShadow: [
-                        BoxShadow(
-                          color: Colors.black.withValues(alpha: 0.08),
-                          blurRadius: 24,
-                          offset: const Offset(0, 8),
+        bottomNavigationBar: SafeArea(
+          top: false,
+          child: Padding(
+            padding: const EdgeInsets.fromLTRB(16, 8, 16, 12),
+            child: DecoratedBox(
+              decoration: BoxDecoration(
+                color: colors.surfaceContainerLow,
+                borderRadius: BorderRadius.circular(24),
+                border: Border.all(color: colors.outlineVariant),
+                boxShadow: [
+                  BoxShadow(
+                    color: Colors.black.withValues(alpha: 0.08),
+                    blurRadius: 24,
+                    offset: const Offset(0, 8),
+                  ),
+                ],
+              ),
+              child: Padding(
+                padding: const EdgeInsets.all(6),
+                child: Row(
+                  children: [
+                    Expanded(
+                      child: TextField(
+                        controller: _search,
+                        onChanged: _setQuery,
+                        decoration: InputDecoration(
+                          hintText: _view == 'projects'
+                              ? 'Search projects'
+                              : 'Search chats',
+                          prefixIcon: const Icon(Icons.search),
+                          filled: true,
+                          fillColor: Colors.transparent,
+                          border: OutlineInputBorder(
+                            borderRadius: BorderRadius.circular(18),
+                            borderSide: BorderSide.none,
+                          ),
+                          enabledBorder: OutlineInputBorder(
+                            borderRadius: BorderRadius.circular(18),
+                            borderSide: BorderSide.none,
+                          ),
+                          contentPadding: const EdgeInsets.symmetric(
+                            vertical: 14,
+                          ),
                         ),
-                      ],
-                    ),
-                    child: Padding(
-                      padding: const EdgeInsets.all(6),
-                      child: Row(
-                        children: [
-                          Expanded(
-                            child: TextField(
-                              controller: _search,
-                              onChanged: _setQuery,
-                              decoration: InputDecoration(
-                                hintText: _view == 'projects'
-                                    ? 'Search projects'
-                                    : 'Search chats',
-                                prefixIcon: const Icon(Icons.search),
-                                filled: true,
-                                fillColor: Colors.transparent,
-                                border: OutlineInputBorder(
-                                  borderRadius: BorderRadius.circular(18),
-                                  borderSide: BorderSide.none,
-                                ),
-                                enabledBorder: OutlineInputBorder(
-                                  borderRadius: BorderRadius.circular(18),
-                                  borderSide: BorderSide.none,
-                                ),
-                                contentPadding: const EdgeInsets.symmetric(
-                                  vertical: 14,
-                                ),
-                              ),
-                            ),
-                          ),
-                          const SizedBox(width: 10),
-                          FilledButton.icon(
-                            style: FilledButton.styleFrom(
-                              padding: const EdgeInsets.symmetric(
-                                horizontal: 14,
-                                vertical: 15,
-                              ),
-                              shape: RoundedRectangleBorder(
-                                borderRadius: BorderRadius.circular(18),
-                              ),
-                            ),
-                            onPressed: controller.switching || resource == null
-                                ? null
-                                : () => _run(() async {
-                                    if (_view == 'projects') {
-                                      await widget.newProject();
-                                    } else {
-                                      await controller.createChat();
-                                    }
-                                  }),
-                            icon: const Icon(Icons.add_rounded, size: 22),
-                            label: Text(
-                              _view == 'projects' ? 'Project' : 'New chat',
-                            ),
-                          ),
-                        ],
                       ),
                     ),
-                  ),
+                    const SizedBox(width: 10),
+                    FilledButton.icon(
+                      style: FilledButton.styleFrom(
+                        padding: const EdgeInsets.symmetric(
+                          horizontal: 14,
+                          vertical: 15,
+                        ),
+                        shape: RoundedRectangleBorder(
+                          borderRadius: BorderRadius.circular(18),
+                        ),
+                      ),
+                      onPressed: controller.switching || resource == null
+                          ? null
+                          : () => _run(() async {
+                              if (_view == 'projects') {
+                                await widget.newProject();
+                              } else {
+                                await controller.createChat();
+                              }
+                            }),
+                      icon: const Icon(Icons.add_rounded, size: 22),
+                      label: Text(_view == 'projects' ? 'Project' : 'New chat'),
+                    ),
+                  ],
                 ),
               ),
+            ),
+          ),
+        ),
       ),
     );
   }

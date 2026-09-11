@@ -109,9 +109,9 @@ void main() {
     'accent selection is local, persists and survives profile changes',
     (tester) async {
       await show(tester);
-      await tester.tap(find.byTooltip('Workspace options'));
+      await tester.tap(find.byTooltip('Open navigation menu'));
       await tester.pumpAndSettle();
-      await tester.tap(find.text('Accent color'));
+      await tester.tap(find.byKey(const ValueKey('nav-settings')));
       await tester.pumpAndSettle();
       await tester.tap(find.byKey(const ValueKey('accent-iris')));
       await tester.pumpAndSettle();

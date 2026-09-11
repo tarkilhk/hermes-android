@@ -4,6 +4,16 @@ All notable changes to this project are documented here. This project adheres to
 [Semantic Versioning](https://semver.org/spec/v2.0.0.html). Release notes for
 versions prior to 1.0.7 are in the **What's new** sections of the [README](README.md).
 
+## [2.1.2+2145] - 2026-09-11
+
+### Changed
+
+- Added the shared left drawer for Chats, Activity, Connections, App settings and Hermes administration.
+- Applied the workspace style to connection setup and device settings; moved existing password fields into the main connection form.
+- Added a read-only administration entry using already-discovered connection/profile information.
+- Removed unreachable legacy screens, navigation widgets and unused UI dependencies. Saved data and current conversation behavior are preserved.
+- Recorded the Desktop comparison and owner-selected mobile roadmap. New backend features and Firebase notifications remain planned.
+
 ## [2.1.1+2142] - 2026-09-08
 
 ### Fixed

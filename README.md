@@ -8,15 +8,16 @@ This is the `tarkilhk/hermes-android` fork. Its current interface and roadmap ar
 
 The [owner-selected product plan](docs/PRODUCT_PLAN.md) is the source of truth for what we intend to build. It records the feature selections, exclusions, incremental work packages and progress. Planned features are not claims about the current app.
 
-The direction is a left hamburger menu for Chats, cross-profile Activity and occasional settings/administration. Hermes owns work state; the phone preserves unsent drafts and uses server refresh to recover current history and status. Broad backend administration is a later, small start that can grow. Voice, bots, Cron/messaging/webhook administration, offline history and a general filesystem browser are outside the initial scope.
+The app uses a left hamburger drawer for Chats, Activity, Connections, App settings and Hermes administration. Hermes owns work state; the phone preserves unsent drafts and uses server refresh to recover current history and status. Broad backend administration is a later, small start that can grow. Voice, bots, Cron/messaging/webhook administration, offline history and a general filesystem browser are outside the initial scope.
 
 The [Desktop/Android comparison](docs/HERMES_DESKTOP_ANDROID_FEATURE_ANALYSIS.md) and [source inventories](docs/README.md#research-preserved-for-future-work) preserve the research behind the decisions. The [documentation index](docs/README.md) distinguishes current contracts from historical plans.
 
 ## Current implementation
 
-The current connection flow opens `ProfileWorkspaceScreen`. Implemented features include:
+The current connection flow opens `ProfileWorkspaceScreen`, which owns the drawer and the existing chat workspace. Implemented behavior includes:
 
-- Saved connections, modern dashboard/gateway validation, profile discovery and switching.
+- Saved connections in the shared app style, password setup, modern dashboard/gateway validation, profile discovery and client-local profile switching.
+- Drawer navigation, existing local Activity, reachable theme/accent/text-size and notification permission controls, and a read-only administration entry showing discovered connection/profile information.
 - Separate profile-owned conversations and running work, with reconnect and server-history refresh.
 - Projects, recent and pinned chats, paginated session/history loading, full-text conversation search, and an option to include automated chats.
 - Rename, pin/unpin, explicit read/unread, archive/unarchive, delete and move-to-project actions with server-side constraints.
@@ -27,7 +28,7 @@ The current connection flow opens `ProfileWorkspaceScreen`. Implemented features
 - Phone file attachments, Android share/launcher intake, allow-once/deny and structured clarification.
 - Local completion/input notifications with original host/profile/chat routing, plus configuration restore from the connections screen.
 
-Some features in the previous README exist only in older, currently unconnected screens. Native voice, broad settings, Cron, Memory, Files, full export/share and rich event handling must not be assumed available in the active workspace. See the [Android source inventory](docs/research/HERMES_ANDROID_FEATURE_INVENTORY_2026-09-11.md) for precise limits.
+The shell cleanup removed the unreachable legacy screens and navigation widgets, including the old chat UI, Spaces, Cron, Memory, Files and Skills screens. Shared service and contract code remains available where useful for later work; no stored user data was deleted. The [Android source inventory](docs/research/HERMES_ANDROID_FEATURE_INVENTORY_2026-09-11.md) records the earlier baseline. [Shell delivery notes](docs/APP_SHELL.md) describe this change and its limits.
 
 A command appearing in the gateway catalog does not prove correct support for every client or session. Terminal-only, messaging-only and host-microphone commands have platform restrictions. The follow-up audit also records a current `/yolo` routing/availability gap; see [contract notes](docs/research/FEATURE_PLAN_CONTRACT_NOTES_2026-09-11.md).
 
@@ -49,12 +50,12 @@ The app's current slash/profile contracts and any separately maintained backend 
 
 ## Version and application identity
 
-Source version on 2026-09-11 is `2.1.1+2144` in [pubspec.yaml](pubspec.yaml). This is the checked-out version, not a claim that a matching public release has been published.
+Source version on 2026-09-11 is `2.1.2+2145` in [pubspec.yaml](pubspec.yaml). This is the checked-out version, not a claim that a matching public release has been published.
 
 - Personal release package: `com.tarkilhk.hermes.android`, labelled Hermes Personal.
 - Development package: `com.hermesagent.hermes_android.dev`.
 - The inherited upstream package is separate and is not this fork's release identity.
-- ABI-split codes derive from the base build number; the current ARM64 split uses `21442`.
+- ABI-split codes derive from the base build number; the current ARM64 split uses `21452`.
 
 The [release plan](docs/ANDROID_RELEASE_PLAN.md) and [build configuration](android/app/build.gradle.kts) document identity, signing and version-code rules. The selected S08 work will expose this client's version/build and update information in the app, separately from the backend version.
 

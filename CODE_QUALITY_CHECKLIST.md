@@ -37,5 +37,6 @@ This checklist must be completed before every release PR. Mark each item as pass
 - [ ] Connect to a Hermes Gateway API Server
 - [ ] Browse sessions
 - [ ] Send a message and receive a streamed response
-- [ ] Open Memory, Cron Jobs, Skills, and Settings drawer screens when dashboard access is configured
+- [ ] Open Chats, Activity, Connections, App settings and Hermes administration through the drawer
+- [ ] Confirm settings navigation preserves the open chat and draft; selecting a profile does not switch another client
 - [ ] Verify behaviour on at least one phone-sized layout and one wider/tablet layout

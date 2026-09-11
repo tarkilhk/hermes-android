@@ -2,14 +2,14 @@
 
 Owner-selected scope recorded on 2026-09-11. This is the working product plan for this fork. Maintain it as work proceeds over the coming days and weeks.
 
-This update records decisions and proposed flows only. It does not implement the selected features, the navigation, or the administration screen. Existing implementations require inspection before deciding whether to retain, adapt or replace them.
+The initial research and scope decisions are recorded below. Implementation has started with the app shell only; see W00 and the delivery log. A selected feature remains planned until its behavior is implemented and verified.
 
 ## Authority and references
 
 - This plan records the owner's selections from the [Desktop/Android analysis](HERMES_DESKTOP_ANDROID_FEATURE_ANALYSIS.md). Feature IDs retain their meaning from that research.
 - The research is an evidence snapshot and a menu of possibilities. Its original priorities and suggested architecture are not the approved backlog. This plan narrows and changes them.
 - Earlier inherited roadmaps and UI specifications are historical. They must not add requirements or dictate the appearance of this fork.
-- The owner does not require preservation of the old app's UI or unselected functionality. Remove or replace that code when relevant to selected work, while preserving user data and current selected behaviors. This is not a request to delete code in this documentation update.
+- The owner does not require preservation of the old app's UI or unselected functionality. Remove or replace that code when relevant to selected work, while preserving user data and current selected behaviors. The owner subsequently authorized removal of obsolete UI as part of the app-shell work.
 - No calendar schedule or automatic background work has been created. Work advances incrementally when requested.
 
 Supporting evidence is indexed in [docs/README.md](README.md), including all three source inventories and [follow-up contract notes](research/FEATURE_PLAN_CONTRACT_NOTES_2026-09-11.md).
@@ -27,7 +27,7 @@ Supporting evidence is indexed in [docs/README.md](README.md), including all thr
 
 ## Navigation and initial administration flow
 
-The proposed primary drawer has Chats, Activity and More. Projects remain a scope inside Chats. If More becomes an unnecessary extra level, its small set of destinations can appear directly under a drawer divider without changing the agreed information grouping.
+The primary drawer has Chats and Activity, followed by Connections, App settings and Hermes administration below a divider. These secondary destinations are directly accessible without an extra More page. Projects remain a scope inside Chats.
 
 | Entry | Initial flow |
 | --- | --- |
@@ -52,10 +52,13 @@ The owner clarified B15: selecting or activating profile A changes only that cli
 
 ## Work packages and progress
 
-Use these packages to avoid building the same requirement twice. Their order is a suggested dependency sequence, not a fixed schedule. Every package is currently **Planned**; some underlying features already exist. Planned does not mean all code is missing.
+The [proposed delivery sequence](DELIVERY_SEQUENCE.md) breaks these themes into small implementation slices, with suggested order and acceptance outcomes. It is a proposal following the shell delivery, not a new feature commitment or calendar schedule.
+
+Use these packages to avoid building the same requirement twice. Their order is a suggested dependency sequence, not a fixed schedule. The shell is tracked separately from the feature packages. Some underlying features already exist; Planned does not mean all code is missing.
 
 | Package | Selected IDs | Intended outcome | Status |
 | --- | --- | --- | --- |
+| W00 App shell | Left drawer, B01 presentation, W09/W11 entry points, legacy UI retirement | Shared navigation and styling around existing behavior; read-only administration entry. No new backend features. See [shell delivery notes](APP_SHELL.md). | Done, deployed to the owner's phone as Personal 2.1.2 / 21452 on 2026-09-11 |
 | W01 Find and resume work | C02, C03, C07, C08 P1, C09 ongoing only, T11, T12, R02, R03, M01, M02, M04 | Authoritative history/status, useful search and filters, simple refresh/recovery and cross-profile Activity. | Planned |
 | W02 Protect drafts and control submission | Q02, Q03, Q07, Q09, Q10, Q11, Q12, M03 | Unsent work survives interruption; correct, branch, steer and queue without changing default send behavior. | Planned |
 | W03 Commands, model choice and context | Q16, T10, R06 | Correct session-scoped `/yolo`, real provider grouping with collapsible sections, minimal context indicator. Keep typing `/` as the command entry point. | Planned |
@@ -281,3 +284,9 @@ B15 is settled. Profile selection is navigation local to each client. Client 1 s
 S14 originally bundled return-to-last-chat and transcript display preferences too broadly. It adds no separate feature now. Reopening a session loads what Hermes knows about that session, including where its execution stood and any pending interaction. Any cross-device remembered reading location must also come from Hermes if supported. Temporary scroll/render state is disposable and does not become a local session record.
 
 Before implementing W02/W03, settle the Fork boundary and verify active-turn submission and `/yolo` target routing. Before Q09, determine where the server can store answer relationships. Before expanding local persistence, check it against the explicit storage boundary. These are concrete implementation questions, not reasons to start more infrastructure or to postpone unrelated selected work.
+
+### App shell implementation, 2026-09-11
+
+The owner requested the shell before new roadmap features, then requested phone deployment. This slice replaces primary navigation, exposes existing device settings, adds an administration entry using discovered profile metadata, and removes unreachable legacy screens/widgets. W01 through W11 retain their remaining feature scope. Activity still covers controller-observed chats, not all server work. See [delivery notes](APP_SHELL.md) for checks and limitations.
+
+Delivery completed as Personal `2.1.2+2145`, ARM64 code `21452`, installed in place on the owner's phone. Static analysis and 873 tests passed, with four environment-dependent skips. The signed APK passed identity/certificate checks. Phone verification used installed version and process metadata; a live screenshot was blocked by automatic approval review. The shell implementation remains separate from the earlier research commit `acd8c40`.

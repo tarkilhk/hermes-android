@@ -1,5 +1,7 @@
 # Android release plan
 
+Deployed on 2026-09-11: the app-shell update is `2.1.2+2145`, ARM64 code `21452`, with the existing Personal certificate verified. Wireless ADB installation succeeded on the owner's Samsung phone and preserved existing data. See [app-shell delivery notes](APP_SHELL.md). The installed-version observations below are the historical 2026-09-06 baseline.
+
 Updated on 2026-09-06. The owner confirmed that the older app belongs to someone
 else, so this fork uses a separate identity and signing key. No public release
 or GitHub signing-secret upload has been performed.

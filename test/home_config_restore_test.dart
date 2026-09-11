@@ -12,11 +12,8 @@ import 'package:hermes_android/core/services/android_launch_intent_service.dart'
 import 'package:hermes_android/core/services/android_share_intent_service.dart';
 import 'package:hermes_android/core/services/config_backup_service.dart';
 import 'package:hermes_android/core/services/connection_manager.dart';
-import 'package:hermes_android/core/services/gateway_turn_application_controller.dart';
 import 'package:hermes_android/main.dart';
 import 'package:shared_preferences/shared_preferences.dart';
-
-import 'support/inert_turn_application_session.dart';
 
 class _MemoryCredentialStore implements CredentialStore {
   final Map<String, String> values = <String, String>{};
@@ -120,9 +117,6 @@ Future<void> pumpHome(
       home: HomeScreen(
         profileController: (conn) => profileController(conn, manager.prefs),
         connManager: manager,
-        turnApplicationController: GatewayTurnApplicationController(
-          sessionFactory: (_) => InertTurnApplicationSession(),
-        ),
         shareIntents: shareIntents,
         launchIntents: launchIntents,
         pickBackupFile: pickBackupFile,
@@ -215,9 +209,6 @@ void main() {
         home: HomeScreen(
           profileController: (conn) => profileController(conn, manager.prefs),
           connManager: manager,
-          turnApplicationController: GatewayTurnApplicationController(
-            sessionFactory: (_) => InertTurnApplicationSession(),
-          ),
           shareIntents: shareIntents,
         ),
       ),
@@ -271,9 +262,6 @@ void main() {
           home: HomeScreen(
             profileController: (conn) => profileController(conn, manager.prefs),
             connManager: manager,
-            turnApplicationController: GatewayTurnApplicationController(
-              sessionFactory: (_) => InertTurnApplicationSession(),
-            ),
             shareIntents: shareIntents,
           ),
         ),
@@ -319,7 +307,7 @@ void main() {
     final manager = await buildManager();
     await pumpHome(tester, manager);
 
-    expect(find.text('No connections'), findsOneWidget);
+    expect(find.text('Connect to Hermes'), findsOneWidget);
 
     // Simulate what a successful import does to storage, then let the screen
     // refresh the way the import flow asks it to.
@@ -338,7 +326,7 @@ void main() {
     state.refreshConnections();
     await tester.pumpAndSettle();
 
-    expect(find.text('No connections'), findsNothing);
+    expect(find.text('Connect to Hermes'), findsNothing);
     expect(find.text('Miniserver'), findsOneWidget);
   });
 
@@ -367,7 +355,7 @@ void main() {
     final manager = await buildManager();
     await pumpHome(tester, manager);
 
-    await tester.tap(find.byTooltip('Add Connection'));
+    await tester.tap(find.text('Add connection'));
     await tester.pumpAndSettle();
 
     await tester.tap(find.text('Custom proxy and dashboard details'));

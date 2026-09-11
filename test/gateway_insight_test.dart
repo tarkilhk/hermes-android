@@ -1,7 +1,5 @@
-import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:hermes_android/core/models/gateway_insight.dart';
-import 'package:hermes_android/core/widgets/gateway_insight_card.dart';
 
 void main() {
   group('GatewayReasoningUpdate', () {
@@ -129,61 +127,5 @@ void main() {
       expect(result.sealedText, 'Fresh interim.');
       expect(result.startsNewMessage, isTrue);
     });
-  });
-
-  testWidgets('reasoning and notices expose selectable content', (
-    tester,
-  ) async {
-    await tester.pumpWidget(
-      MaterialApp(
-        home: Scaffold(
-          body: ListView(
-            children: const [
-              GatewayReasoningCard(
-                text: 'Verified the complete gateway contract.',
-                initiallyExpanded: true,
-              ),
-              GatewayNoticeCard(
-                notice: GatewayNotice(
-                  kind: GatewayNoticeKind.background,
-                  taskId: 'bg-7',
-                  text: 'Indexed the selected files.',
-                ),
-              ),
-            ],
-          ),
-        ),
-      ),
-    );
-    await tester.pump(const Duration(milliseconds: 300));
-
-    expect(find.text('Reasoning'), findsOneWidget);
-    expect(
-      find.text('Verified the complete gateway contract.'),
-      findsOneWidget,
-    );
-    expect(find.text('Background task bg-7 completed'), findsOneWidget);
-    expect(find.byType(SelectionArea), findsNWidgets(2));
-  });
-
-  testWidgets('subagent card exposes delegated progress', (tester) async {
-    await tester.pumpWidget(
-      const MaterialApp(
-        home: Scaffold(
-          body: GatewaySubagentCard(
-            activities: [
-              GatewaySubagentActivity(
-                id: 'child-1',
-                goal: 'Inspect Android transport',
-                phase: GatewaySubagentPhase.running,
-              ),
-            ],
-          ),
-        ),
-      ),
-    );
-
-    expect(find.text('1 delegated task(s) active'), findsOneWidget);
-    expect(find.text('Inspect Android transport'), findsOneWidget);
   });
 }

@@ -2,7 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'hermes_theme.dart';
 
-/// Workspace art direction, isolated from connection setup and legacy screens.
+/// Shared appearance for the workspace, connection setup and app shell.
 enum WorkspaceAccent {
   mint('Mint', Color(0xFFB5F4D7), Color(0xFF006C50)),
   iris('Iris', Color(0xFFD0BFFF), Color(0xFF6341A7)),
@@ -75,6 +75,23 @@ ThemeData profileWorkspaceTheme(
       ),
     ),
     dialogTheme: base.dialogTheme.copyWith(backgroundColor: panel),
+    cardTheme: base.cardTheme.copyWith(
+      color: panel,
+      shape: RoundedRectangleBorder(
+        borderRadius: HermesRadius.card,
+        side: BorderSide(color: line),
+      ),
+    ),
+    dividerTheme: base.dividerTheme.copyWith(color: line),
+    floatingActionButtonTheme: base.floatingActionButtonTheme.copyWith(
+      backgroundColor: mint,
+      foregroundColor: scheme.onPrimary,
+    ),
+    bottomSheetTheme: base.bottomSheetTheme.copyWith(backgroundColor: panel),
+    snackBarTheme: base.snackBarTheme.copyWith(
+      backgroundColor: panel,
+      contentTextStyle: base.textTheme.bodyMedium?.copyWith(color: ink),
+    ),
     extensions: [tokens],
   );
 }

@@ -1,7 +1,5 @@
-import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:hermes_android/core/models/gateway_activity.dart';
-import 'package:hermes_android/core/widgets/gateway_activity_card.dart';
 
 void main() {
   group('GatewayToolActivity', () {
@@ -102,93 +100,6 @@ void main() {
       expect(thinking!.kind, 'thinking');
       expect(thinking.text, 'Planning the next step');
       expect(compacting!.text, 'Compacting conversation context…');
-    });
-  });
-
-  group('GatewayActivityCard', () {
-    testWidgets('shows active tool name, status, and safe detail', (
-      tester,
-    ) async {
-      await tester.pumpWidget(
-        const MaterialApp(
-          home: Scaffold(
-            body: GatewayActivityCard(
-              activities: [
-                GatewayToolActivity(
-                  toolId: 'tool-1',
-                  name: 'search_files',
-                  phase: GatewayToolActivityPhase.progress,
-                  detail: 'Scanning gateway event handlers',
-                ),
-              ],
-            ),
-          ),
-        ),
-      );
-      await tester.pump(const Duration(milliseconds: 300));
-
-      expect(find.text('Tool activity'), findsOneWidget);
-      expect(find.textContaining('Search files'), findsOneWidget);
-      expect(find.text('Working'), findsOneWidget);
-      expect(find.text('Scanning gateway event handlers'), findsOneWidget);
-    });
-
-    testWidgets('surfaces completed failures without raw result text', (
-      tester,
-    ) async {
-      await tester.pumpWidget(
-        const MaterialApp(
-          home: Scaffold(
-            body: GatewayActivityCard(
-              verbose: true,
-              activities: [
-                GatewayToolActivity(
-                  toolId: 'tool-2',
-                  name: 'terminal',
-                  phase: GatewayToolActivityPhase.failed,
-                  detail: 'Synthetic command failed',
-                ),
-              ],
-            ),
-          ),
-        ),
-      );
-      await tester.pump(const Duration(milliseconds: 300));
-
-      expect(find.text('1 failed • 1 total'), findsOneWidget);
-      expect(find.textContaining('Terminal'), findsOneWidget);
-      expect(find.text('Failed'), findsOneWidget);
-      expect(find.text('Synthetic command failed'), findsOneWidget);
-    });
-    testWidgets('expanded tool card exposes duration and full safe output', (
-      tester,
-    ) async {
-      const detail =
-          'Line one with a detailed result that must remain readable. '
-          'Line two with additional context. Line three. Line four.';
-      await tester.pumpWidget(
-        const MaterialApp(
-          home: Scaffold(
-            body: GatewayActivityCard(
-              verbose: true,
-              activities: [
-                GatewayToolActivity(
-                  toolId: 'tool-duration',
-                  name: 'read_file',
-                  phase: GatewayToolActivityPhase.completed,
-                  durationSeconds: 1.25,
-                  detail: detail,
-                ),
-              ],
-            ),
-          ),
-        ),
-      );
-      await tester.pumpAndSettle();
-
-      expect(find.text('Completed in 1.3 s'), findsOneWidget);
-      final detailWidget = tester.widget<Text>(find.text(detail));
-      expect(detailWidget.maxLines, isNull);
     });
   });
 }

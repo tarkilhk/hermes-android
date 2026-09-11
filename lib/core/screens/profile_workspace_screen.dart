@@ -16,6 +16,9 @@ import '../widgets/chat_intelligence_picker.dart';
 import '../widgets/slash_command_suggestions.dart';
 import 'profile_workspace_browser.dart';
 import 'profile_transcript.dart';
+import '../widgets/app_drawer.dart';
+import 'app_settings_content.dart';
+import 'workspace_overview_content.dart';
 
 /// Phone workspace with profile selection outside the conversation.
 /// Network work and drafts belong to the application controller.
@@ -24,12 +27,18 @@ class ProfileWorkspaceScreen extends StatefulWidget {
   final AndroidSharePayload? initialSharedPayload;
   final bool initialQuickChat;
   final Future<void> Function()? enableNotifications;
+  final VoidCallback? onConnections;
+  final VoidCallback? onPreferencesChanged;
+  final AppDestination initialDestination;
   const ProfileWorkspaceScreen({
     super.key,
     required this.controller,
     this.initialSharedPayload,
     this.initialQuickChat = false,
     this.enableNotifications,
+    this.onConnections,
+    this.onPreferencesChanged,
+    this.initialDestination = AppDestination.chats,
   });
   @override
   State<ProfileWorkspaceScreen> createState() => _ProfileWorkspaceScreenState();
@@ -39,18 +48,17 @@ class _ProfileWorkspaceScreenState extends State<ProfileWorkspaceScreen>
     with WidgetsBindingObserver {
   ProfileWorkspaceController get controller => widget.controller;
   final _composer = TextEditingController();
+  final _scaffoldKey = GlobalKey<ScaffoldState>();
   ProfileSessionKey? _composerKey;
   ProfileSessionKey? _loadingIntelligence;
-  late WorkspaceAccent _accent;
+  late AppDestination _destination;
 
   @override
   void initState() {
     super.initState();
-    _accent = WorkspaceAccent.fromName(
-      controller.preferences.getString(WorkspaceAccent.preferenceKey),
-    );
+    _destination = widget.initialDestination;
     WidgetsBinding.instance.addObserver(this);
-    controller.visible = true;
+    controller.visible = _destination == AppDestination.chats;
     unawaited(_enter());
   }
 
@@ -72,7 +80,9 @@ class _ProfileWorkspaceScreenState extends State<ProfileWorkspaceScreen>
 
   @override
   void didChangeAppLifecycleState(AppLifecycleState state) {
-    controller.visible = state == AppLifecycleState.resumed;
+    controller.visible =
+        state == AppLifecycleState.resumed &&
+        _destination == AppDestination.chats;
     if (state == AppLifecycleState.resumed && controller.current != null) {
       unawaited(controller.reconnect(controller.current!.scope));
     }
@@ -100,7 +110,12 @@ class _ProfileWorkspaceScreenState extends State<ProfileWorkspaceScreen>
 
   @override
   Widget build(BuildContext context) => Theme(
-    data: profileWorkspaceTheme(Theme.of(context), accent: _accent),
+    data: profileWorkspaceTheme(
+      Theme.of(context),
+      accent: WorkspaceAccent.fromName(
+        controller.preferences.getString(WorkspaceAccent.preferenceKey),
+      ),
+    ),
     child: Builder(builder: (context) => _buildWorkspace(context)),
   );
 
@@ -116,21 +131,25 @@ class _ProfileWorkspaceScreenState extends State<ProfileWorkspaceScreen>
           selection: TextSelection.collapsed(offset: chat?.draft.length ?? 0),
         );
       }
+      if (_destination != AppDestination.chats) {
+        return _secondaryDestination(context);
+      }
       if (chat == null) {
         return ProfileWorkspaceBrowser(
           key: ValueKey(current?.scope),
           controller: controller,
           newProject: _projectDialog,
-          enableNotifications: widget.enableNotifications,
-          appearance: () => _chooseAccent(context),
+          drawer: _drawer(),
         );
       }
       return PopScope(
         canPop: false,
         onPopInvokedWithResult: (didPop, _) {
-          if (!didPop) controller.showList();
+          if (!didPop) _handleBack(controller.showList);
         },
         child: Scaffold(
+          key: _scaffoldKey,
+          drawer: _drawer(),
           appBar: AppBar(
             leading: IconButton(
               icon: const Icon(Icons.arrow_back),
@@ -163,17 +182,13 @@ class _ProfileWorkspaceScreenState extends State<ProfileWorkspaceScreen>
               ],
             ),
             actions: [
-              IconButton(
-                tooltip: 'Accent color',
-                icon: const Icon(Icons.palette_outlined, size: 21),
-                onPressed: () => _chooseAccent(context),
-              ),
-              if (widget.enableNotifications != null)
-                IconButton(
-                  tooltip: 'Enable completion notifications',
-                  icon: const Icon(Icons.notifications_outlined),
-                  onPressed: () => _run(widget.enableNotifications!),
+              Builder(
+                builder: (context) => IconButton(
+                  tooltip: 'Open navigation menu',
+                  icon: const Icon(Icons.menu),
+                  onPressed: () => Scaffold.of(context).openDrawer(),
                 ),
+              ),
               IconButton(
                 tooltip: 'Refresh workspace',
                 icon: const Icon(Icons.refresh),
@@ -615,64 +630,97 @@ class _ProfileWorkspaceScreenState extends State<ProfileWorkspaceScreen>
     }
   }
 
-  Future<void> _chooseAccent(BuildContext context) async {
-    final choice = await showDialog<WorkspaceAccent>(
-      context: context,
-      builder: (context) => AlertDialog(
-        title: const Text('Accent color'),
-        content: SizedBox(
-          width: 300,
-          child: SingleChildScrollView(
-            child: Column(
-              mainAxisSize: MainAxisSize.min,
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                const Text(
-                  'Personalize this device. Status colors stay consistent.',
-                ),
-                const SizedBox(height: 20),
-                Wrap(
-                  spacing: 8,
-                  runSpacing: 8,
-                  children: [
-                    for (final accent in WorkspaceAccent.values)
-                      ChoiceChip(
-                        key: ValueKey('accent-${accent.name}'),
-                        label: Text(accent.label),
-                        selected: _accent == accent,
-                        avatar: CircleAvatar(
-                          backgroundColor:
-                              Theme.of(context).brightness == Brightness.dark
-                              ? accent.dark
-                              : accent.light,
-                          radius: 9,
-                        ),
-                        onSelected: (_) => Navigator.pop(context, accent),
-                      ),
-                  ],
-                ),
-              ],
-            ),
-          ),
-        ),
+  void _handleBack(VoidCallback navigateBack) {
+    if (_scaffoldKey.currentState?.isDrawerOpen == true) {
+      _scaffoldKey.currentState!.closeDrawer();
+    } else {
+      navigateBack();
+    }
+  }
+
+  Widget _drawer() => AppDrawer(
+    selected: _destination,
+    connectionLabel: controller.connection.label,
+    profileLabel: controller.current?.scope.profileName,
+    onSelected: _selectDestination,
+  );
+
+  void _selectDestination(AppDestination destination) {
+    FocusManager.instance.primaryFocus?.unfocus();
+    if (destination == AppDestination.connections) {
+      if (widget.onConnections != null) {
+        widget.onConnections!();
+      } else {
+        Navigator.of(context).maybePop();
+      }
+      return;
+    }
+    setState(() => _destination = destination);
+    controller.visible = destination == AppDestination.chats;
+  }
+
+  Widget _secondaryDestination(BuildContext context) => PopScope(
+    canPop: false,
+    onPopInvokedWithResult: (didPop, _) {
+      if (!didPop) _handleBack(() => _selectDestination(AppDestination.chats));
+    },
+    child: Scaffold(
+      key: _scaffoldKey,
+      drawer: _drawer(),
+      appBar: AppBar(
+        title: Text(_destination.label),
         actions: [
-          TextButton(
-            onPressed: () => Navigator.pop(context),
-            child: const Text('Cancel'),
+          if (_destination != AppDestination.settings)
+            IconButton(
+              tooltip: 'Refresh workspace',
+              icon: const Icon(Icons.refresh),
+              onPressed: controller.switching
+                  ? null
+                  : () => _run(controller.refresh),
+            ),
+        ],
+      ),
+      body: Column(
+        children: [
+          if (controller.switching && _destination != AppDestination.settings)
+            const LinearProgressIndicator(),
+          if (controller.error != null &&
+              _destination != AppDestination.settings)
+            ListTile(
+              title: Text(controller.error!),
+              trailing: TextButton(
+                onPressed: () => _run(controller.retry),
+                child: const Text('Retry'),
+              ),
+            ),
+          Expanded(
+            child: switch (_destination) {
+              AppDestination.settings => AppSettingsContent(
+                preferences: controller.preferences,
+                enableNotifications: widget.enableNotifications,
+                onChanged: () {
+                  setState(() {});
+                  widget.onPreferencesChanged?.call();
+                },
+              ),
+              AppDestination.activity => WorkspaceActivityContent(
+                controller: controller,
+                onOpen: (chat) => _run(() async {
+                  await controller.openSession(chat.key);
+                  if (mounted) _selectDestination(AppDestination.chats);
+                }),
+              ),
+              _ => HermesAdministrationContent(
+                controller: controller,
+                onConnections: () =>
+                    _selectDestination(AppDestination.connections),
+              ),
+            },
           ),
         ],
       ),
-    );
-    if (choice == null || !mounted) return;
-    await _run(() async {
-      final saved = await controller.preferences.setString(
-        WorkspaceAccent.preferenceKey,
-        choice.name,
-      );
-      if (!saved) throw StateError('Could not save accent color');
-      if (mounted) setState(() => _accent = choice);
-    });
-  }
+    ),
+  );
 
   String _status(ProfileChat chat) => switch (chat.status) {
     ProfileTurnStatus.idle => 'Ready',

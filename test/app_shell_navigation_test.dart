@@ -1,0 +1,169 @@
+import 'package:flutter/material.dart';
+import 'package:flutter_test/flutter_test.dart';
+import 'package:shared_preferences/shared_preferences.dart';
+import 'package:hermes_android/core/screens/profile_workspace_screen.dart';
+import 'package:hermes_android/core/services/profile_workspace_controller.dart';
+import 'package:hermes_android/core/services/connection_manager.dart';
+import 'package:hermes_android/core/widgets/app_drawer.dart';
+import 'package:hermes_android/main.dart';
+
+import 'support/profile_browser_fixture.dart';
+
+void main() {
+  late ProfileBrowserFixture fixture;
+  late ProfileWorkspaceController controller;
+
+  setUp(() async {
+    SharedPreferences.setMockInitialValues({});
+    fixture = ProfileBrowserFixture();
+    controller = ProfileWorkspaceController(
+      connection: SavedConnection(
+        id: 'host',
+        label: 'Prestige',
+        host: 'localhost',
+        port: 1,
+        apiKey: '',
+      ),
+      connectionIdentity: 'shell',
+      preferences: await SharedPreferences.getInstance(),
+      gatewayFactory: fixture.gateway,
+    );
+    await controller.initialize();
+  });
+  tearDown(() => controller.dispose());
+
+  Future<void> show(WidgetTester tester, {double scale = 1}) async {
+    tester.view.physicalSize = const Size(360, 800);
+    tester.view.devicePixelRatio = 1;
+    addTearDown(tester.view.reset);
+    await tester.pumpWidget(
+      MaterialApp(
+        builder: (context, child) => MediaQuery(
+          data: MediaQuery.of(
+            context,
+          ).copyWith(textScaler: TextScaler.linear(scale)),
+          child: child!,
+        ),
+        home: ProfileWorkspaceScreen(controller: controller),
+      ),
+    );
+    await tester.pumpAndSettle();
+  }
+
+  Future<void> navigate(WidgetTester tester, AppDestination destination) async {
+    await tester.tap(find.byTooltip('Open navigation menu'));
+    await tester.pumpAndSettle();
+    final item = find.byKey(ValueKey('nav-${destination.name}'));
+    await tester.ensureVisible(item);
+    await tester.pumpAndSettle();
+    await tester.tap(item);
+    await tester.pumpAndSettle();
+  }
+
+  testWidgets(
+    'settings and administration preserve the open chat and unsent draft',
+    (tester) async {
+      final chat = await controller.createChat();
+      chat.draft = 'Keep this unsent';
+      await show(tester);
+      final callsBefore = fixture.calls.length;
+      await navigate(tester, AppDestination.settings);
+      expect(controller.visible, isFalse);
+      expect(controller.current!.chat, same(chat));
+      await tester.binding.handlePopRoute();
+      await tester.pumpAndSettle();
+      expect(find.text('Keep this unsent'), findsOneWidget);
+      expect(controller.visible, isTrue);
+      await navigate(tester, AppDestination.administration);
+      expect(find.text('Connection and selected profile'), findsOneWidget);
+      expect(controller.current!.chat, same(chat));
+      await navigate(tester, AppDestination.chats);
+      expect(find.text('Keep this unsent'), findsOneWidget);
+      expect(fixture.calls.length, callsBefore);
+      expect(tester.takeException(), isNull);
+    },
+  );
+
+  testWidgets('activity opens its original profile and preserves other drafts', (
+    tester,
+  ) async {
+    final personal = await controller.createChat();
+    personal.draft = 'Personal draft';
+    personal.status = ProfileTurnStatus.attention;
+    await controller.navigateProfile('work');
+    final work = await controller.createChat();
+    work.draft = 'Work draft';
+    await show(tester);
+    await navigate(tester, AppDestination.activity);
+    await tester.tap(
+      find.byKey(
+        ValueKey(
+          'activity-${personal.key.workspace.profileName}-${personal.key.sessionId}',
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+    expect(controller.current!.scope, personal.key.workspace);
+    expect(controller.current!.chat, same(personal));
+    expect(find.text('Personal draft'), findsOneWidget);
+    expect(work.draft, 'Work draft');
+    expect(tester.takeException(), isNull);
+  });
+
+  testWidgets('Back closes the drawer before leaving the chat', (tester) async {
+    final chat = await controller.createChat();
+    chat.draft = 'Still here';
+    await show(tester);
+    await tester.tap(find.byTooltip('Open navigation menu'));
+    await tester.pumpAndSettle();
+    await tester.binding.handlePopRoute();
+    await tester.pumpAndSettle();
+    expect(find.byType(AppDrawer), findsNothing);
+    expect(controller.current!.chat, same(chat));
+    expect(find.text('Still here'), findsOneWidget);
+  });
+
+  testWidgets('drawer and settings fit a narrow device at large text size', (
+    tester,
+  ) async {
+    await show(tester, scale: 2);
+    await navigate(tester, AppDestination.settings);
+    expect(find.text('Theme'), findsOneWidget);
+    expect(tester.takeException(), isNull);
+    await navigate(tester, AppDestination.administration);
+    expect(find.text('Connection and selected profile'), findsOneWidget);
+    expect(tester.takeException(), isNull);
+  });
+
+  testWidgets('disconnected shell offers setup and device settings only', (
+    tester,
+  ) async {
+    final manager = await ConnectionManager.create(controller.preferences);
+    await tester.pumpWidget(
+      MaterialApp(home: HomeScreen(connManager: manager)),
+    );
+    await tester.pumpAndSettle();
+    expect(find.text('Connect to Hermes'), findsOneWidget);
+    await tester.tap(find.byTooltip('Open navigation menu'));
+    await tester.pumpAndSettle();
+    for (final destination in [
+      AppDestination.chats,
+      AppDestination.activity,
+      AppDestination.administration,
+    ]) {
+      expect(
+        tester
+            .widget<ListTile>(find.byKey(ValueKey('nav-${destination.name}')))
+            .enabled,
+        isFalse,
+      );
+    }
+    await tester.tap(find.byKey(const ValueKey('nav-settings')));
+    await tester.pumpAndSettle();
+    expect(find.text('Theme'), findsOneWidget);
+    await tester.binding.handlePopRoute();
+    await tester.pumpAndSettle();
+    expect(find.text('Connect to Hermes'), findsOneWidget);
+    expect(tester.takeException(), isNull);
+  });
+}

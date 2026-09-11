@@ -9,7 +9,6 @@ import 'core/services/config_backup.dart';
 import 'core/services/config_backup_io.dart';
 import 'core/services/config_backup_service.dart';
 import 'core/services/connection_manager.dart';
-import 'core/services/gateway_turn_application_controller.dart';
 import 'core/services/text_size_preference.dart';
 import 'core/screens/profile_workspace_screen.dart';
 import 'core/services/profile_workspace_controller.dart';
@@ -20,7 +19,9 @@ import 'core/services/profiles_repository.dart';
 import 'core/models/hermes_profile.dart';
 import 'core/services/turn_notification_service.dart';
 import 'core/theme/hermes_theme.dart';
-import 'core/utils/responsive.dart';
+import 'core/theme/profile_workspace_theme.dart';
+import 'core/widgets/app_drawer.dart';
+import 'core/screens/app_settings_content.dart';
 import 'core/widgets/config_backup_card.dart';
 
 void main() async {
@@ -83,8 +84,8 @@ class HermesApp extends StatefulWidget {
 }
 
 class HermesAppState extends State<HermesApp> {
-  late final GatewayTurnApplicationController _turnApplicationController;
   final _navigatorKey = GlobalKey<NavigatorState>();
+  final _homeKey = GlobalKey<HomeScreenState>();
   late final ProfileWorkspaceRegistry _profileControllers;
   late final PluginTurnNotificationSink _profileNotifications;
   late final Future<void> _notificationsReady;
@@ -131,6 +132,8 @@ class HermesAppState extends State<HermesApp> {
           builder: (_) => ProfileWorkspaceScreen(
             controller: controller,
             enableNotifications: enableProfileNotifications,
+            onConnections: openConnections,
+            onPreferencesChanged: refreshPreferences,
           ),
         ),
       );
@@ -152,7 +155,6 @@ class HermesAppState extends State<HermesApp> {
   @override
   void initState() {
     super.initState();
-    _turnApplicationController = GatewayTurnApplicationController();
     _profileNotifications = PluginTurnNotificationSink(
       onOpen: (payload) {
         unawaited(
@@ -188,6 +190,15 @@ class HermesAppState extends State<HermesApp> {
     );
   }
 
+  void refreshPreferences() {
+    if (mounted) setState(() {});
+  }
+
+  void openConnections() {
+    _homeKey.currentState?.showConnections();
+    _navigatorKey.currentState?.popUntil((route) => route.isFirst);
+  }
+
   Future<void> setTextSizePreference(TextSizePreference preference) async {
     await TextSizePreferenceStore(widget.connManager.prefs).save(preference);
     if (mounted) setState(() {});
@@ -197,10 +208,20 @@ class HermesAppState extends State<HermesApp> {
   Widget build(BuildContext context) {
     return MaterialApp(
       navigatorKey: _navigatorKey,
-      title: 'Hermes Agent',
+      title: 'Hermes',
       themeMode: HermesApp.getThemeMode(widget.connManager.prefs),
-      theme: hermesTheme(Brightness.light),
-      darkTheme: hermesTheme(Brightness.dark),
+      theme: profileWorkspaceTheme(
+        hermesTheme(Brightness.light),
+        accent: WorkspaceAccent.fromName(
+          widget.connManager.prefs.getString(WorkspaceAccent.preferenceKey),
+        ),
+      ),
+      darkTheme: profileWorkspaceTheme(
+        hermesTheme(Brightness.dark),
+        accent: WorkspaceAccent.fromName(
+          widget.connManager.prefs.getString(WorkspaceAccent.preferenceKey),
+        ),
+      ),
       builder: (context, child) {
         final systemMediaQuery = MediaQuery.of(context);
         final preference = HermesApp.getTextSizePreference(
@@ -214,10 +235,11 @@ class HermesAppState extends State<HermesApp> {
         );
       },
       home: HomeScreen(
+        key: _homeKey,
         profileController: profileController,
         enableProfileNotifications: enableProfileNotifications,
         connManager: widget.connManager,
-        turnApplicationController: _turnApplicationController,
+        onPreferencesChanged: refreshPreferences,
         shareIntents: widget.shareIntents,
         launchIntents: widget.launchIntents,
       ),
@@ -226,56 +248,8 @@ class HermesAppState extends State<HermesApp> {
 
   @override
   void dispose() {
-    unawaited(_turnApplicationController.close());
     _profileControllers.dispose();
     super.dispose();
-  }
-}
-
-/// Brand header used across screens.
-class HermesHeader extends StatelessWidget {
-  final String? subtitle;
-  const HermesHeader({super.key, this.subtitle});
-
-  @override
-  Widget build(BuildContext context) {
-    return Container(
-      width: double.infinity,
-      padding: const EdgeInsets.fromLTRB(20, 48, 20, 20),
-      decoration: const BoxDecoration(
-        color: Colors.black,
-        border: Border(
-          bottom: BorderSide(color: Color(0xFFD4AF37), width: 0.5),
-        ),
-      ),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        mainAxisSize: MainAxisSize.min,
-        children: [
-          Text(
-            'HERMES',
-            style: TextStyle(
-              fontFamily: 'Cinzel',
-              fontSize: 28,
-              fontWeight: FontWeight.w700,
-              color: const Color(0xFFD4AF37),
-              letterSpacing: 6,
-            ),
-          ),
-          if (subtitle != null) ...[
-            const SizedBox(height: 4),
-            Text(
-              subtitle!,
-              style: TextStyle(
-                fontSize: 13,
-                color: Colors.grey[600],
-                letterSpacing: 1,
-              ),
-            ),
-          ],
-        ],
-      ),
-    );
   }
 }
 
@@ -284,7 +258,7 @@ class HomeScreen extends StatefulWidget {
   profileController;
   final Future<void> Function()? enableProfileNotifications;
   final ConnectionManager connManager;
-  final GatewayTurnApplicationController turnApplicationController;
+  final VoidCallback? onPreferencesChanged;
   final AndroidShareIntentService? shareIntents;
   final AndroidLaunchIntentService? launchIntents;
   final Future<String?> Function()? pickBackupFile;
@@ -299,7 +273,7 @@ class HomeScreen extends StatefulWidget {
     this.profileController,
     this.enableProfileNotifications,
     required this.connManager,
-    required this.turnApplicationController,
+    this.onPreferencesChanged,
     this.shareIntents,
     this.launchIntents,
     this.pickBackupFile,
@@ -313,7 +287,10 @@ class HomeScreen extends StatefulWidget {
 
 class HomeScreenState extends State<HomeScreen> {
   List<SavedConnection> _connections = [];
+  final _scaffoldKey = GlobalKey<ScaffoldState>();
   bool _autoNavigated = false;
+  bool _opening = false;
+  AppDestination _destination = AppDestination.connections;
   static const String _lastConnectionKey = 'last_connection_id';
 
   void _refresh() {
@@ -323,6 +300,10 @@ class HomeScreenState extends State<HomeScreen> {
   /// Public only so the import flow and its widget test can refresh Home after
   /// restoring connections without restarting the process.
   void refreshConnections() => _refresh();
+
+  void showConnections() {
+    if (mounted) setState(() => _destination = AppDestination.connections);
+  }
 
   ConfigBackupIo get _backupIo =>
       ConfigBackupIo(connectionManager: widget.connManager);
@@ -439,7 +420,12 @@ class HomeScreenState extends State<HomeScreen> {
     });
   }
 
-  Future<void> _navigateToWorkspace(SavedConnection conn) async {
+  Future<void> _navigateToWorkspace(
+    SavedConnection conn, {
+    AppDestination destination = AppDestination.chats,
+  }) async {
+    if (_opening) return;
+    setState(() => _opening = true);
     final ProfileWorkspaceController controller;
     try {
       controller = await widget.profileController!(conn);
@@ -454,6 +440,8 @@ class HomeScreenState extends State<HomeScreen> {
         );
       }
       return;
+    } finally {
+      if (mounted) setState(() => _opening = false);
     }
     if (!mounted) return;
     widget.connManager.prefs.setString(_lastConnectionKey, conn.id);
@@ -467,6 +455,16 @@ class HomeScreenState extends State<HomeScreen> {
         builder: (_) => ProfileWorkspaceScreen(
           controller: controller,
           enableNotifications: widget.enableProfileNotifications,
+          initialDestination: sharedPayload != null || initialQuickChat
+              ? AppDestination.chats
+              : destination,
+          onConnections: () {
+            if (mounted) {
+              setState(() => _destination = AppDestination.connections);
+            }
+            Navigator.of(context).popUntil((route) => route.isFirst);
+          },
+          onPreferencesChanged: widget.onPreferencesChanged,
           initialSharedPayload: sharedPayload,
           initialQuickChat: initialQuickChat,
         ),
@@ -539,11 +537,21 @@ class HomeScreenState extends State<HomeScreen> {
     return Card(
       margin: const EdgeInsets.symmetric(horizontal: 16, vertical: 4),
       child: ListTile(
-        leading: const Icon(Icons.router, color: Color(0xFFD4AF37)),
+        leading: CircleAvatar(
+          backgroundColor: Theme.of(
+            context,
+          ).colorScheme.primary.withValues(alpha: 0.12),
+          child: Icon(
+            Icons.dns_outlined,
+            color: Theme.of(context).colorScheme.primary,
+          ),
+        ),
         title: Text(conn.label),
         subtitle: Text(
           '${conn.host}:${conn.dashboardPort}${conn.dashboardPrefix ?? ''}',
-          style: TextStyle(color: Colors.grey[600]),
+          style: TextStyle(
+            color: Theme.of(context).colorScheme.onSurfaceVariant,
+          ),
         ),
         trailing: PopupMenuButton<String>(
           onSelected: (v) async {
@@ -566,97 +574,146 @@ class HomeScreenState extends State<HomeScreen> {
             }
           },
           itemBuilder: (_) => [
-            const PopupMenuItem(value: 'edit', child: Text('Edit Connection')),
+            const PopupMenuItem(value: 'edit', child: Text('Edit connection')),
             const PopupMenuItem(
               value: 'delete',
               child: Text('Delete', style: TextStyle(color: Colors.red)),
             ),
           ],
         ),
-        onTap: () => _navigateToWorkspace(conn),
+        onTap: _opening ? null : () => _navigateToWorkspace(conn),
       ),
     );
   }
 
+  void _selectDestination(AppDestination destination) {
+    if (destination == AppDestination.connections ||
+        destination == AppDestination.settings) {
+      setState(() => _destination = destination);
+      return;
+    }
+    final connection = _connectionForExternalAction();
+    if (connection != null) {
+      _navigateToWorkspace(connection, destination: destination);
+    }
+  }
+
   @override
   Widget build(BuildContext context) {
-    return Scaffold(
-      appBar: AppBar(
-        title: Text(
-          'HERMES',
-          style: TextStyle(
-            fontFamily: 'Cinzel',
-            fontWeight: FontWeight.w700,
-            letterSpacing: 6,
-            fontSize: 22,
-          ),
+    final connection = _connectionForExternalAction();
+    return PopScope(
+      canPop: _destination == AppDestination.connections,
+      onPopInvokedWithResult: (didPop, _) {
+        if (!didPop) {
+          if (_scaffoldKey.currentState?.isDrawerOpen == true) {
+            _scaffoldKey.currentState!.closeDrawer();
+          } else {
+            _selectDestination(AppDestination.connections);
+          }
+        }
+      },
+      child: Scaffold(
+        key: _scaffoldKey,
+        drawer: AppDrawer(
+          selected: _destination,
+          connectionLabel: connection?.label,
+          hasConnection: connection != null && widget.profileController != null,
+          onSelected: _selectDestination,
         ),
-        centerTitle: true,
-        actions: [
-          if (_connections.isNotEmpty)
-            IconButton(
-              key: const Key('home_restore_config_menu'),
-              tooltip: 'Restore configuration',
-              onPressed: _showRestoreConfig,
-              icon: const Icon(Icons.settings_backup_restore),
-            ),
-        ],
-      ),
-      body: _connections.isEmpty
-          ? Center(
-              child: Column(
-                mainAxisSize: MainAxisSize.min,
+        appBar: AppBar(
+          title: Text(_destination.label),
+          actions: [
+            if (_destination == AppDestination.connections &&
+                _connections.isNotEmpty)
+              IconButton(
+                key: const Key('home_restore_config_menu'),
+                tooltip: 'Restore configuration',
+                onPressed: _showRestoreConfig,
+                icon: const Icon(Icons.settings_backup_restore),
+              ),
+          ],
+        ),
+        body: _destination == AppDestination.settings
+            ? AppSettingsContent(
+                preferences: widget.connManager.prefs,
+                enableNotifications: widget.enableProfileNotifications,
+                onChanged: () {
+                  setState(() {});
+                  widget.onPreferencesChanged?.call();
+                },
+              )
+            : Column(
                 children: [
-                  Icon(Icons.cloud_outlined, size: 64, color: Colors.grey[800]),
-                  const SizedBox(height: 16),
-                  Text(
-                    'No connections',
-                    style: Theme.of(context).textTheme.headlineSmall,
-                  ),
-                  const SizedBox(height: 8),
-                  Text(
-                    'Tap + to connect to a profile-aware Hermes gateway',
-                    style: Theme.of(
-                      context,
-                    ).textTheme.bodyMedium?.copyWith(color: Colors.grey[600]),
-                    textAlign: TextAlign.center,
-                  ),
-                  const SizedBox(height: 20),
-                  OutlinedButton.icon(
-                    key: const Key('home_restore_config_button'),
-                    onPressed: _showRestoreConfig,
-                    icon: const Icon(Icons.settings_backup_restore),
-                    label: const Text('Restore configuration'),
+                  if (_opening) const LinearProgressIndicator(),
+                  Expanded(
+                    child: _connections.isEmpty
+                        ? ListView(
+                            padding: const EdgeInsets.symmetric(
+                              horizontal: 32,
+                              vertical: 64,
+                            ),
+                            children: [
+                              Icon(
+                                Icons.dns_outlined,
+                                size: 48,
+                                color: Theme.of(context).colorScheme.primary,
+                              ),
+                              const SizedBox(height: 24),
+                              Text(
+                                'Connect to Hermes',
+                                textAlign: TextAlign.center,
+                                style: Theme.of(
+                                  context,
+                                ).textTheme.headlineSmall,
+                              ),
+                              const SizedBox(height: 12),
+                              const Text(
+                                'Add your server to open profiles and conversations.',
+                                textAlign: TextAlign.center,
+                              ),
+                              const SizedBox(height: 24),
+                              FilledButton.icon(
+                                onPressed: _showAddDialog,
+                                icon: const Icon(Icons.add),
+                                label: const Text('Add connection'),
+                              ),
+                              const SizedBox(height: 12),
+                              OutlinedButton.icon(
+                                key: const Key('home_restore_config_button'),
+                                onPressed: _showRestoreConfig,
+                                icon: const Icon(Icons.settings_backup_restore),
+                                label: const Text('Restore configuration'),
+                              ),
+                            ],
+                          )
+                        : Align(
+                            alignment: Alignment.topCenter,
+                            child: ConstrainedBox(
+                              constraints: const BoxConstraints(maxWidth: 720),
+                              child: ListView.builder(
+                                padding: const EdgeInsets.only(
+                                  top: 12,
+                                  bottom: 96,
+                                ),
+                                itemCount: _connections.length,
+                                itemBuilder: (_, i) =>
+                                    _buildConnectionCard(_connections[i]),
+                              ),
+                            ),
+                          ),
                   ),
                 ],
               ),
-            )
-          : LayoutBuilder(
-              builder: (context, constraints) {
-                if (Responsive.isTablet(context)) {
-                  return GridView.builder(
-                    padding: const EdgeInsets.all(16),
-                    gridDelegate: SliverGridDelegateWithFixedCrossAxisCount(
-                      crossAxisCount: Responsive.gridColumns(context),
-                      childAspectRatio: 2.5,
-                      crossAxisSpacing: 12,
-                      mainAxisSpacing: 12,
-                    ),
-                    itemCount: _connections.length,
-                    itemBuilder: (_, i) =>
-                        _buildConnectionCard(_connections[i]),
-                  );
-                }
-                return ListView.builder(
-                  itemCount: _connections.length,
-                  itemBuilder: (_, i) => _buildConnectionCard(_connections[i]),
-                );
-              },
-            ),
-      floatingActionButton: FloatingActionButton(
-        tooltip: 'Add Connection',
-        onPressed: _showAddDialog,
-        child: const Icon(Icons.add, color: Colors.black),
+        floatingActionButton:
+            _destination == AppDestination.connections &&
+                _connections.isNotEmpty
+            ? FloatingActionButton.extended(
+                tooltip: 'Add Connection',
+                onPressed: _showAddDialog,
+                icon: const Icon(Icons.add),
+                label: const Text('Add connection'),
+              )
+            : null,
       ),
     );
   }
@@ -820,9 +877,7 @@ class _AddDialogState extends State<_AddDialog> {
   @override
   Widget build(BuildContext context) {
     return AlertDialog(
-      title: Text(
-        _isEditing ? 'Edit Gateway Connection' : 'Add Gateway Connection',
-      ),
+      title: Text(_isEditing ? 'Edit connection' : 'Add connection'),
       content: SingleChildScrollView(
         child: Column(
           mainAxisSize: MainAxisSize.min,
@@ -875,9 +930,25 @@ class _AddDialogState extends State<_AddDialog> {
               controller: _port,
               decoration: const InputDecoration(
                 labelText: 'Port',
-                hintText: 'Hermes gateway port',
+                hintText: 'Hermes dashboard port',
               ),
               keyboardType: TextInputType.number,
+            ),
+            const SizedBox(height: 12),
+            TextField(
+              controller: _dashUser,
+              decoration: const InputDecoration(
+                labelText: 'Username (optional)',
+              ),
+              autocorrect: false,
+            ),
+            const SizedBox(height: 12),
+            TextField(
+              controller: _dashPass,
+              decoration: const InputDecoration(
+                labelText: 'Password (optional)',
+              ),
+              obscureText: true,
             ),
             const SizedBox(height: 12),
             const SizedBox(height: 4),
@@ -892,12 +963,16 @@ class _AddDialogState extends State<_AddDialog> {
                     Icon(
                       _showDashboard ? Icons.expand_less : Icons.expand_more,
                       size: 20,
-                      color: Colors.grey[500],
+                      color: Theme.of(context).colorScheme.onSurfaceVariant,
                     ),
                     const SizedBox(width: 4),
-                    Text(
-                      'Custom proxy and dashboard details',
-                      style: TextStyle(color: Colors.grey[500], fontSize: 13),
+                    Expanded(
+                      child: Text(
+                        'Custom proxy and dashboard details',
+                        style: TextStyle(
+                          color: Theme.of(context).colorScheme.onSurfaceVariant,
+                        ),
+                      ),
                     ),
                   ],
                 ),
@@ -919,16 +994,17 @@ class _AddDialogState extends State<_AddDialog> {
                 value: _dashboardProxied,
                 contentPadding: EdgeInsets.zero,
                 title: const Text('Dashboard behind proxy'),
-                subtitle: const Text(
-                  'Nginx injects auth — app sends clean requests',
-                ),
+                subtitle: const Text('The proxy supplies authentication.'),
                 onChanged: (v) => setState(() => _dashboardProxied = v),
               ),
               Padding(
                 padding: const EdgeInsets.only(bottom: 4),
                 child: Text(
                   'Use the gateway address and authentication configured on your Hermes host.',
-                  style: TextStyle(color: Colors.grey[600], fontSize: 12),
+                  style: TextStyle(
+                    color: Theme.of(context).colorScheme.onSurfaceVariant,
+                    fontSize: 12,
+                  ),
                 ),
               ),
               TextField(
@@ -941,28 +1017,12 @@ class _AddDialogState extends State<_AddDialog> {
               ),
               const SizedBox(height: 12),
               TextField(
-                controller: _dashUser,
-                decoration: const InputDecoration(
-                  labelText: 'Dashboard Username (optional)',
-                ),
-                autocorrect: false,
-              ),
-              const SizedBox(height: 12),
-              TextField(
-                controller: _dashPass,
-                decoration: const InputDecoration(
-                  labelText: 'Dashboard Password (optional)',
-                ),
-                obscureText: true,
-              ),
-              const SizedBox(height: 12),
-              TextField(
                 controller: _desktopGatewayUrl,
                 decoration: const InputDecoration(
                   labelText: 'Desktop Gateway URL (optional)',
                   hintText: 'https://hermes-desktop.example.lan',
                   helperText:
-                      'Enables file attachments through the Desktop remote gateway.',
+                      'Override the gateway address supplied by the dashboard.',
                 ),
                 keyboardType: TextInputType.url,
                 autocorrect: false,
