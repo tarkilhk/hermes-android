@@ -33,6 +33,7 @@ class Host {
   Completer<void>? projectDelay;
   bool wrongProjectOwner = false;
   Map<String, dynamic> clarifyResult = {'status': 'ok'};
+  Map<String, dynamic> steerResult = {'status': 'queued'};
   Future<ProfileDiscovery> discover() async => ProfileDiscovery(
     profiles: profiles.map((p) => HermesProfile(name: p)).toList(),
     currentName: 'a',
@@ -91,6 +92,7 @@ class Host {
           await approvalDelay?.future;
           if (approvalFails) throw TimeoutException('Approval failed');
         }
+        if (method == 'session.steer') return steerResult;
         if (method == 'session.resume' && resumeFailures > 0) {
           resumeFailures--;
           throw TimeoutException('Session resume temporarily unavailable');
@@ -352,6 +354,33 @@ void main() {
         'session.interrupt',
       ]),
     );
+  });
+
+  test(
+    'steer preserves ownership and reports accepted or rejected status',
+    () async {
+      final chat = await controller.createChat();
+      chat.draft = 'hello';
+      await controller.send(chat);
+      expect(await controller.steer(chat, 'focus on the error'), isTrue);
+      expect(host.calls.last.$2, 'session.steer');
+      expect(host.calls.last.$3, {
+        'session_id': 'a-runtime',
+        'text': 'focus on the error',
+        'profile': 'a',
+      });
+
+      host.steerResult = {'status': 'rejected'};
+      expect(await controller.steer(chat, 'keep this draft'), isFalse);
+      expect(chat.runtimeId, 'a-runtime');
+    },
+  );
+
+  test('steer rejects slash text and a chat without a running turn', () async {
+    final chat = await controller.createChat();
+    expect(await controller.steer(chat, '/status'), isFalse);
+    expect(await controller.steer(chat, 'later'), isFalse);
+    expect(host.calls.where((call) => call.$2 == 'session.steer'), isEmpty);
   });
 
   test('approval accepts each server-supported scope', () async {

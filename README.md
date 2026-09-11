@@ -8,7 +8,7 @@ This is the `tarkilhk/hermes-android` fork. Its current interface and roadmap ar
 
 The [owner-selected product plan](docs/PRODUCT_PLAN.md) is the source of truth for what we intend to build. It records the feature selections, exclusions, incremental work packages and progress. Planned features are not claims about the current app.
 
-The app uses a left hamburger drawer for Chats, Activity, Connections, App settings and Hermes administration. Hermes owns work state; the phone preserves unsent drafts and uses server refresh to recover current history and status. Broad backend administration is a later, small start that can grow. Voice, bots, Cron/messaging/webhook administration, offline history and a general filesystem browser are outside the initial scope.
+The app uses a left hamburger drawer for Chats, Activity, Connections, App settings and Hermes administration. Hermes owns work state; the phone preserves unsent drafts and client-owned follow-up queues, and uses server refresh to recover current history and status. Broad backend administration is a later, small start that can grow. Voice, bots, Cron/messaging/webhook administration, offline history and a general filesystem browser are outside the initial scope.
 
 The [Desktop/Android comparison](docs/HERMES_DESKTOP_ANDROID_FEATURE_ANALYSIS.md) and [source inventories](docs/README.md#research-preserved-for-future-work) preserve the research behind the decisions. The [documentation index](docs/README.md) distinguishes current contracts from historical plans.
 
@@ -17,23 +17,24 @@ The [Desktop/Android comparison](docs/HERMES_DESKTOP_ANDROID_FEATURE_ANALYSIS.md
 The current connection flow opens `ProfileWorkspaceScreen`, which owns the drawer and the existing chat workspace. Implemented behavior includes:
 
 - Saved connections in the shared app style, password setup, modern dashboard/gateway validation, profile discovery and client-local profile switching.
-- Drawer navigation, existing local Activity, reachable theme/accent/text-size and notification permission controls, and a read-only administration entry showing discovered connection/profile information.
+- Drawer navigation, Activity discovery across profiles, reachable theme/accent/text-size and notification controls, and a read-only administration entry showing discovered connection/profile information. Activity reports profiles it could not reach.
 - Separate profile-owned conversations and running work, with reconnect and server-history refresh.
 - Projects, recent and pinned chats, paginated session/history loading, full-text conversation search, and an option to include automated chats.
 - Rename, pin/unpin, explicit read/unread, archive/unarchive, delete and move-to-project actions with server-side constraints.
 - Streaming conversations, selectable Markdown/code, basic tool activity and Stop.
 - Per-chat model and reasoning selection, with searchable, expandable technical-provider groups. Server session settings take precedence over former local model overrides.
 - Unsent text and staged attachments survive app restart, scoped to their original connection/profile/chat. An uncertain send retains its draft for checking against server history; it is never resent automatically.
+- Message actions and a long press on Send/Stop offer text-only follow-up queues and steering. Queues run in order while the client is connected, remain separate from the current draft, and pause after failed, stopped or uncertain sends. Queued items can be reviewed and removed.
 - Dynamic slash-command discovery, aliases, argument completion, skill dispatch, and dedicated current-session actions including steering and side questions.
 - Branching at saved answers, regeneration and answer-version navigation. Version grouping is currently stored locally and is a known mismatch with the planned server-owned behavior.
-- Phone file attachments, Android share/launcher intake, server-advertised approval scopes and structured clarification.
-- Local completion/input notifications with device controls and original host/profile/chat routing, plus configuration restore from the connections screen.
+- Phone file attachments, Android share/launcher intake, server-advertised approval scopes and structured clarification. Sudo, secret and vault requests have dedicated response forms; credentials are not saved with drafts or history.
+- Local completion/input notifications with independent device controls, optional chat titles, a test alert and original host/profile/chat routing, plus configuration restore from the connections screen.
 
 The shell cleanup removed the unreachable legacy screens and navigation widgets, including the old chat UI, Spaces, Cron, Memory, Files and Skills screens. Shared service and contract code remains available where useful for later work; no stored user data was deleted. The [Android source inventory](docs/research/HERMES_ANDROID_FEATURE_INVENTORY_2026-09-11.md) records the earlier baseline. [Shell delivery notes](docs/APP_SHELL.md) describe this change and its limits.
 
 A command appearing in the gateway catalog does not prove correct support for every client or session. Terminal-only, messaging-only and host-microphone commands have platform restrictions. `/yolo` now uses the session's reported state and the session-scoped configuration RPC, including during a running turn. See the [delivery sequence](docs/DELIVERY_SEQUENCE.md) for verification limits.
 
-Remote work and phone notification delivery are separate. The app reloads server history and execution/pending-input state when a chat is reopened. Local notifications require an active connection; they do not establish alerts after Android terminates the process. Reliable background notifications and complete server-backed Activity remain roadmap work. Session state remains on Hermes.
+Remote work and phone notification delivery are separate. The app reloads server history and available execution/pending-input state when a chat is reopened. Local notifications require an active connection; reliable background push remains roadmap work. Pending sensitive requests cannot currently be recovered after process death because the inspected resume contract does not expose them. See the [delivery contract checks](docs/research/MOBILE_DELIVERY_CONTRACTS_2026-09-11.md) for source evidence and live-verification limits.
 
 ## Connect to Hermes
 
@@ -51,12 +52,12 @@ The app's current slash/profile contracts and any separately maintained backend 
 
 ## Version and application identity
 
-Source version on 2026-09-11 is `2.1.3+2146` in [pubspec.yaml](pubspec.yaml). This is the checked-out version, not a claim that a matching public release has been published.
+Source version on 2026-09-12 is `2.1.4+2147` in [pubspec.yaml](pubspec.yaml). This is the checked-out version, not a claim that a matching public release has been published.
 
 - Personal release package: `com.tarkilhk.hermes.android`, labelled Hermes Personal.
 - Development package: `com.hermesagent.hermes_android.dev`.
 - The inherited upstream package is separate and is not this fork's release identity.
-- ABI-split codes derive from the base build number; the current ARM64 split uses `21462`.
+- ABI-split codes derive from the base build number; the current ARM64 split uses `21472`.
 
 The [release plan](docs/ANDROID_RELEASE_PLAN.md) and [build configuration](android/app/build.gradle.kts) document identity, signing and version-code rules. The selected S08 work will expose this client's version/build and update information in the app, separately from the backend version.
 

@@ -38,7 +38,16 @@ void main() {
       isTrue,
     );
     expect(permissionRequests, 0);
-    final permission = find.text('Notification permission');
+    final previews = find.widgetWithText(
+      SwitchListTile,
+      'Show chat titles in alerts',
+    );
+    await tester.scrollUntilVisible(previews, 250);
+    expect(tester.widget<SwitchListTile>(previews).value, isFalse);
+    await tester.tap(previews);
+    await tester.pumpAndSettle();
+    expect(preferences.getBool(notificationTitlesKey), isTrue);
+    final permission = find.text('Enable and test notifications');
     await tester.scrollUntilVisible(permission, 250);
     await tester.tap(permission);
     await tester.pumpAndSettle();

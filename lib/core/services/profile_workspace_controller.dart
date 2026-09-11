@@ -8,6 +8,7 @@ import '../models/attachment_draft.dart';
 import '../models/session_visibility.dart';
 import '../models/answer_versions.dart';
 import '../models/hermes_profile.dart';
+import '../models/profile_live_activity.dart';
 import '../models/slash_command.dart';
 import 'attachment_draft_service.dart';
 import 'composer_draft_store.dart';
@@ -18,6 +19,7 @@ import 'profiles_repository.dart';
 import 'ws_client.dart';
 import '../widgets/chat_intelligence_picker.dart';
 import '../models/gateway_approval.dart';
+import '../models/gateway_sensitive_prompt.dart';
 
 class ProfileSessionKey {
   final WorkspaceScope workspace;
@@ -94,6 +96,8 @@ class ProfileChat {
   Map<String, dynamic>? approval;
   bool approvalResponding = false;
   Map<String, dynamic>? clarification;
+  GatewaySensitivePromptRequest? sensitivePrompt;
+  bool sensitivePromptResponding = false;
   List<Map<String, dynamic>> messages = [];
   String? historySessionId;
   int? nextHistoryOffset;
@@ -103,6 +107,11 @@ class ProfileChat {
   double historyScrollOffset = 0;
   bool archived = false;
   final List<AttachmentDraft> attachments = [];
+  final List<String> queuedPrompts = [];
+  bool queuePaused = false;
+  bool steering = false;
+  bool draftRestored = false;
+  bool queueDraining = false;
   ProfileTurnStatus status = ProfileTurnStatus.idle;
   ProfileChat({
     required this.key,
@@ -205,6 +214,12 @@ class ProfileWorkspaceController extends ChangeNotifier {
   int _navigationGeneration = 0;
   bool _closed = false;
   Future<void> _journalQueue = Future.value();
+  List<ProfileLiveActivity> _liveActivity = const [];
+  Map<String, String> _activityProfileErrors = const {};
+  bool activityLoading = false;
+  bool activityLoaded = false;
+  int activityAvailableProfiles = 0;
+  int _activityGeneration = 0;
   SessionVisibility _sessionVisibility = SessionVisibility.chats;
   SessionVisibility get sessionVisibility => _sessionVisibility;
   String get _visibilityKey => 'session_visibility_v1_$connectionIdentity';
@@ -269,6 +284,8 @@ class ProfileWorkspaceController extends ChangeNotifier {
   Iterable<ProfileChat> get activity => _resources.values
       .expand((r) => r.chats.values)
       .where((chat) => chat.status != ProfileTurnStatus.idle);
+  List<ProfileLiveActivity> get liveActivity => _liveActivity;
+  Map<String, String> get activityProfileErrors => _activityProfileErrors;
   bool get switching => pendingProfile != null;
   String get _journalKey => 'profile_pending_v2_$connectionIdentity';
 
@@ -295,6 +312,7 @@ class ProfileWorkspaceController extends ChangeNotifier {
       resource.gateway.onConnectionChanged = (connected) {
         if (!connected && !_closed) {
           for (final chat in resource.chats.values.where((c) => c.busy)) {
+            chat.sensitivePromptResponding = false;
             chat.status = ProfileTurnStatus.reconnecting;
           }
           _scheduleReconnect(resource);
@@ -411,6 +429,130 @@ class ProfileWorkspaceController extends ChangeNotifier {
       await reconnect(resource.scope);
     }
     if (_unrestoredPending.isNotEmpty) await _restorePending();
+  }
+
+  Future<void> refreshActivity() async {
+    final generation = ++_activityGeneration;
+    activityLoading = true;
+    _activityProfileErrors = const {};
+    _changed();
+    try {
+      final profiles = await _resource('default').gateway.discover();
+      final results = await Future.wait(
+        profiles.profiles.map((profile) async {
+          final resource = _resource(profile.name);
+          try {
+            await resource.gateway.connect();
+            final response = await resource.gateway.call('session.active_list');
+            if (response['sessions'] is! List) {
+              throw const FormatException('Missing active sessions');
+            }
+            final activeRows = <Map<String, dynamic>>[];
+            for (final row in ProfileGateway.records(response['sessions'])) {
+              final runtimeId = row['id'];
+              final sessionId = row['session_key'];
+              final status = row['status'];
+              final lastActive = row['last_active'];
+              if (runtimeId is! String ||
+                  runtimeId.isEmpty ||
+                  sessionId is! String ||
+                  sessionId.isEmpty ||
+                  status is! String ||
+                  (lastActive != null && lastActive is! num)) {
+                throw const FormatException('Invalid active session');
+              }
+              final state = switch (status) {
+                'waiting' => ProfileLiveActivityState.needsInput,
+                'working' => ProfileLiveActivityState.running,
+                'starting' => ProfileLiveActivityState.running,
+                _ => null,
+              };
+              if (state == null) continue;
+              activeRows.add({...row, '_activity_state': state});
+            }
+            var metadata = [...resource.visibleSessions, ...resource.sessions];
+            final needsTitles = activeRows.any((row) {
+              final sessionId = row['session_key'];
+              return resource.chats[sessionId]?.title == null &&
+                  !metadata.any(
+                    (entry) =>
+                        entry['id'] == sessionId && entry['title'] is String,
+                  );
+            });
+            if (needsTitles) {
+              try {
+                final page = await resource.gateway.sessions();
+                metadata = [...metadata, ...page.rows];
+              } catch (_) {
+                // Live state remains useful when optional title metadata fails.
+              }
+            }
+            final items = <ProfileLiveActivity>[];
+            for (final row in activeRows) {
+              final runtimeId = row['id'] as String;
+              final sessionId = row['session_key'] as String;
+              final metadataRow = metadata
+                  .where((entry) => entry['id'] == sessionId)
+                  .firstOrNull;
+              final metadataTitle = metadataRow?['title'];
+              final knownTitle =
+                  resource.chats[sessionId]?.title ??
+                  (metadataTitle is String ? metadataTitle.trim() : null);
+              final shortId = sessionId.length <= 8
+                  ? sessionId
+                  : sessionId.substring(0, 8);
+              items.add(
+                ProfileLiveActivity(
+                  workspace: resource.scope,
+                  runtimeId: runtimeId,
+                  sessionId: sessionId,
+                  title: knownTitle == null || knownTitle.isEmpty
+                      ? 'Hermes session · $shortId'
+                      : knownTitle,
+                  lastActive: (row['last_active'] as num?)?.toDouble() ?? 0,
+                  state: row['_activity_state'] as ProfileLiveActivityState,
+                ),
+              );
+            }
+            return (
+              profile: profile.name,
+              items: items,
+              error: null as String?,
+            );
+          } catch (_) {
+            return (
+              profile: profile.name,
+              items: <ProfileLiveActivity>[],
+              error: 'Activity unavailable for ${profile.label}.',
+            );
+          }
+        }),
+      );
+      if (_closed || generation != _activityGeneration) return;
+      final items = results.expand((result) => result.items).toList()
+        ..sort((a, b) => b.lastActive.compareTo(a.lastActive));
+      _liveActivity = List.unmodifiable(items);
+      _activityProfileErrors = Map.unmodifiable({
+        for (final result in results)
+          if (result.error != null) result.profile: result.error!,
+      });
+      activityAvailableProfiles =
+          results.length - _activityProfileErrors.length;
+      activityLoaded = true;
+    } catch (_) {
+      if (_closed || generation != _activityGeneration) return;
+      _liveActivity = const [];
+      _activityProfileErrors = const {
+        'server': 'Activity could not be loaded.',
+      };
+      activityAvailableProfiles = 0;
+      activityLoaded = true;
+    } finally {
+      if (!_closed && generation == _activityGeneration) {
+        activityLoading = false;
+        _changed();
+      }
+    }
   }
 
   Future<void> retry() async {
@@ -768,6 +910,7 @@ class ProfileWorkspaceController extends ChangeNotifier {
     if (current?.chat == chat) {
       if (chat.projectId == null) unawaited(_loadChatProject(resource, chat));
       await refreshHistory(chat);
+      await _drainQueuedPrompts(chat);
     }
   }
 
@@ -1119,14 +1262,16 @@ class ProfileWorkspaceController extends ChangeNotifier {
   }
 
   Future<void> _restoreDraft(ProfileChat chat) async {
-    if (chat.draft.isNotEmpty || chat.attachments.isNotEmpty) return;
+    if (chat.draftRestored) return;
+    chat.draftRestored = true;
     final restored = await _drafts.read(
       profileName: chat.key.workspace.profileName,
       sessionId: chat.key.sessionId,
     );
-    if (restored == null ||
-        chat.draft.isNotEmpty ||
-        chat.attachments.isNotEmpty) {
+    if (restored == null) return;
+    chat.queuedPrompts.addAll(restored.queuedPrompts);
+    chat.queuePaused = restored.queuePaused;
+    if (chat.draft.isNotEmpty || chat.attachments.isNotEmpty) {
       return;
     }
     chat.draft = restored.text;
@@ -1150,6 +1295,8 @@ class ProfileWorkspaceController extends ChangeNotifier {
       text: chat.draft,
       attachments: chat.attachments,
       submissionUncertain: chat.draftSubmissionUncertain,
+      queuedPrompts: chat.queuedPrompts,
+      queuePaused: chat.queuePaused || chat.queueDraining,
     );
   }
 
@@ -1952,37 +2099,40 @@ class ProfileWorkspaceController extends ChangeNotifier {
         if (catalog.warning.isNotEmpty) chat.commandOutput.add(catalog.warning);
       case 'steer':
         if (argument.isEmpty) throw StateError('Usage: /steer <message>');
-        await resource.gateway.call('session.steer', {
-          'session_id': chat.runtimeId,
-          'text': argument,
-        });
-        chat.commandOutput.add('Steering message sent.');
+        if (!await steer(chat, argument)) {
+          throw StateError('Hermes rejected the steering message.');
+        }
+        chat.commandOutput.add('Steering message queued.');
       default:
         return false;
     }
     return true;
   }
 
-  Future<void> _sendPrompt(
+  Future<bool> _sendPrompt(
     ProfileChat chat, {
     String? prompt,
     String? display,
+    bool preserveComposer = false,
   }) async {
     final resource = _owned(chat);
     if (chat.busy ||
         chat.changingAnswer ||
         chat.changingIntelligence ||
         ((prompt ?? chat.draft).trim().isEmpty && chat.attachments.isEmpty)) {
-      return;
+      return false;
     }
     final text = prompt ?? chat.draft.trim();
     final draftAtSubmit = chat.draft;
     chat.lastActive = DateTime.now().millisecondsSinceEpoch / 1000;
-    final files = List<AttachmentDraft>.of(chat.attachments);
+    final files = preserveComposer
+        ? <AttachmentDraft>[]
+        : List<AttachmentDraft>.of(chat.attachments);
     chat.status = ProfileTurnStatus.submitting;
     chat.error = null;
     _changed();
     var submitted = false;
+    var acknowledged = false;
     try {
       await _persistDraft(chat);
       await resource.gateway.requireProfile();
@@ -2024,15 +2174,18 @@ class ProfileWorkspaceController extends ChangeNotifier {
             'session_id': chat.runtimeId,
             'text': [text, ...refs].where((s) => s.isNotEmpty).join('\n\n'),
           });
-          chat.draftSubmissionUncertain = false;
-          if (chat.draft == draftAtSubmit) chat.draft = '';
-          chat.attachments.removeWhere(files.contains);
+          acknowledged = true;
+          if (!preserveComposer) {
+            chat.draftSubmissionUncertain = false;
+            if (chat.draft == draftAtSubmit) chat.draft = '';
+            chat.attachments.removeWhere(files.contains);
+          }
           await _persistDraft(chat);
         },
       );
       await attachments.removeAll(files);
     } catch (e) {
-      if (submitted) {
+      if (submitted && !preserveComposer) {
         chat.draftSubmissionUncertain = true;
         await _persistDraft(chat);
       }
@@ -2046,11 +2199,156 @@ class ProfileWorkspaceController extends ChangeNotifier {
     }
     await _journal();
     _changed();
+    return acknowledged;
   }
 
-  Future<void> stop(ProfileChat chat) async => _owned(
-    chat,
-  ).gateway.call('session.interrupt', {'session_id': chat.runtimeId});
+  Future<void> stop(ProfileChat chat) async {
+    final gateway = _owned(chat).gateway;
+    if (chat.queuedPrompts.isNotEmpty) {
+      chat.queuePaused = true;
+      await _persistDraft(chat);
+    }
+    await gateway.call('session.interrupt', {'session_id': chat.runtimeId});
+  }
+
+  /// Sends one text-only correction to the currently running server turn.
+  /// The caller owns draft/queue handling because a rejected response remains
+  /// unsent local work and must not be mistaken for a delivered turn.
+  Future<bool> steer(ProfileChat chat, String rawText) async {
+    final text = rawText.trim();
+    if (text.isEmpty || text.startsWith('/')) return false;
+    if (chat.attachments.isNotEmpty ||
+        !{
+          ProfileTurnStatus.running,
+          ProfileTurnStatus.attention,
+        }.contains(chat.status)) {
+      return false;
+    }
+    if (chat.steering) {
+      throw StateError('A steering message is already being sent.');
+    }
+    final runtime = chat.runtimeId;
+    chat.steering = true;
+    try {
+      final result = await _owned(
+        chat,
+      ).gateway.call('session.steer', {'session_id': runtime, 'text': text});
+      if (chat.runtimeId != runtime) {
+        throw StateError(
+          'Chat reconnected while steering. Check its history before trying again.',
+        );
+      }
+      final status = result['status']?.toString();
+      if (status == 'queued') return true;
+      if (status == 'rejected') return false;
+      throw const FormatException('Unsupported steering response.');
+    } finally {
+      chat.steering = false;
+      _changed();
+    }
+  }
+
+  Future<void> queuePrompt(ProfileChat chat, String rawText) async {
+    _owned(chat);
+    final text = rawText.trim();
+    if (text.isEmpty || text.startsWith('/') || chat.attachments.isNotEmpty) {
+      throw StateError('Only a text message can be queued.');
+    }
+    chat.queuedPrompts.add(text);
+    if (chat.draft.trim() == text) chat.draft = '';
+    await _persistDraft(chat);
+    _changed();
+    await _drainQueuedPrompts(chat);
+  }
+
+  Future<void> removeQueuedPrompt(
+    ProfileChat chat,
+    int index, {
+    String? expectedText,
+  }) async {
+    _owned(chat);
+    if (chat.queueDraining) return;
+    if (index < 0 || index >= chat.queuedPrompts.length) return;
+    if (expectedText != null && chat.queuedPrompts[index] != expectedText) {
+      return;
+    }
+    chat.queuedPrompts.removeAt(index);
+    await _persistDraft(chat);
+    _changed();
+  }
+
+  Future<void> resumeQueue(ProfileChat chat) async {
+    if (chat.queueDraining) return;
+    final gateway = _owned(chat).gateway;
+    chat.queueDraining = true;
+    _changed();
+    try {
+      _hydrate(chat, await gateway.resume(chat.key.sessionId));
+      await refreshHistory(chat);
+      if (chat.historyError != null) {
+        throw StateError('Refresh history before resuming the queue.');
+      }
+      if (!chat.busy) chat.status = ProfileTurnStatus.idle;
+      chat.queuePaused = false;
+    } finally {
+      chat.queueDraining = false;
+      _changed();
+    }
+    await _persistDraft(chat);
+    await _drainQueuedPrompts(chat);
+  }
+
+  Future<void> _drainQueuedPrompts(ProfileChat chat) async {
+    if (_closed ||
+        chat.queuePaused ||
+        chat.queueDraining ||
+        chat.busy ||
+        chat.queuedPrompts.isEmpty) {
+      return;
+    }
+    if (chat.historyError != null ||
+        chat.draftSubmissionUncertain ||
+        chat.status == ProfileTurnStatus.failed ||
+        chat.status == ProfileTurnStatus.cancelled) {
+      chat.queuePaused = true;
+      await _persistDraft(chat);
+      return;
+    }
+    chat.queueDraining = true;
+    try {
+      while (!_closed &&
+          !chat.queuePaused &&
+          !chat.busy &&
+          chat.queuedPrompts.isNotEmpty) {
+        final text = chat.queuedPrompts.first;
+        // A restart between sending and acknowledgement must never resend this head.
+        await _persistDraft(chat);
+        final accepted = await _sendPrompt(
+          chat,
+          prompt: text,
+          preserveComposer: true,
+        );
+        if (!accepted) {
+          chat.queuePaused = true;
+          break;
+        }
+        chat.queuedPrompts.removeAt(0);
+        await _persistDraft(chat);
+      }
+    } catch (_) {
+      chat.queuePaused = true;
+      chat.error = 'Queue paused. Check this chat before resuming.';
+    } finally {
+      chat.queueDraining = false;
+      try {
+        await _persistDraft(chat);
+      } catch (_) {
+        chat.queuePaused = true;
+        chat.error = 'Queue paused. Unsent messages could not be saved.';
+      }
+      _changed();
+    }
+  }
 
   Future<void> approve(ProfileChat chat, String choice) async {
     final request = chat.approval;
@@ -2133,6 +2431,94 @@ class ProfileWorkspaceController extends ChangeNotifier {
     _changed();
   }
 
+  Future<void> respondSensitivePrompt(
+    ProfileChat chat,
+    String value, {
+    required GatewaySensitivePromptRequest expectedRequest,
+  }) async {
+    final request = chat.sensitivePrompt;
+    if (!identical(request, expectedRequest)) {
+      throw StateError('This request has changed. Review the current request.');
+    }
+    if (chat.sensitivePromptResponding) {
+      throw StateError('A response is already being submitted.');
+    }
+    final resource = _owned(chat);
+    final runtime = chat.runtimeId;
+    final method = switch (request!.kind) {
+      GatewaySensitivePromptKind.sudo => 'sudo.respond',
+      GatewaySensitivePromptKind.secret => 'secret.respond',
+      GatewaySensitivePromptKind.vaultUnlock => 'vault.unlock.respond',
+      GatewaySensitivePromptKind.vaultSaveLogin => 'vault.save_login.respond',
+      GatewaySensitivePromptKind.vaultCode => 'vault.code.respond',
+    };
+    final field = switch (request.kind) {
+      GatewaySensitivePromptKind.sudo => 'password',
+      GatewaySensitivePromptKind.secret => 'value',
+      GatewaySensitivePromptKind.vaultUnlock => 'password',
+      GatewaySensitivePromptKind.vaultSaveLogin => 'login',
+      GatewaySensitivePromptKind.vaultCode => 'code',
+    };
+    final responseValue = request.kind == GatewaySensitivePromptKind.vaultCode
+        ? value.replaceAll(RegExp(r'[\s-]'), '')
+        : value;
+    chat.sensitivePromptResponding = true;
+    _changed();
+    try {
+      await resource.gateway.call(method, {
+        'request_id': request.requestId,
+        field: responseValue,
+      });
+    } catch (error) {
+      final missingPending = _isMissingSensitivePrompt(error, request.kind);
+      if (identical(chat.sensitivePrompt, request)) {
+        chat.sensitivePromptResponding = false;
+        if (chat.runtimeId != runtime || missingPending) {
+          chat.sensitivePrompt = null;
+          if (chat.status == ProfileTurnStatus.attention &&
+              chat.approval == null &&
+              chat.clarification == null) {
+            chat.status = ProfileTurnStatus.running;
+          }
+        }
+        _changed();
+      }
+      if (missingPending) return;
+      rethrow;
+    }
+    if (!identical(chat.sensitivePrompt, request)) {
+      return;
+    }
+    chat.sensitivePromptResponding = false;
+    if (chat.runtimeId != runtime) {
+      chat.sensitivePrompt = null;
+      _changed();
+      return;
+    }
+    chat.sensitivePrompt = null;
+    if (chat.status == ProfileTurnStatus.attention &&
+        chat.approval == null &&
+        chat.clarification == null) {
+      chat.status = ProfileTurnStatus.running;
+    }
+    _changed();
+  }
+
+  bool _isMissingSensitivePrompt(
+    Object error,
+    GatewaySensitivePromptKind kind,
+  ) {
+    if (error is! JsonRpcError) return false;
+    final field = switch (kind) {
+      GatewaySensitivePromptKind.sudo ||
+      GatewaySensitivePromptKind.vaultUnlock => 'password',
+      GatewaySensitivePromptKind.secret => 'value',
+      GatewaySensitivePromptKind.vaultSaveLogin => 'login',
+      GatewaySensitivePromptKind.vaultCode => 'code',
+    };
+    return error.message.toLowerCase().contains('no pending $field request');
+  }
+
   void _event(ProfileWorkspaceData resource, StreamEvent event) {
     if (_closed) return;
     final chat = resource.chats.values
@@ -2171,6 +2557,50 @@ class ProfileWorkspaceController extends ChangeNotifier {
         chat.clarification = event.data;
         chat.status = ProfileTurnStatus.attention;
         _notify(chat, true);
+      case 'sudo.request':
+      case 'secret.request':
+      case 'vault.unlock.request':
+      case 'vault.save_login.request':
+      case 'vault.code.request':
+        final request = GatewaySensitivePromptRequest.fromEventData(
+          kind: switch (event.type) {
+            'sudo.request' => GatewaySensitivePromptKind.sudo,
+            'secret.request' => GatewaySensitivePromptKind.secret,
+            'vault.unlock.request' => GatewaySensitivePromptKind.vaultUnlock,
+            'vault.save_login.request' =>
+              GatewaySensitivePromptKind.vaultSaveLogin,
+            _ => GatewaySensitivePromptKind.vaultCode,
+          },
+          data: event.data,
+        );
+        if (request != null) {
+          chat.sensitivePrompt = request;
+          chat.sensitivePromptResponding = false;
+          chat.status = ProfileTurnStatus.attention;
+          _notify(chat, true);
+        }
+      case 'vault.unlock.expire':
+      case 'vault.save_login.expire':
+      case 'vault.code.expire':
+        final request = chat.sensitivePrompt;
+        final requestId = event.data['request_id']?.toString().trim() ?? '';
+        final kind = switch (event.type) {
+          'vault.unlock.expire' => GatewaySensitivePromptKind.vaultUnlock,
+          'vault.save_login.expire' =>
+            GatewaySensitivePromptKind.vaultSaveLogin,
+          _ => GatewaySensitivePromptKind.vaultCode,
+        };
+        if (requestId.isNotEmpty &&
+            request?.kind == kind &&
+            request?.requestId == requestId) {
+          chat.sensitivePrompt = null;
+          chat.sensitivePromptResponding = false;
+          if (chat.status == ProfileTurnStatus.attention &&
+              chat.approval == null &&
+              chat.clarification == null) {
+            chat.status = ProfileTurnStatus.running;
+          }
+        }
       case 'message.complete':
       case 'turn.end':
         if (chat.busy && chat.status != ProfileTurnStatus.settling) {
@@ -2206,6 +2636,8 @@ class ProfileWorkspaceController extends ChangeNotifier {
     chat.tool = null;
     chat.approval = null;
     chat.clarification = null;
+    chat.sensitivePrompt = null;
+    chat.sensitivePromptResponding = false;
     final finalText = completion['text']?.toString() ?? chat.streaming;
     if (finalText.isNotEmpty) {
       chat.messages.add({'role': 'assistant', 'content': finalText});
@@ -2243,8 +2675,17 @@ class ProfileWorkspaceController extends ChangeNotifier {
         : cancelled
         ? ProfileTurnStatus.cancelled
         : ProfileTurnStatus.completed;
+    if ((failed || cancelled) && chat.queuedPrompts.isNotEmpty) {
+      chat.queuePaused = true;
+      await _persistDraft(chat);
+    }
     await _journal();
-    _notify(chat, failed);
+    if (failed || cancelled || chat.queuedPrompts.isEmpty || chat.queuePaused) {
+      _notify(chat, failed);
+    }
+    if (!failed && !cancelled) {
+      unawaited(_drainQueuedPrompts(chat));
+    }
     _changed();
   }
 
@@ -2299,6 +2740,7 @@ class ProfileWorkspaceController extends ChangeNotifier {
         if (wasBusy && !chat.busy) {
           _notify(chat, chat.status == ProfileTurnStatus.failed);
         }
+        await _drainQueuedPrompts(chat);
       }
       await _journal();
       resource.reconnectAttempt = 0;
@@ -2329,7 +2771,12 @@ class ProfileWorkspaceController extends ChangeNotifier {
     final source = (result['info'] as Map?)?['source'];
     if (source is String && source.isNotEmpty) chat.source = source;
     final wasBusy = chat.busy;
-    chat.runtimeId = result['session_id'] as String;
+    final runtime = result['session_id'] as String;
+    if (chat.runtimeId != runtime) {
+      chat.sensitivePrompt = null;
+      chat.sensitivePromptResponding = false;
+    }
+    chat.runtimeId = runtime;
     _hydrateIntelligence(chat, result);
     final inflight = result['inflight'] as Map?;
     chat.streaming = inflight?['assistant']?.toString() ?? '';
@@ -2342,7 +2789,9 @@ class ProfileWorkspaceController extends ChangeNotifier {
     final failed = inflight?['status'] == 'error';
     chat.status = failed
         ? ProfileTurnStatus.failed
-        : chat.approval != null || chat.clarification != null
+        : chat.approval != null ||
+              chat.clarification != null ||
+              chat.sensitivePrompt != null
         ? ProfileTurnStatus.attention
         : result['running'] == true
         ? ProfileTurnStatus.running
@@ -2404,6 +2853,7 @@ class ProfileWorkspaceController extends ChangeNotifier {
         await _restoreDraft(chat);
         resource.chats[key.sessionId] = chat;
         await refreshHistory(chat);
+        await _drainQueuedPrompts(chat);
         _unrestoredPending.remove(key);
         if (!chat.busy) _notify(chat, chat.status == ProfileTurnStatus.failed);
       } catch (_) {

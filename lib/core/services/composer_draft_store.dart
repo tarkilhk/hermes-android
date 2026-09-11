@@ -9,11 +9,15 @@ class ComposerDraftSnapshot {
   final String text;
   final List<AttachmentDraft> attachments;
   final bool submissionUncertain;
+  final List<String> queuedPrompts;
+  final bool queuePaused;
 
   const ComposerDraftSnapshot({
     required this.text,
     required this.attachments,
     required this.submissionUncertain,
+    this.queuedPrompts = const [],
+    this.queuePaused = false,
   });
 }
 
@@ -69,6 +73,10 @@ class ComposerDraftStore {
       text: text,
       attachments: attachments,
       submissionUncertain: record['submission_uncertain'] == true,
+      queuedPrompts: (record['queue'] as List? ?? const [])
+          .whereType<String>()
+          .toList(),
+      queuePaused: record['queue_paused'] == true,
     );
   }
 
@@ -78,6 +86,8 @@ class ComposerDraftStore {
     required String text,
     required Iterable<AttachmentDraft> attachments,
     bool submissionUncertain = false,
+    List<String> queuedPrompts = const [],
+    bool queuePaused = false,
   }) async {
     final records = _readRecords()
       ..removeWhere(
@@ -85,20 +95,21 @@ class ComposerDraftStore {
             value['profile'] == profileName && value['session'] == sessionId,
       );
     final files = attachments.toList(growable: false);
-    if (text.isNotEmpty || files.isNotEmpty) {
+    if (text.isNotEmpty || files.isNotEmpty || queuedPrompts.isNotEmpty) {
       records.add({
         'profile': profileName,
         'session': sessionId,
         'text': text,
         'submission_uncertain': submissionUncertain,
+        'queue': queuedPrompts,
+        'queue_paused': queuePaused,
         'attachments': files.map(_encodeAttachment).toList(),
       });
     }
-    if (records.isEmpty) {
-      await _preferences.remove(_key);
-    } else {
-      await _preferences.setString(_key, jsonEncode(records));
-    }
+    final saved = records.isEmpty
+        ? await _preferences.remove(_key)
+        : await _preferences.setString(_key, jsonEncode(records));
+    if (!saved) throw StateError('Could not save unsent messages.');
   }
 
   List<Map<String, dynamic>> _readRecords() {

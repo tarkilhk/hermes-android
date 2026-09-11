@@ -10,6 +10,7 @@ import '../models/answer_versions.dart';
 import '../widgets/answer_actions.dart';
 import '../models/gateway_clarify.dart';
 import '../models/gateway_approval.dart';
+import '../widgets/gateway_sensitive_prompt_panel.dart';
 import '../widgets/gateway_clarify_dialog.dart';
 import '../theme/profile_workspace_theme.dart';
 import '../widgets/profile_chat_indicator.dart';
@@ -66,6 +67,9 @@ class _ProfileWorkspaceScreenState extends State<ProfileWorkspaceScreen>
   Future<void> _enter() async {
     if (controller.discovery == null) await controller.initialize();
     if (!mounted || controller.current == null) return;
+    if (_destination == AppDestination.activity) {
+      await controller.refreshActivity();
+    }
     if (widget.initialQuickChat || widget.initialSharedPayload != null) {
       await _run(() async {
         final chat = await controller.createChat();
@@ -419,6 +423,24 @@ class _ProfileWorkspaceScreenState extends State<ProfileWorkspaceScreen>
                   );
                 },
               ),
+            if (chat.sensitivePrompt != null)
+              Builder(
+                builder: (context) {
+                  final request = chat.sensitivePrompt!;
+                  return GatewaySensitivePromptPanel(
+                    key: ValueKey((chat.key, request.kind, request.requestId)),
+                    request: request,
+                    enabled:
+                        !chat.sensitivePromptResponding &&
+                        chat.status != ProfileTurnStatus.reconnecting,
+                    onRespond: (value) => controller.respondSensitivePrompt(
+                      chat,
+                      value,
+                      expectedRequest: request,
+                    ),
+                  );
+                },
+              ),
             for (final output in chat.commandOutput)
               Padding(
                 padding: const EdgeInsets.symmetric(vertical: 8),
@@ -599,38 +621,71 @@ class _ProfileWorkspaceScreenState extends State<ProfileWorkspaceScreen>
                         ),
                       ),
                       const SizedBox(width: 6),
-                      IconButton.filled(
-                        style: IconButton.styleFrom(
-                          minimumSize: const Size(48, 48),
-                          shape: RoundedRectangleBorder(
-                            borderRadius: BorderRadius.circular(14),
+                      if (_hasMessageActions(chat))
+                        IconButton(
+                          tooltip: 'Message actions',
+                          icon: Badge(
+                            isLabelVisible: chat.queuedPrompts.isNotEmpty,
+                            label: Text('${chat.queuedPrompts.length}'),
+                            child: const Icon(Icons.more_horiz),
+                          ),
+                          onPressed: () => _showBusyActions(chat, context),
+                        ),
+                      Semantics(
+                        container: true,
+                        hint:
+                            chat.queuedPrompts.isNotEmpty ||
+                                (chat.busy &&
+                                    chat.draft.trim().isNotEmpty &&
+                                    chat.attachments.isEmpty)
+                            ? 'Long press for steer or queue actions'
+                            : null,
+                        child: GestureDetector(
+                          onLongPress:
+                              chat.queuedPrompts.isNotEmpty ||
+                                  (chat.busy &&
+                                      chat.draft.trim().isNotEmpty &&
+                                      chat.attachments.isEmpty)
+                              ? () => _showBusyActions(chat, context)
+                              : null,
+                          child: IconButton.filled(
+                            style: IconButton.styleFrom(
+                              minimumSize: const Size(48, 48),
+                              shape: RoundedRectangleBorder(
+                                borderRadius: BorderRadius.circular(14),
+                              ),
+                            ),
+                            tooltip:
+                                chat.busy &&
+                                    !chat.draft.trimLeft().startsWith('/')
+                                ? 'Stop'
+                                : 'Send',
+                            icon: Icon(
+                              chat.busy &&
+                                      !chat.draft.trimLeft().startsWith('/')
+                                  ? Icons.stop
+                                  : Icons.arrow_upward,
+                            ),
+                            onPressed:
+                                controller.switching ||
+                                    chat.changingAnswer ||
+                                    chat.commandRunning ||
+                                    chat.changingIntelligence ||
+                                    (!chat.busy &&
+                                        chat.draft.trim().isEmpty &&
+                                        chat.attachments.isEmpty)
+                                ? null
+                                : () => _run(
+                                    () =>
+                                        chat.busy &&
+                                            !chat.draft.trimLeft().startsWith(
+                                              '/',
+                                            )
+                                        ? controller.stop(chat)
+                                        : controller.send(chat),
+                                  ),
                           ),
                         ),
-                        tooltip:
-                            chat.busy && !chat.draft.trimLeft().startsWith('/')
-                            ? 'Stop'
-                            : 'Send',
-                        icon: Icon(
-                          chat.busy && !chat.draft.trimLeft().startsWith('/')
-                              ? Icons.stop
-                              : Icons.arrow_upward,
-                        ),
-                        onPressed:
-                            controller.switching ||
-                                chat.changingAnswer ||
-                                chat.commandRunning ||
-                                chat.changingIntelligence ||
-                                (!chat.busy &&
-                                    chat.draft.trim().isEmpty &&
-                                    chat.attachments.isEmpty)
-                            ? null
-                            : () => _run(
-                                () =>
-                                    chat.busy &&
-                                        !chat.draft.trimLeft().startsWith('/')
-                                    ? controller.stop(chat)
-                                    : controller.send(chat),
-                              ),
                       ),
                     ],
                   ),
@@ -687,6 +742,138 @@ class _ProfileWorkspaceScreenState extends State<ProfileWorkspaceScreen>
     }
   }
 
+  bool _hasMessageActions(ProfileChat chat) =>
+      !controller.switching &&
+      !chat.commandRunning &&
+      !chat.changingAnswer &&
+      (chat.queuedPrompts.isNotEmpty ||
+          (chat.busy &&
+              chat.draft.trim().isNotEmpty &&
+              !chat.draft.trimLeft().startsWith('/') &&
+              chat.attachments.isEmpty));
+
+  Future<void> _showBusyActions(ProfileChat chat, BuildContext context) async {
+    if (!_hasMessageActions(chat)) return;
+    final text = chat.draft.trim();
+    final action = await showModalBottomSheet<String>(
+      context: context,
+      builder: (sheetContext) => ListenableBuilder(
+        listenable: controller,
+        builder: (context, _) => SafeArea(
+          child: SizedBox(
+            height: MediaQuery.sizeOf(sheetContext).height * .55,
+            child: ListView(
+              children: [
+                if (text.isNotEmpty &&
+                    !text.startsWith('/') &&
+                    chat.busy &&
+                    chat.attachments.isEmpty) ...[
+                  ListTile(
+                    leading: const Icon(Icons.alt_route),
+                    title: const Text('Steer this turn'),
+                    subtitle: const Text(
+                      'Send this text into the running turn',
+                    ),
+                    onTap:
+                        !chat.steering &&
+                            {
+                              ProfileTurnStatus.running,
+                              ProfileTurnStatus.attention,
+                            }.contains(chat.status)
+                        ? () => Navigator.pop(sheetContext, 'steer')
+                        : null,
+                  ),
+                  ListTile(
+                    leading: const Icon(Icons.queue),
+                    title: const Text('Queue for the next turn'),
+                    subtitle: const Text(
+                      'Keep this message for when Hermes is idle',
+                    ),
+                    onTap: () => Navigator.pop(sheetContext, 'queue'),
+                  ),
+                ],
+                if (chat.queuePaused)
+                  ListTile(
+                    leading: const Icon(Icons.pause_circle_outline),
+                    title: const Text('Queued messages are paused'),
+                    subtitle: const Text(
+                      'Check history before resuming; a previous send may have reached Hermes.',
+                    ),
+                    onTap: chat.queueDraining
+                        ? null
+                        : () async {
+                            await _run(() => controller.resumeQueue(chat));
+                            if (sheetContext.mounted) {
+                              Navigator.pop(sheetContext);
+                            }
+                          },
+                    trailing: const Icon(Icons.play_arrow),
+                  ),
+                if (chat.queuedPrompts.isNotEmpty)
+                  ...chat.queuedPrompts.asMap().entries.map(
+                    (entry) => ListTile(
+                      leading: const Icon(Icons.delete_outline),
+                      title: Text('Remove queued: ${entry.value}'),
+                      onTap: chat.queueDraining
+                          ? null
+                          : () async {
+                              await _run(
+                                () => controller.removeQueuedPrompt(
+                                  chat,
+                                  entry.key,
+                                  expectedText: entry.value,
+                                ),
+                              );
+                              if (sheetContext.mounted) {
+                                Navigator.pop(sheetContext);
+                              }
+                            },
+                    ),
+                  ),
+                if (chat.busy)
+                  ListTile(
+                    leading: const Icon(Icons.stop),
+                    title: const Text('Stop'),
+                    onTap: () => Navigator.pop(sheetContext, 'stop'),
+                  ),
+              ],
+            ),
+          ),
+        ),
+      ),
+    );
+    if (!mounted || action == null) return;
+    if (action == 'steer') {
+      final accepted = await _runValue(() => controller.steer(chat, text));
+      if (accepted == true && mounted && chat.draft.trim() == text) {
+        await controller.updateDraft(chat, '');
+      } else if (accepted == false && context.mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text('Hermes rejected the steering message.'),
+          ),
+        );
+      }
+    } else if (action == 'queue') {
+      await _run(() async => controller.queuePrompt(chat, text));
+    } else if (action == 'stop') {
+      await _run(() => controller.stop(chat));
+    }
+  }
+
+  Future<T?> _runValue<T>(Future<T> Function() action) async {
+    try {
+      return await action();
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(
+          context,
+        ).showSnackBar(SnackBar(content: Text(e.toString())));
+      }
+      return null;
+    }
+  }
+
   void _handleBack(VoidCallback navigateBack) {
     if (_scaffoldKey.currentState?.isDrawerOpen == true) {
       _scaffoldKey.currentState!.closeDrawer();
@@ -714,6 +901,9 @@ class _ProfileWorkspaceScreenState extends State<ProfileWorkspaceScreen>
     }
     setState(() => _destination = destination);
     controller.visible = destination == AppDestination.chats;
+    if (destination == AppDestination.activity) {
+      unawaited(_run(controller.refreshActivity));
+    }
   }
 
   Widget _secondaryDestination(BuildContext context) => PopScope(
@@ -729,11 +919,20 @@ class _ProfileWorkspaceScreenState extends State<ProfileWorkspaceScreen>
         actions: [
           if (_destination != AppDestination.settings)
             IconButton(
-              tooltip: 'Refresh workspace',
+              tooltip: _destination == AppDestination.activity
+                  ? 'Refresh activity'
+                  : 'Refresh workspace',
               icon: const Icon(Icons.refresh),
-              onPressed: controller.switching
+              onPressed:
+                  controller.switching ||
+                      (_destination == AppDestination.activity &&
+                          controller.activityLoading)
                   ? null
-                  : () => _run(controller.refresh),
+                  : () => _run(
+                      _destination == AppDestination.activity
+                          ? controller.refreshActivity
+                          : controller.refresh,
+                    ),
             ),
         ],
       ),
@@ -762,8 +961,10 @@ class _ProfileWorkspaceScreenState extends State<ProfileWorkspaceScreen>
               ),
               AppDestination.activity => WorkspaceActivityContent(
                 controller: controller,
-                onOpen: (chat) => _run(() async {
-                  await controller.openSession(chat.key);
+                onOpen: (item) => _run(() async {
+                  await controller.openSession(
+                    ProfileSessionKey(item.workspace, item.sessionId),
+                  );
                   if (mounted) _selectDestination(AppDestination.chats);
                 }),
               ),

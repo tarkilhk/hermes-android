@@ -104,10 +104,23 @@ class HermesAppState extends State<HermesApp> {
 
   Future<void> enableProfileNotifications() async {
     await _notificationsReady;
-    await _profileNotifications.requestPermission();
+    final granted = await _profileNotifications.requestPermission();
+    if (granted == false) {
+      throw StateError('Notifications are disabled in Android settings.');
+    }
+    await _profileNotifications.show(
+      const TurnNotification(
+        id: 214600,
+        title: 'Hermes notification test',
+        body: 'Local alerts are working on this device.',
+        payload: '',
+        channel: TurnNotificationService.turnChannel,
+      ),
+    );
   }
 
   Future<void> _openProfileNotification(String payload) async {
+    if (payload.isEmpty) return; // Test alerts have no conversation target.
     try {
       final key = ProfileSessionKey.fromJson(
         jsonDecode(payload) as Map<String, dynamic>,
@@ -184,7 +197,11 @@ class HermesAppState extends State<HermesApp> {
               id: chat.key.hashCode & 0x7fffffff,
               title:
                   '${chat.key.workspace.profileName}: ${needsInput ? 'Needs attention' : 'Chat finished'}',
-              body: chat.title,
+              body:
+                  widget.connManager.prefs.getBool(notificationTitlesKey) ==
+                      true
+                  ? chat.title
+                  : 'Open Hermes to view this chat.',
               payload: jsonEncode(chat.key.toJson()),
               channel: TurnNotificationService.turnChannel,
             ),

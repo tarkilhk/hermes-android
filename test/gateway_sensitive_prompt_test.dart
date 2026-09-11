@@ -39,5 +39,39 @@ void main() {
         isNull,
       );
     });
+
+    test('parses vault request metadata without response values', () {
+      final unlock = GatewaySensitivePromptRequest.fromEventData(
+        kind: GatewaySensitivePromptKind.vaultUnlock,
+        data: {
+          'request_id': 'unlock-1',
+          'backend': 'onepassword',
+          'display_name': '1Password',
+        },
+      );
+      final save = GatewaySensitivePromptRequest.fromEventData(
+        kind: GatewaySensitivePromptKind.vaultSaveLogin,
+        data: {
+          'request_id': 'save-1',
+          'origin': 'https://example.test',
+          'site': 'Example',
+        },
+      );
+      final code = GatewaySensitivePromptRequest.fromEventData(
+        kind: GatewaySensitivePromptKind.vaultCode,
+        data: {
+          'request_id': 'code-1',
+          'site': 'Example',
+          'hint': 'Use your authenticator app.',
+        },
+      );
+
+      expect(unlock!.title, 'Unlock 1Password');
+      expect(unlock.fieldLabel, 'Master password');
+      expect(save!.title, 'Save login for Example');
+      expect(save.fieldLabel, 'Identifier');
+      expect(code!.title, 'Enter code for Example');
+      expect(code.description, 'Use your authenticator app.');
+    });
   });
 }

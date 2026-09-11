@@ -1,9 +1,8 @@
 import 'package:flutter/material.dart';
 
+import '../models/profile_live_activity.dart';
 import '../services/profile_workspace_controller.dart';
 
-/// Presents the activity already observed by this connection's controller.
-/// Server-wide discovery belongs to the later Activity feature work.
 class WorkspaceActivityContent extends StatelessWidget {
   const WorkspaceActivityContent({
     super.key,
@@ -12,50 +11,70 @@ class WorkspaceActivityContent extends StatelessWidget {
   });
 
   final ProfileWorkspaceController controller;
-  final ValueChanged<ProfileChat> onOpen;
+  final ValueChanged<ProfileLiveActivity> onOpen;
 
   @override
   Widget build(BuildContext context) {
-    final chats = controller.activity.toList();
+    final activity = controller.liveActivity;
     return ListView(
       padding: const EdgeInsets.all(16),
       children: [
         const Padding(
           padding: EdgeInsets.fromLTRB(4, 0, 4, 16),
-          child: Text('Activity from chats opened on this connection.'),
+          child: Text('Sessions running across this Hermes connection.'),
         ),
-        if (chats.isEmpty)
+        if (controller.activityLoading) const LinearProgressIndicator(),
+        if (controller.activityLoaded &&
+            controller.activityAvailableProfiles == 0 &&
+            controller.activityProfileErrors.isNotEmpty)
           const Padding(
-            padding: EdgeInsets.symmetric(vertical: 48),
-            child: Column(
-              children: [
-                Icon(Icons.pending_actions_outlined, size: 40),
-                SizedBox(height: 16),
-                Text('No recent activity'),
-              ],
+            padding: EdgeInsets.symmetric(vertical: 32),
+            child: Text('Activity unavailable.'),
+          )
+        else
+          for (final message in controller.activityProfileErrors.values)
+            Padding(
+              padding: const EdgeInsets.only(top: 8),
+              child: Text(message),
             ),
-          ),
-        for (final chat in chats)
+        if (activity.isEmpty && controller.activityLoaded)
+          if (controller.activityAvailableProfiles > 0)
+            Padding(
+              padding: const EdgeInsets.symmetric(vertical: 48),
+              child: Column(
+                children: [
+                  const Icon(Icons.pending_actions_outlined, size: 40),
+                  const SizedBox(height: 16),
+                  Text(
+                    controller.activityProfileErrors.isEmpty
+                        ? 'No ongoing sessions'
+                        : 'No ongoing sessions found in available profiles',
+                  ),
+                ],
+              ),
+            ),
+        for (final item in activity)
           Card(
             child: ListTile(
               key: ValueKey(
-                'activity-${chat.key.workspace.profileName}-${chat.key.sessionId}',
+                'activity-${item.workspace.profileName}-${item.sessionId}',
               ),
               leading: Icon(
-                chat.status == ProfileTurnStatus.attention
+                item.state == ProfileLiveActivityState.needsInput
                     ? Icons.front_hand_outlined
                     : Icons.chat_bubble_outline,
               ),
               title: Text(
-                chat.title,
+                item.title,
                 maxLines: 2,
                 overflow: TextOverflow.ellipsis,
               ),
               subtitle: Text(
-                '${chat.key.workspace.profileName} · ${chat.status.name}',
+                '${item.workspace.profileName} · '
+                '${item.state == ProfileLiveActivityState.needsInput ? 'Needs input' : 'Running'}',
               ),
               trailing: const Icon(Icons.chevron_right),
-              onTap: controller.switching ? null : () => onOpen(chat),
+              onTap: controller.switching ? null : () => onOpen(item),
             ),
           ),
       ],

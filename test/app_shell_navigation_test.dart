@@ -93,6 +93,13 @@ void main() {
     await controller.navigateProfile('work');
     final work = await controller.createChat();
     work.draft = 'Work draft';
+    fixture.liveSessions['personal'] = [
+      {
+        'id': personal.runtimeId,
+        'session_key': personal.key.sessionId,
+        'status': 'waiting',
+      },
+    ];
     await show(tester);
     await navigate(tester, AppDestination.activity);
     await tester.tap(

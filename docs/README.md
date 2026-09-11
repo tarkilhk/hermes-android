@@ -17,6 +17,7 @@ The approved [delivery sequence](DELIVERY_SEQUENCE.md) tracks implementation in 
 | [Desktop chat inventory](research/HERMES_DESKTOP_CHAT_INVENTORY_2026-09-11.md) | Detailed conversation, agent control, voice and notification evidence. |
 | [Desktop management inventory](research/HERMES_DESKTOP_MANAGEMENT_INVENTORY_2026-09-11.md) | Backend administration, capabilities, automation and optional-feature evidence. |
 | [Feature-plan contract notes](research/FEATURE_PLAN_CONTRACT_NOTES_2026-09-11.md) | Follow-up facts about backend appearance, commands, model routes and context usage. |
+| [Mobile delivery contract checks](research/MOBILE_DELIVERY_CONTRACTS_2026-09-11.md) | Activity discovery, sensitive responses, client-owned queues, steering and saved-history editing contracts. |
 | [Earlier Desktop behavior reference](HERMES_DESKTOP_BEHAVIOR_REFERENCE.md) | Dated architectural evidence, especially profile ownership. |
 | [Mobile AI design research](MOBILE_AI_DESIGN_RESEARCH.md) | Earlier design research, not a feature commitment. |
 | [Codex Android UI reference](CODEX_ANDROID_UI_REFERENCE.md) | Prior interaction reference, not this app's requirements. |
@@ -27,6 +28,7 @@ The inventories describe their inspection dates and source commits. Do not silen
 
 - [App shell](APP_SHELL.md), navigation, cleanup boundary and verification.
 - [Conversation foundations](CONVERSATION_FOUNDATIONS.md), durable drafts, server refresh, provider selection, session YOLO and approval controls.
+- [Supervision and queues](SUPERVISION_AND_QUEUES.md), cross-profile Activity, sensitive responses, notification controls and client-owned follow-up queues.
 
 - [Slash commands](SLASH_COMMAND_SUPPORT.md).
 - [Answer actions and versions](ANSWER_VERSIONS.md). Its description of local version links is current implementation evidence; the product plan calls for server ownership as this feature evolves.

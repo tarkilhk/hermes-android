@@ -17,6 +17,7 @@ class ProfileBrowserFixture {
   bool failSearch = false;
   final historyDelays = <(String, int), Completer<void>>{};
   final searchDelays = <String, Completer<void>>{};
+  final liveSessions = <String, List<Map<String, dynamic>>>{};
   List<Map<String, dynamic>> historyRows(String profile, String id) => [];
   List<Map<String, dynamic>> searchRows(String profile, String query) => [
     for (final row in sessions(
@@ -191,6 +192,9 @@ class ProfileBrowserFixture {
     },
     rpc: (method, params) async {
       calls.add((scope.profileName, method, params));
+      if (method == 'session.active_list') {
+        return {'sessions': liveSessions[scope.profileName] ?? []};
+      }
       if (method == 'projects.tree') {
         if (failProjects) throw StateError('Projects unavailable');
         return {'projects': projects(scope.profileName)};

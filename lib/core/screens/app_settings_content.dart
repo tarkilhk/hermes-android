@@ -51,11 +51,22 @@ class _AppSettingsContentState extends State<AppSettingsContent> {
     setState(() => _requesting = true);
     try {
       await widget.enableNotifications!();
-    } catch (_) {
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
           const SnackBar(
-            content: Text('Could not open notification permissions.'),
+            content: Text('Test alert sent. Check your notifications.'),
+          ),
+        );
+      }
+    } catch (error) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text(
+              error is StateError
+                  ? error.message.toString()
+                  : 'Could not send the test notification.',
+            ),
           ),
         );
       }
@@ -161,6 +172,16 @@ class _AppSettingsContentState extends State<AppSettingsContent> {
                       true,
                   onChanged: (value) => _save(attentionNotificationsKey, value),
                 ),
+                SwitchListTile(
+                  title: const Text('Show chat titles in alerts'),
+                  subtitle: const Text(
+                    'Allow notification previews to include the chat title.',
+                  ),
+                  value:
+                      widget.preferences.getBool(notificationTitlesKey) ??
+                      false,
+                  onChanged: (value) => _save(notificationTitlesKey, value),
+                ),
                 const Padding(
                   padding: EdgeInsets.fromLTRB(16, 0, 16, 16),
                   child: Text(
@@ -174,9 +195,9 @@ class _AppSettingsContentState extends State<AppSettingsContent> {
           Card(
             child: ListTile(
               leading: const Icon(Icons.notifications_outlined),
-              title: const Text('Notification permission'),
+              title: const Text('Enable and test notifications'),
               subtitle: const Text(
-                'Allow completion and input alerts on this device.',
+                'Request Android permission and send a test alert.',
               ),
               trailing: _requesting
                   ? const SizedBox.square(

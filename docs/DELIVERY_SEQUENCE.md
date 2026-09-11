@@ -46,7 +46,7 @@ Keep the interaction small. Existing slash commands and ordinary Send behavior r
 
 | Slice | Scope | Observable completion |
 | --- | --- | --- |
-| D09 Queue or steer this submission | Q11; Queue/Steer portion of Q10 | One-shot Queue/Steer actions work through server semantics, including the proposed long press and an accessible menu. The normal Send default remains unchanged and Stop stays available. |
+| D09 Queue or steer this submission | Q11; Queue/Steer portion of Q10 | One-shot Queue/Steer through long press and an accessible menu. The owner approved Desktop-style client-owned queues on 2026-09-11: keep queued follow-ups with their chat, review/remove them and submit in order after active work finishes. Reuse draft storage/send; pause on uncertainty. Steer uses the backend's acknowledged outcome. Normal Send stays unchanged and Stop remains available. |
 | D10 Correct and branch saved work | Q07, Q09; Fork portion of Q10 | Edit/resend, regeneration and answer-version navigation reflect server-owned history relationships. Complete the one-shot Fork action after defining its saved-history boundary. |
 | D11 Ask alongside ongoing work | Q12, T14 | Side/background questions have identifiable results and links back to their work. Control notices and agent deliveries remain distinct from ordinary assistant answers. |
 
@@ -120,11 +120,14 @@ For each active slice, append a short record here or link its implementation not
 | --- | --- | --- | --- | --- |
 | W00 | Done | Shared shell and legacy UI cleanup | Personal 2.1.2 / 21452; see [shell notes](APP_SHELL.md) | No new feature coverage implied |
 | D01-D04 | Implemented; live QA pending | Durable drafts, server refresh on cached reopen, technical-provider groups, session YOLO; removed local model overrides. See [delivery notes](CONVERSATION_FOUNDATIONS.md) | Analyzer clean; full suite 890 passed / 4 opt-in skipped; signed Personal 2.1.3 / 21462 built and installed wirelessly on owner's phone | Live gateway/phone behavior verification pending; local Desktop gateway is not running |
-| D05 | In progress | Per-profile `session.active_list` discovery, preserving original session ownership | Source contract checked against pinned Desktop | No global active-list endpoint; query each discovered profile |
+| D05 | Implemented; live QA pending | Per-profile `session.active_list` discovery, original session ownership and partial-profile errors | Source contract checked against pinned Desktop; controller and navigation tests | Deployed gateway enumeration still needs live verification |
 | D06 | Implemented; live QA pending | Existing clarification handling retained; server-advertised approval scopes and request targeting | Included in foundation test run, 890 passed | Live gateway verification pending |
-| D07 | In progress, contract audit | Existing sudo/secret transport can be reused; vault has three distinct prompt families | Desktop prompt overlays and event store inspected | Resume exposes approval/clarify only; restoring sensitive prompts requires backend metadata |
-| D08 | Partial | Device completion/attention switches; existing notification tap routing retained | Settings widget check and full suite pass | End-to-end notification permission/tap checks remain; locked/terminated-app push remains D26/D27 |
-| D09-D30 | Planned | Not started | None | Check relevant deployed contracts at slice start |
+| D07 | Implemented; live QA pending | Dedicated sudo/secret/vault response forms, scoped expiry and duplicate-response guards; credentials remain unsaved | Controller delivery tests and six widget tests | Resume exposes approval/clarify only; restoring sensitive prompts after process death requires backend metadata |
+| D08 | Implemented; live QA pending | Independent completion/attention switches, optional chat titles, permission/test alert and existing notification routing | Settings widget tests | End-to-end notification permission/tap checks remain; locked/terminated-app push remains D26/D27 |
+| D09 | Implemented; live QA pending | Desktop-style text queues with review/removal and one-shot Steer through Message actions or long press | Queue tests cover ordered drain, separate drafts/attachments, restart, lost acknowledgement, stop/failure and repeated resume; Steer checks queued/rejected outcomes | Phone must be connected to drain; attachments cannot be queued in this slice |
+| D10-D30 | Planned | Not started | None | Check relevant deployed contracts at slice start |
+
+D05/D07/D08/D09 delivery on 2026-09-12: analyzer clean, full suite 921 passed and four opt-in skips. Signed Personal 2.1.4 / 21472 passed package/certificate checks, installed in place on the owner's phone at the requested wireless endpoint, and launched successfully. See [supervision and queue notes](SUPERVISION_AND_QUEUES.md). Phone evidence is installed version/process metadata; live gateway feature checks remain as listed above.
 
 The feature ledger in PRODUCT_PLAN.md remains the coverage checklist. Mark a feature Done only after all of its selected portions are delivered; Q10, Q03, C08 and notifications deliberately span multiple slices. R18 error clarity, B15 ownership and M08 server authority apply throughout.
 
