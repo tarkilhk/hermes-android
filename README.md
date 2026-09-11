@@ -29,7 +29,7 @@ The current connection flow opens `ProfileWorkspaceScreen`, which owns the drawe
 - Dynamic slash-command discovery, aliases, argument completion, skill dispatch, and dedicated current-session actions including steering and identifiable side-question deliveries.
 - Saved-message Edit/resend with history-replacement confirmation, one-shot idle Fork, regeneration and answer-version navigation. Version grouping is currently stored locally and is a known mismatch with the planned server-owned behavior.
 - Per-chat Outputs finds file/link references in server history. Authenticated file retrieval preserves host/profile/chat ownership, supports text/image previews and shares actual bytes through Android; downloads are capped at 32 MiB.
-- Photos/Files attachment choices and reviewed Android sharing into a chosen connection/profile/chat. Shared content preserves existing drafts and is never sent automatically. Launcher quick chat, server-advertised approvals and structured clarification remain. Sudo, secret and vault forms keep credentials out of drafts/history.
+- Photos/Files attachment choices and reviewed Android sharing into a chosen connection/profile/chat. Incoming shares survive restart before destination selection, preserve existing drafts and never send automatically. Launcher quick chat, server-advertised approvals and structured clarification remain. Sudo, secret and vault forms keep credentials out of drafts/history.
 - Local completion/input notifications with independent device controls, optional chat titles, a test alert and original host/profile/chat routing, plus configuration restore from the connections screen.
 
 The shell cleanup removed the unreachable legacy screens and navigation widgets, including the old chat UI, Spaces, Cron, Memory, Files and Skills screens. Shared service and contract code remains available where useful for later work; no stored user data was deleted. The [Android source inventory](docs/research/HERMES_ANDROID_FEATURE_INVENTORY_2026-09-11.md) records the earlier baseline. [Shell delivery notes](docs/APP_SHELL.md) describe this change and its limits.
@@ -54,12 +54,12 @@ The app's current slash/profile contracts and any separately maintained backend 
 
 ## Version and application identity
 
-Source version on 2026-09-12 is `2.4.0+2151` in [pubspec.yaml](pubspec.yaml). This is the checked-out version, not a claim that a matching public release has been published. Each release is recorded in the [changelog](CHANGELOG.md), with semantic versions and an increasing Android build number.
+Source version on 2026-09-12 is `2.5.0+2152` in [pubspec.yaml](pubspec.yaml). This is the checked-out version, not a claim that a matching public release has been published. Each release is recorded in the [changelog](CHANGELOG.md), with semantic versions and an increasing Android build number.
 
 - Personal release package: `com.tarkilhk.hermes.android`, labelled Hermes Personal.
 - Development package: `com.hermesagent.hermes_android.dev`.
 - The inherited upstream package is separate and is not this fork's release identity.
-- ABI-split codes derive from the base build number; the current ARM64 split uses `21512`.
+- ABI-split codes derive from the base build number; the current ARM64 split uses `21522`.
 
 The [release plan](docs/ANDROID_RELEASE_PLAN.md) and [build configuration](android/app/build.gradle.kts) document identity, signing and version-code rules. The selected S08 work will expose this client's version/build and update information in the app, separately from the backend version.
 

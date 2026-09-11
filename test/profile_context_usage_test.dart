@@ -10,6 +10,7 @@ void main() {
   late Host host;
   late ProfileWorkspaceController controller;
   Completer<Map<String, dynamic>>? pending;
+  late Map<String, dynamic> breakdownResponse;
   const snapshot = {
     'context_used': 250,
     'context_max': 1000,
@@ -19,6 +20,7 @@ void main() {
     SharedPreferences.setMockInitialValues({});
     host = Host();
     pending = null;
+    breakdownResponse = snapshot;
     controller = ProfileWorkspaceController(
       connection: identityTestConnection(),
       connectionIdentity: 'context-test',
@@ -32,7 +34,7 @@ void main() {
           rpc: (method, params) {
             if (method == 'session.context_breakdown') {
               host.calls.add((scope.profileName, method, params));
-              return pending?.future ?? Future.value(snapshot);
+              return pending?.future ?? Future.value(breakdownResponse);
             }
             return base.call(method, params);
           },
@@ -78,4 +80,77 @@ void main() {
     });
     expect(chat.context, isNull);
   });
+
+  test(
+    'refetches context when a resumed session becomes ready without a prompt',
+    () async {
+      // A cold resume can answer context_breakdown before the lazy agent exists.
+      // Hermes returns an explicit zero/unknown breakdown in that phase, then
+      // emits session.info after agent construction. The ready response has no
+      // context_* fields until the next breakdown RPC.
+      breakdownResponse = {
+        'context_used': 0,
+        'context_max': 0,
+        'context_percent': 0,
+        'context_estimated': false,
+      };
+      host.running = false;
+      await controller.openSession(
+        ProfileSessionKey(controller.current!.scope, 'same'),
+      );
+      final restored = controller.current!.chat!;
+      await Future<void>.delayed(Duration.zero);
+      expect(restored.context, isNull);
+      expect(
+        host.calls.where((call) => call.$2 == 'session.context_breakdown'),
+        hasLength(1),
+      );
+
+      breakdownResponse = {
+        'context_used': 1200,
+        'context_max': 4000,
+        'context_percent': 30,
+        'context_estimated': true,
+      };
+      host.event('a', 'session.info', {
+        'usage': {'calls': 0, 'input': 0, 'output': 0, 'total': 0},
+      });
+      await Future<void>.delayed(Duration.zero);
+
+      expect(restored.context?.percent, 30);
+      expect(restored.context?.estimated, isTrue);
+      expect(restored.messages, isNotEmpty);
+      expect(host.calls.where((call) => call.$2 == 'prompt.submit'), isEmpty);
+      expect(
+        host.calls.where((call) => call.$2 == 'session.context_breakdown'),
+        hasLength(2),
+      );
+    },
+  );
+
+  test(
+    'late pre-ready breakdown cannot erase the ready session usage',
+    () async {
+      host.running = false;
+      final beforeReady = Completer<Map<String, dynamic>>();
+      pending = beforeReady;
+      await controller.openSession(
+        ProfileSessionKey(controller.current!.scope, 'same'),
+      );
+      final chat = controller.current!.chat!;
+      pending = null;
+      host.event('a', 'session.info', {
+        'usage': {'calls': 0, 'input': 0, 'output': 0},
+      });
+      await Future<void>.delayed(Duration.zero);
+      expect(chat.context?.percent, 25);
+      beforeReady.complete({
+        'context_used': 0,
+        'context_max': 0,
+        'context_percent': 0,
+      });
+      await Future<void>.delayed(Duration.zero);
+      expect(chat.context?.percent, 25);
+    },
+  );
 }

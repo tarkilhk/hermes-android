@@ -282,7 +282,9 @@ For M06, Android's [sharing contract](https://developer.android.com/develop/ui/c
 
 ## Active owner feedback
 
-- 2026-09-12, D15/T10: the integrated fuse design is accepted. Opening an existing chat with saved history currently leaves its context fullness unloaded. Load authoritative session context usage on open/reopen without requiring a new message. The source-based reopen path loads usage after its reply, so the reported settled-empty state is not reproduced by available fixtures. Inspect the deployed resume/context reply and runtime binding before choosing a fix. This remains an active bug, with no speculative timing change shipped. All other planned milestones and exclusions remain unchanged.
+Latest delivery, 2026-09-12: Personal 2.5.0 / 21522 adds durable incoming-share recovery and the reproduced D15 reopen fix. It is installed and running on the owner's phone; 1,000 tests passed with four opt-in skips and a clean analyzer. Camera and all remaining selected milestones stay in the plan.
+
+- 2026-09-12, D15/T10: the integrated fuse design is accepted. Opening an existing chat must load authoritative context fullness without requiring a new message. The owner reiterated that this must be fixed, so it moved ahead of Camera. The missing deferred-agent ready-event refresh was reproduced and fixed for 2.5.0; see [cause and regression evidence](CONTEXT_REOPEN_FIX.md). Final live-server phone verification remains outstanding. All other planned milestones and exclusions remain unchanged.
 
 ## Questions resolved now and details left for implementation
 

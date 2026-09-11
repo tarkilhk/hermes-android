@@ -8,6 +8,30 @@ Feature releases increment the minor version, fixes increment the patch version,
 and breaking changes increment the major version. The Android build number after
 `+` always increases. Update this changelog for every release milestone.
 
+## [2.5.0+2152] - 2026-09-12
+
+### Added
+
+- Incoming Android shares are retained in private app storage until added to a
+  draft or explicitly discarded, including before a destination is selected.
+
+### Fixed
+
+- Import failures report an error instead of silently omitting unreadable or
+  oversized files. Existing pending shares remain available.
+- Draft review and Discard wait for the native acknowledgement; failure keeps
+  the pending share available and explains the outcome.
+- Reopened chats request context fullness again when the backend finishes
+  loading the session. The fuse no longer depends on sending a new message
+  after an initial zero-limit response from a still-loading agent.
+
+### Known limitations
+
+- An interruption between saving a conversation draft and clearing its incoming
+  share can offer that share again. Review remains mandatory; nothing auto-sends.
+- Camera remains planned. The context reopen fix has a reproduced regression;
+  the owner's live-server phone check remains outstanding.
+
 ## [2.4.0+2151] - 2026-09-12
 
 ### Added

@@ -313,6 +313,7 @@ class HomeScreenState extends State<HomeScreen> {
   bool _autoNavigated = false;
   bool _opening = false;
   bool _reviewingShare = false;
+  bool _discardingShare = false;
   AppDestination _destination = AppDestination.connections;
   static const String _lastConnectionKey = 'last_connection_id';
 
@@ -378,9 +379,11 @@ class HomeScreenState extends State<HomeScreen> {
     super.initState();
     _refresh();
     widget.shareIntents?.pendingShare.addListener(_onSharedText);
+    widget.shareIntents?.intakeError.addListener(_onShareError);
     widget.launchIntents?.pendingQuickChat.addListener(_onQuickChat);
     WidgetsBinding.instance.addPostFrameCallback((_) {
       _onSharedText();
+      _onShareError();
       _onQuickChat();
     });
   }
@@ -398,11 +401,42 @@ class HomeScreenState extends State<HomeScreen> {
     setState(() {});
     if (widget.shareIntents?.pendingShare.value == null ||
         _reviewingShare ||
+        _discardingShare ||
         _connections.isEmpty) {
       return;
     }
     _autoNavigated = true;
     unawaited(_reviewIncomingShare());
+  }
+
+  void _onShareError() {
+    final message = widget.shareIntents?.intakeError.value;
+    if (!mounted || message == null) return;
+    widget.shareIntents?.intakeError.value = null;
+    ScaffoldMessenger.of(
+      context,
+    ).showSnackBar(SnackBar(content: Text(message)));
+  }
+
+  Future<void> _discardIncomingShare() async {
+    final service = widget.shareIntents;
+    final payload = service?.pendingShare.value;
+    if (service == null || payload == null || _discardingShare) return;
+    setState(() => _discardingShare = true);
+    final discarded = await service.acknowledgeShare(payload);
+    if (!mounted) return;
+    setState(() => _discardingShare = false);
+    if (!discarded) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text(
+            'The shared content could not be discarded. Please try again.',
+          ),
+        ),
+      );
+    } else {
+      _onSharedText();
+    }
   }
 
   Future<void> _reviewIncomingShare() async {
@@ -467,6 +501,7 @@ class HomeScreenState extends State<HomeScreen> {
   @override
   void dispose() {
     widget.shareIntents?.pendingShare.removeListener(_onSharedText);
+    widget.shareIntents?.intakeError.removeListener(_onShareError);
     widget.launchIntents?.pendingQuickChat.removeListener(_onQuickChat);
     super.dispose();
   }
@@ -536,7 +571,19 @@ class HomeScreenState extends State<HomeScreen> {
         sharedPayload,
       );
       if (!mounted || !applied) return;
-      widget.shareIntents?.acknowledgeShare(sharedPayload);
+      final acknowledged = await widget.shareIntents!.acknowledgeShare(
+        sharedPayload,
+      );
+      if (!mounted) return;
+      if (!acknowledged) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text(
+              'Content was added to the draft, but the incoming share could not be cleared. Discard it from Home to avoid adding it twice.',
+            ),
+          ),
+        );
+      }
     }
     final initialQuickChat =
         widget.launchIntents?.takePendingQuickChat() == true &&
@@ -747,25 +794,17 @@ class HomeScreenState extends State<HomeScreen> {
                             children: [
                               TextButton(
                                 onPressed:
-                                    _reviewingShare || _connections.isEmpty
+                                    _reviewingShare ||
+                                        _discardingShare ||
+                                        _connections.isEmpty
                                     ? null
                                     : _onSharedText,
                                 child: const Text('Review'),
                               ),
                               TextButton(
-                                onPressed: _reviewingShare
+                                onPressed: _reviewingShare || _discardingShare
                                     ? null
-                                    : () {
-                                        final pending = widget
-                                            .shareIntents
-                                            ?.pendingShare
-                                            .value;
-                                        if (pending != null) {
-                                          widget.shareIntents?.acknowledgeShare(
-                                            pending,
-                                          );
-                                        }
-                                      },
+                                    : _discardIncomingShare,
                                 child: const Text('Discard'),
                               ),
                             ],

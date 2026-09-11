@@ -12,109 +12,164 @@ void main() {
   });
 
   test(
-    'initializes from a cold-start mixed share and consumes it once',
+    'native queue survives service disposal and advances in order',
     () async {
+      final nativeQueue = <Map<String, Object?>>[
+        {'id': 'share-1', 'text': 'First', 'files': const []},
+        {
+          'id': 'share-2',
+          'text': 'Second',
+          'files': [
+            {
+              'path': '/cache/shared/photo.jpg',
+              'name': 'photo.jpg',
+              'mediaType': 'image/jpeg',
+              'byteLength': 123,
+            },
+          ],
+        },
+      ];
       TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger
           .setMockMethodCallHandler(channel, (call) async {
-            expect(call.method, 'getInitialShare');
-            return {
-              'text': '  https://example.com/article  ',
-              'files': [
-                {
-                  'path': '/cache/shared/photo.jpg',
-                  'name': 'photo.jpg',
-                  'mediaType': 'image/jpeg',
-                  'byteLength': 123,
-                },
-              ],
-            };
+            if (call.method == 'getPendingShare') {
+              return nativeQueue.firstOrNull;
+            }
+            expect(call.method, 'acknowledgeShare');
+            expect(call.arguments, {'id': nativeQueue.first['id']});
+            nativeQueue.removeAt(0);
+            return nativeQueue.firstOrNull;
           });
 
-      final service = AndroidShareIntentService();
-      await service.initialize();
+      final firstService = AndroidShareIntentService();
+      await firstService.initialize();
+      expect(firstService.pendingShare.value?.id, 'share-1');
+      firstService.dispose();
 
-      final payload = service.pendingShare.value;
-      expect(payload?.text, 'https://example.com/article');
-      expect(payload?.files.single.name, 'photo.jpg');
-      expect(payload?.files.single.byteLength, 123);
-      expect(service.acknowledgeShare(payload!), isTrue);
-      expect(service.pendingShare.value, isNull);
-      expect(service.acknowledgeShare(payload), isFalse);
+      final replayedService = AndroidShareIntentService();
+      await replayedService.initialize();
+      final first = replayedService.pendingShare.value!;
+      expect(first.id, 'share-1');
+      expect(await replayedService.acknowledgeShare(first), isTrue);
+      final second = replayedService.pendingShare.value!;
+      expect(second.id, 'share-2');
+      expect(second.files.single.name, 'photo.jpg');
+      expect(await replayedService.acknowledgeShare(second), isTrue);
+      expect(replayedService.pendingShare.value, isNull);
+      replayedService.dispose();
     },
   );
 
-  test('receives a warm multiple-file share from Android', () async {
+  test('failed native acknowledgement keeps the reviewed payload', () async {
+    final native = {'id': 'share-1', 'text': 'Keep me', 'files': const []};
+    var acknowledgeCalls = 0;
     TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger
-        .setMockMethodCallHandler(channel, (_) async => null);
+        .setMockMethodCallHandler(channel, (call) async {
+          if (call.method == 'getPendingShare') {
+            return native;
+          }
+          acknowledgeCalls += 1;
+          if (acknowledgeCalls == 1) {
+            throw PlatformException(code: 'write_failed');
+          }
+          return {
+            'id': 'share-2',
+            'text': 'Has an invalid file',
+            'files': [
+              {
+                'path': '',
+                'name': 'missing.jpg',
+                'mediaType': 'image/jpeg',
+                'byteLength': 10,
+              },
+            ],
+          };
+        });
+
     final service = AndroidShareIntentService();
     await service.initialize();
+    final pending = service.pendingShare.value!;
 
-    await TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger
-        .handlePlatformMessage(
-          channel.name,
-          channel.codec.encodeMethodCall(
-            const MethodCall('sharePayload', {
-              'text': 'Review these',
-              'files': [
-                {
-                  'path': '/cache/shared/one.pdf',
-                  'name': 'one.pdf',
-                  'mediaType': 'application/pdf',
-                  'byteLength': 10,
-                },
-                {
-                  'path': '/cache/shared/two.txt',
-                  'name': 'two.txt',
-                  'mediaType': 'text/plain',
-                  'byteLength': 20,
-                },
-              ],
-            }),
-          ),
-          (_) {},
-        );
-
-    final payload = service.pendingShare.value;
-    expect(payload?.text, 'Review these');
-    expect(payload?.files.map((file) => file.name), ['one.pdf', 'two.txt']);
-    expect(service.acknowledgeShare(payload!), isTrue);
-    expect(service.pendingShare.value, isNull);
+    expect(await service.acknowledgeShare(pending), isFalse);
+    expect(service.pendingShare.value, same(pending));
+    expect(service.intakeError.value, isNull);
+    expect(await service.acknowledgeShare(pending), isFalse);
+    expect(service.pendingShare.value, same(pending));
+    service.dispose();
   });
 
-  test(
-    'a later share waits until the exact reviewed payload is acknowledged',
-    () async {
-      TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger
-          .setMockMethodCallHandler(channel, (_) async => null);
-      final service = AndroidShareIntentService();
-      await service.initialize();
-      for (final text in ['First share', 'Second share']) {
-        await TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger
-            .handlePlatformMessage(
-              channel.name,
-              channel.codec.encodeMethodCall(
-                MethodCall('sharePayload', {'text': text}),
-              ),
-              (_) {},
-            );
-      }
-      final first = service.pendingShare.value!;
-      expect(first.text, 'First share');
-      expect(
-        service.acknowledgeShare(
-          const AndroidSharePayload(text: 'First share'),
-        ),
-        isFalse,
+  test('warm duplicates cannot replace the item under review', () async {
+    var acknowledgeCalls = 0;
+    final first = {'id': 'share-1', 'text': 'First', 'files': const []};
+    final second = {'id': 'share-2', 'text': 'Second', 'files': const []};
+    TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger
+        .setMockMethodCallHandler(channel, (call) async {
+          if (call.method == 'getPendingShare') {
+            return first;
+          }
+          acknowledgeCalls += 1;
+          return second;
+        });
+    final service = AndroidShareIntentService();
+    await service.initialize();
+    final reviewed = service.pendingShare.value!;
+
+    await _sendPlatformCall(channel, MethodCall('sharePayload', first));
+    await _sendPlatformCall(channel, MethodCall('sharePayload', second));
+    expect(service.pendingShare.value, same(reviewed));
+
+    const stale = AndroidSharePayload(id: 'share-2', text: 'Second');
+    expect(await service.acknowledgeShare(stale), isFalse);
+    expect(acknowledgeCalls, 0);
+    expect(await service.acknowledgeShare(reviewed), isTrue);
+    expect(service.pendingShare.value?.id, 'share-2');
+    expect(await service.acknowledgeShare(reviewed), isFalse);
+    expect(acknowledgeCalls, 1);
+    service.dispose();
+  });
+
+  test('invalid intake and native share errors are exposed safely', () async {
+    TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger
+        .setMockMethodCallHandler(
+          channel,
+          (_) async => {
+            'id': 'share-1',
+            'text': 'Do not keep only this text',
+            'files': [
+              {
+                'path': '/cache/shared/incomplete.pdf',
+                'name': '',
+                'mediaType': 'application/pdf',
+                'byteLength': 10,
+              },
+            ],
+          },
+        );
+    final service = AndroidShareIntentService();
+    await service.initialize();
+    expect(service.pendingShare.value, isNull);
+    expect(service.intakeError.value, 'Shared content could not be imported.');
+
+    service.clearIntakeError();
+    await _sendPlatformCall(
+      channel,
+      const MethodCall(
+        'shareError',
+        '  The shared file is no longer available.  ',
+      ),
+    );
+    expect(
+      service.intakeError.value,
+      'The shared file is no longer available.',
+    );
+    service.dispose();
+  });
+}
+
+Future<void> _sendPlatformCall(MethodChannel channel, MethodCall call) {
+  return TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger
+      .handlePlatformMessage(
+        channel.name,
+        channel.codec.encodeMethodCall(call),
+        (_) {},
       );
-      expect(service.pendingShare.value, same(first));
-      expect(service.acknowledgeShare(first), isTrue);
-      final second = service.pendingShare.value!;
-      expect(second.text, 'Second share');
-      expect(service.acknowledgeShare(first), isFalse);
-      expect(service.pendingShare.value, same(second));
-      expect(service.acknowledgeShare(second), isTrue);
-      expect(service.pendingShare.value, isNull);
-      service.dispose();
-    },
-  );
 }

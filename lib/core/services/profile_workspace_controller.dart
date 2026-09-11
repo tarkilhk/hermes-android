@@ -2961,6 +2961,11 @@ class ProfileWorkspaceController extends ChangeNotifier {
         if (event.data['usage'] is Map) {
           _updateContext(chat, event.data['usage'] as Map);
         }
+        // Cold resume can answer before the agent exists. Its ready event may
+        // still have no measured usage; fetch the server's history estimate.
+        if (event.data['lazy'] != true && !chat.busy) {
+          unawaited(refreshContext(chat));
+        }
       case 'session.usage':
         if (event.data['usage'] is Map) {
           _updateContext(chat, event.data['usage'] as Map);

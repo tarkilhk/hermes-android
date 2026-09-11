@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:hermes_android/core/services/android_share_intent_service.dart';
 import 'package:hermes_android/core/services/connection_manager.dart';
@@ -87,6 +88,21 @@ Future<void> _pumpHome(
 
 void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
+  const channel = MethodChannel(AndroidShareIntentService.channelName);
+
+  setUp(() {
+    TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger
+        .setMockMethodCallHandler(channel, (call) async {
+          if (call.method == 'acknowledgeShare') {
+            expectSync((call.arguments as Map)['id'], isNotEmpty);
+          }
+          return null;
+        });
+  });
+  tearDown(() async {
+    TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger
+        .setMockMethodCallHandler(channel, null);
+  });
 
   testWidgets(
     'share chooses its saved connection and acknowledges only after Add to draft',
@@ -100,6 +116,7 @@ void main() {
       final shares = AndroidShareIntentService();
       addTearDown(shares.dispose);
       final payload = const AndroidSharePayload(
+        id: 'share-work-1',
         text: 'Shared from another app',
       );
 
@@ -149,6 +166,7 @@ void main() {
       final shares = AndroidShareIntentService();
       addTearDown(shares.dispose);
       final payload = const AndroidSharePayload(
+        id: 'share-pending-1',
         text: 'Keep pending until reviewed',
       );
 
@@ -171,4 +189,81 @@ void main() {
       expect(find.text('Shared draft ready'), findsNothing);
     },
   );
+
+  testWidgets('ACK failure keeps the staged draft and incoming share visible', (
+    tester,
+  ) async {
+    const channel = MethodChannel(AndroidShareIntentService.channelName);
+    TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger
+        .setMockMethodCallHandler(channel, (call) async {
+          if (call.method == 'acknowledgeShare') {
+            throw PlatformException(code: 'ack-failed');
+          }
+          return null;
+        });
+    addTearDown(
+      () => TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger
+          .setMockMethodCallHandler(channel, null),
+    );
+    final manager = await _manager();
+    await manager.saveConnection('Work', 'work.local', 8642, 'work-key');
+    final shares = AndroidShareIntentService();
+    addTearDown(shares.dispose);
+    const payload = AndroidSharePayload(
+      id: 'share-ack-failure',
+      text: 'Do not lose this staged draft',
+    );
+
+    await _pumpHome(tester, manager, shares);
+    shares.pendingShare.value = payload;
+    await tester.pumpAndSettle();
+    await tester.tap(find.byKey(const Key('share-add-to-draft')));
+    await tester.pumpAndSettle();
+
+    expect(find.byType(ProfileWorkspaceScreen), findsOneWidget);
+    final composer = find.byKey(const Key('profile-message-composer'));
+    expect(composer, findsOneWidget);
+    expect(tester.widget<TextField>(composer).controller!.text, payload.text);
+    expect(shares.pendingShare.value, same(payload));
+    expect(find.textContaining('could not be cleared'), findsOneWidget);
+  });
+
+  testWidgets('failed discard preserves the Home review controls', (
+    tester,
+  ) async {
+    const channel = MethodChannel(AndroidShareIntentService.channelName);
+    TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger
+        .setMockMethodCallHandler(channel, (call) async {
+          if (call.method == 'acknowledgeShare') {
+            throw PlatformException(code: 'discard-failed');
+          }
+          return null;
+        });
+    addTearDown(
+      () => TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger
+          .setMockMethodCallHandler(channel, null),
+    );
+    final manager = await _manager();
+    await manager.saveConnection('Work', 'work.local', 8642, 'work-key');
+    final shares = AndroidShareIntentService();
+    addTearDown(shares.dispose);
+    const payload = AndroidSharePayload(
+      id: 'share-discard-failure',
+      text: 'Keep this pending',
+    );
+
+    await _pumpHome(tester, manager, shares);
+    shares.pendingShare.value = payload;
+    await tester.pumpAndSettle();
+    await tester.pageBack();
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('Discard'));
+    await tester.pumpAndSettle();
+
+    expect(shares.pendingShare.value, same(payload));
+    expect(find.text('Shared draft ready'), findsOneWidget);
+    expect(find.text('Review'), findsOneWidget);
+    expect(find.text('Discard'), findsOneWidget);
+    expect(find.textContaining('could not be discarded'), findsOneWidget);
+  });
 }

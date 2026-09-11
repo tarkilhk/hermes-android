@@ -15,12 +15,17 @@ class AndroidSharedFile {
   });
 
   factory AndroidSharedFile.fromMap(Map<Object?, Object?> map) {
+    final path = map['path'];
+    final name = map['name'];
+    final mediaType = map['mediaType'];
+    final byteLength = map['byteLength'];
     return AndroidSharedFile(
-      path: (map['path'] as String? ?? '').trim(),
-      name: (map['name'] as String? ?? '').trim(),
-      mediaType: (map['mediaType'] as String? ?? 'application/octet-stream')
-          .trim(),
-      byteLength: (map['byteLength'] as num?)?.toInt() ?? 0,
+      path: path is String ? path.trim() : '',
+      name: name is String ? name.trim() : '',
+      mediaType: mediaType is String
+          ? mediaType.trim()
+          : 'application/octet-stream',
+      byteLength: byteLength is num ? byteLength.toInt() : 0,
     );
   }
 
@@ -28,43 +33,51 @@ class AndroidSharedFile {
 }
 
 class AndroidSharePayload {
+  final String? id;
   final String? text;
   final List<AndroidSharedFile> files;
 
-  const AndroidSharePayload({this.text, this.files = const []});
+  const AndroidSharePayload({this.id, this.text, this.files = const []});
 
   bool get isEmpty => (text == null || text!.isEmpty) && files.isEmpty;
 
-  factory AndroidSharePayload.fromPlatform(Object? raw) {
-    if (raw is String) {
-      final text = raw.trim();
-      return AndroidSharePayload(text: text.isEmpty ? null : text);
+  static AndroidSharePayload? fromPlatform(Object? raw) {
+    if (raw is! Map) {
+      return null;
     }
-    if (raw is! Map) return const AndroidSharePayload();
-    final textValue = (raw['text'] as String?)?.trim();
+    final rawId = raw['id'];
+    if (rawId is! String) {
+      return null;
+    }
+    final id = rawId.trim();
+    if (id.isEmpty) {
+      return null;
+    }
+    final rawText = raw['text'];
+    final textValue = rawText is String ? rawText.trim() : null;
     final rawFiles = raw['files'];
-    final files = rawFiles is List
-        ? rawFiles
-              .whereType<Map>()
-              .map(
-                (file) => AndroidSharedFile.fromMap(
-                  file.map(
-                    (key, value) => MapEntry<Object?, Object?>(key, value),
-                  ),
-                ),
-              )
-              .where(
-                (file) =>
-                    file.path.isNotEmpty &&
-                    file.name.isNotEmpty &&
-                    file.byteLength > 0,
-              )
-              .toList(growable: false)
-        : const <AndroidSharedFile>[];
-    return AndroidSharePayload(
+    if (rawFiles is! List) {
+      return null;
+    }
+    final files = <AndroidSharedFile>[];
+    for (final rawFile in rawFiles) {
+      if (rawFile is! Map) {
+        return null;
+      }
+      final file = AndroidSharedFile.fromMap(
+        rawFile.map((key, value) => MapEntry<Object?, Object?>(key, value)),
+      );
+      if (file.path.isEmpty || file.name.isEmpty || file.byteLength <= 0) {
+        return null;
+      }
+      files.add(file);
+    }
+    final payload = AndroidSharePayload(
+      id: id,
       text: textValue == null || textValue.isEmpty ? null : textValue,
       files: files,
     );
+    return payload.isEmpty ? null : payload;
   }
 }
 
@@ -72,50 +85,95 @@ class AndroidSharePayload {
 class AndroidShareIntentService {
   static const channelName = 'com.hermesagent.hermes_android/share';
   static const _channel = MethodChannel(channelName);
+  static const _genericIntakeError = 'Shared content could not be imported.';
 
   final ValueNotifier<AndroidSharePayload?> pendingShare =
       ValueNotifier<AndroidSharePayload?>(null);
+  final ValueNotifier<String?> intakeError = ValueNotifier<String?>(null);
 
   bool _initialized = false;
-  final _waitingShares = <AndroidSharePayload>[];
 
   Future<void> initialize() async {
-    if (_initialized) return;
+    if (_initialized) {
+      return;
+    }
     _initialized = true;
     _channel.setMethodCallHandler(_handleMethodCall);
     try {
-      _publish(await _channel.invokeMethod<Object?>('getInitialShare'));
+      final raw = await _channel.invokeMethod<Object?>('getPendingShare');
+      if (raw != null) {
+        _publish(raw);
+      }
     } on MissingPluginException {
       // Non-Android hosts have no share-intent bridge.
+    } on PlatformException {
+      intakeError.value = _genericIntakeError;
     }
   }
 
-  bool acknowledgeShare(AndroidSharePayload payload) {
-    if (!identical(pendingShare.value, payload)) return false;
-    pendingShare.value = _waitingShares.isEmpty
-        ? null
-        : _waitingShares.removeAt(0);
-    return true;
+  Future<bool> acknowledgeShare(AndroidSharePayload payload) async {
+    final current = pendingShare.value;
+    final id = payload.id;
+    if (current == null || id == null || id.isEmpty || current.id != id) {
+      return false;
+    }
+    try {
+      final raw = await _channel.invokeMethod<Object?>('acknowledgeShare', {
+        'id': id,
+      });
+      if (pendingShare.value?.id != id) {
+        return false;
+      }
+      if (raw == null) {
+        pendingShare.value = null;
+        return true;
+      }
+      final next = AndroidSharePayload.fromPlatform(raw);
+      if (next == null || next.id == id) {
+        return false;
+      }
+      pendingShare.value = next;
+      return true;
+    } on PlatformException {
+      return false;
+    } on MissingPluginException {
+      return false;
+    }
   }
 
   Future<void> _handleMethodCall(MethodCall call) async {
-    if (call.method == 'sharePayload' || call.method == 'shareText') {
-      _publish(call.arguments);
+    switch (call.method) {
+      case 'sharePayload':
+        _publish(call.arguments);
+        return;
+      case 'shareError':
+        final message = call.arguments is String
+            ? (call.arguments as String).trim()
+            : '';
+        intakeError.value = message.isEmpty ? _genericIntakeError : message;
+        return;
     }
   }
 
   void _publish(Object? raw) {
     final payload = AndroidSharePayload.fromPlatform(raw);
-    if (payload.isEmpty) return;
-    if (pendingShare.value == null) {
-      pendingShare.value = payload;
-    } else {
-      _waitingShares.add(payload);
+    if (payload == null) {
+      intakeError.value = _genericIntakeError;
+      return;
     }
+    final current = pendingShare.value;
+    if (current == null) {
+      pendingShare.value = payload;
+    }
+    // Native always publishes its oldest queued item. Keep the current review
+    // stable until that exact item has been acknowledged.
   }
+
+  void clearIntakeError() => intakeError.value = null;
 
   void dispose() {
     _channel.setMethodCallHandler(null);
     pendingShare.dispose();
+    intakeError.dispose();
   }
 }

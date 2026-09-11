@@ -189,10 +189,17 @@ void main() {
     (tester) async {
       const channel = MethodChannel(AndroidShareIntentService.channelName);
       TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger
-          .setMockMethodCallHandler(
-            channel,
-            (_) async => 'Summarize https://example.com/shared',
-          );
+          .setMockMethodCallHandler(channel, (call) async {
+            if (call.method == 'getPendingShare') {
+              return {
+                'id': 'cold-start-text',
+                'text': 'Summarize https://example.com/shared',
+                'files': <Object>[],
+              };
+            }
+            if (call.method == 'acknowledgeShare') return null;
+            return null;
+          });
       addTearDown(
         () => TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger
             .setMockMethodCallHandler(channel, null),
@@ -242,16 +249,19 @@ void main() {
     TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger
         .setMockMethodCallHandler(
           channel,
-          (_) async => {
-            'files': [
-              {
-                'path': '/cache/shared/report.pdf',
-                'name': 'report.pdf',
-                'mediaType': 'application/pdf',
-                'byteLength': 42,
-              },
-            ],
-          },
+          (call) async => call.method == 'getPendingShare'
+              ? {
+                  'id': 'cold-start-file',
+                  'files': [
+                    {
+                      'path': '/cache/shared/report.pdf',
+                      'name': 'report.pdf',
+                      'mediaType': 'application/pdf',
+                      'byteLength': 42,
+                    },
+                  ],
+                }
+              : null,
         );
     addTearDown(
       () => TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger

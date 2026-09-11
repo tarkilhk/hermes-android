@@ -7,16 +7,25 @@ import android.provider.OpenableColumns
 import io.flutter.embedding.android.FlutterActivity
 import io.flutter.embedding.engine.FlutterEngine
 import io.flutter.plugin.common.MethodChannel
+import org.json.JSONArray
+import org.json.JSONObject
 import java.io.File
 import java.io.FileOutputStream
+import java.security.MessageDigest
 import java.util.UUID
+import java.util.concurrent.Executors
 
 class MainActivity : FlutterActivity() {
     private val shareChannelName = "com.hermesagent.hermes_android/share"
     private val launchChannelName = "com.hermesagent.hermes_android/launch"
     private val quickChatAction = "com.hermesagent.hermes_android.action.QUICK_CHAT"
+    private val intakePreferencesName = "pending_share_intake"
+    private val intakeQueueKey = "queue"
     private val maxSharedItems = 10
     private val maxSharedBytes = 64L * 1024L * 1024L
+    private val maxPendingRecords = 10
+    private val maxPendingBytes = 128L * 1024L * 1024L
+    private val maxSharedTextChars = 256 * 1024
     private var shareChannel: MethodChannel? = null
     private var launchChannel: MethodChannel? = null
     private var initialShareIntent: Intent? = null
@@ -33,10 +42,30 @@ class MainActivity : FlutterActivity() {
         shareChannel = MethodChannel(flutterEngine.dartExecutor.binaryMessenger, shareChannelName).apply {
             setMethodCallHandler { call, result ->
                 when (call.method) {
-                    "getInitialShare" -> {
-                        val pending = initialShareIntent
+                    "getPendingShare" -> {
+                        val pendingIntent = initialShareIntent
                         initialShareIntent = null
-                        processShareIntent(pending) { payload -> result.success(payload) }
+                        intakeExecutor.execute {
+                            try {
+                                if (pendingIntent != null) importShareIntent(pendingIntent)
+                                postResult(result, oldestPendingPayload())
+                            } catch (error: Exception) {
+                                postShareError(safeImportMessage(error))
+                                postResult(result, oldestPendingPayloadSafely())
+                            } finally {
+                                if (pendingIntent != null) clearConsumedShareIntent(pendingIntent)
+                            }
+                        }
+                    }
+                    "acknowledgeShare" -> {
+                        val id = (call.argument<String>("id") ?: "").trim()
+                        intakeExecutor.execute {
+                            try {
+                                postResult(result, acknowledgeShare(id))
+                            } catch (_: Exception) {
+                                postError(result, "share_ack_failed", genericAcknowledgeError)
+                            }
+                        }
                     }
                     else -> result.notImplemented()
                 }
@@ -64,8 +93,15 @@ class MainActivity : FlutterActivity() {
             return
         }
         if (!isShareIntent(intent)) return
-        processShareIntent(intent) { payload ->
-            if (payload != null) shareChannel?.invokeMethod("sharePayload", payload)
+        intakeExecutor.execute {
+            try {
+                importShareIntent(intent)
+                postSharePayload(oldestPendingPayload())
+            } catch (error: Exception) {
+                postShareError(safeImportMessage(error))
+            } finally {
+                clearConsumedShareIntent(intent)
+            }
         }
     }
 
@@ -75,32 +111,245 @@ class MainActivity : FlutterActivity() {
     private fun isShareIntent(intent: Intent?): Boolean =
         intent?.action == Intent.ACTION_SEND || intent?.action == Intent.ACTION_SEND_MULTIPLE
 
-    private fun processShareIntent(intent: Intent?, callback: (Map<String, Any?>?) -> Unit) {
-        if (!isShareIntent(intent)) {
-            callback(null)
-            return
+    private fun importShareIntent(intent: Intent) {
+        val queue = readQueue()
+        pruneOrphanedIntake(queue)
+        val fingerprint = shareFingerprint(intent)
+        val alreadyPending = (0 until queue.length()).any {
+            queue.getJSONObject(it).optString("fingerprint") == fingerprint
         }
-        Thread {
-            val payload = extractSharePayload(intent!!)
-            runOnUiThread { callback(payload) }
-        }.start()
+        if (alreadyPending) return
+        if (queue.length() >= maxPendingRecords) {
+            throw ShareImportException(queueFullError)
+        }
+
+        val text = extractSharedText(intent)
+        if ((text?.length ?: 0) > maxSharedTextChars) {
+            throw ShareImportException(textTooLargeError)
+        }
+        val uris = sharedUris(intent)
+        if (uris.size > maxSharedItems) {
+            throw ShareImportException(tooManyFilesError)
+        }
+        if (text == null && uris.isEmpty()) {
+            throw ShareImportException(genericImportError)
+        }
+
+        val id = UUID.randomUUID().toString()
+        val directory = File(intakeDirectory(), id)
+        val files = JSONArray()
+        var copiedBytes = 0L
+        try {
+            uris.forEachIndexed { index, uri ->
+                val remainingIncoming = maxSharedBytes - copiedBytes
+                val remainingQueue = maxPendingBytes - queueBytes(queue) - copiedBytes
+                if (remainingIncoming <= 0L) throw ShareImportException(incomingTooLargeError)
+                if (remainingQueue <= 0L) throw ShareImportException(queueFullError)
+                val file = copySharedUri(
+                    uri = uri,
+                    index = index,
+                    fallbackType = intent.type,
+                    directory = directory,
+                    byteLimit = minOf(remainingIncoming, remainingQueue),
+                    queueIsLimiting = remainingQueue < remainingIncoming,
+                )
+                files.put(file)
+                copiedBytes += file.getLong("byteLength")
+            }
+            val record = JSONObject()
+                .put("id", id)
+                .put("fingerprint", fingerprint)
+                .put("text", text ?: JSONObject.NULL)
+                .put("files", files)
+            queue.put(record)
+            if (!writeQueue(queue)) throw ShareImportException(genericImportError)
+        } catch (error: ShareImportException) {
+            directory.deleteRecursively()
+            throw error
+        } catch (_: Exception) {
+            directory.deleteRecursively()
+            throw ShareImportException(genericImportError)
+        }
     }
 
-    private fun extractSharePayload(intent: Intent): Map<String, Any?>? {
-        val text = extractSharedText(intent)
-        val files = mutableListOf<Map<String, Any>>()
-        var copiedBytes = 0L
-        sharedUris(intent).take(maxSharedItems).forEachIndexed { index, uri ->
-            val remaining = maxSharedBytes - copiedBytes
-            if (remaining <= 0L) return@forEachIndexed
-            copySharedUri(uri, index, intent.type, remaining)?.let { file ->
-                files += file
-                copiedBytes += file["byteLength"] as Long
+    private fun acknowledgeShare(id: String): Map<String, Any?>? {
+        if (id.isEmpty()) throw ShareImportException(genericImportError)
+        val queue = readQueue()
+        val next = JSONArray()
+        var removed = false
+        for (index in 0 until queue.length()) {
+            val record = queue.getJSONObject(index)
+            if (!removed && record.getString("id") == id) {
+                removed = true
+            } else {
+                next.put(record)
             }
         }
-        if (text == null && files.isEmpty()) return null
-        return mapOf("text" to text, "files" to files)
+        if (removed) {
+            if (!writeQueue(next)) throw ShareImportException(genericImportError)
+            deleteIntakeDirectory(id)
+        }
+        pruneOrphanedIntake(next)
+        return oldestPayload(next)
     }
+
+    private fun copySharedUri(
+        uri: Uri,
+        index: Int,
+        fallbackType: String?,
+        directory: File,
+        byteLimit: Long,
+        queueIsLimiting: Boolean,
+    ): JSONObject {
+        val mediaType = contentResolver.getType(uri)?.trim().orEmpty()
+            .ifEmpty { fallbackType?.trim().orEmpty() }
+            .ifEmpty { "application/octet-stream" }
+        val displayName = queryDisplayName(uri)
+            ?.let(::safeDisplayName)
+            ?.takeIf { it.isNotEmpty() && it != "." && it != ".." }
+            ?: "shared-${index + 1}"
+        directory.mkdirs()
+        val destination = File(directory, "${UUID.randomUUID()}-$displayName")
+        try {
+            val input = contentResolver.openInputStream(uri)
+                ?: throw ShareImportException(genericImportError)
+            var total = 0L
+            input.use { source ->
+                FileOutputStream(destination).use { output ->
+                    val buffer = ByteArray(DEFAULT_BUFFER_SIZE)
+                    while (true) {
+                        val read = source.read(buffer)
+                        if (read < 0) break
+                        total += read
+                        if (total > byteLimit) {
+                            throw ShareImportException(
+                                if (queueIsLimiting) queueFullError else incomingTooLargeError,
+                            )
+                        }
+                        output.write(buffer, 0, read)
+                    }
+                    output.flush()
+                }
+            }
+            if (total <= 0L) throw ShareImportException(genericImportError)
+            return JSONObject()
+                .put("path", destination.absolutePath)
+                .put("name", displayName)
+                .put("mediaType", mediaType)
+                .put("byteLength", total)
+        } catch (error: ShareImportException) {
+            destination.delete()
+            throw error
+        } catch (_: Exception) {
+            destination.delete()
+            throw ShareImportException(genericImportError)
+        }
+    }
+
+    private fun readQueue(): JSONArray {
+        val raw = intakePreferences().getString(intakeQueueKey, null) ?: return JSONArray()
+        try {
+            val queue = JSONArray(raw)
+            if (queue.length() > maxPendingRecords) throw ShareImportException(genericImportError)
+            for (index in 0 until queue.length()) validateRecord(queue.getJSONObject(index))
+            if (queueBytes(queue) > maxPendingBytes) throw ShareImportException(genericImportError)
+            return queue
+        } catch (error: ShareImportException) {
+            throw error
+        } catch (_: Exception) {
+            throw ShareImportException(genericImportError)
+        }
+    }
+
+    private fun validateRecord(record: JSONObject) {
+        val id = record.optString("id")
+        if (!uuidPattern.matches(id) || record.optString("fingerprint").isEmpty()) {
+            throw ShareImportException(genericImportError)
+        }
+        val files = record.optJSONArray("files") ?: throw ShareImportException(genericImportError)
+        if (files.length() > maxSharedItems) throw ShareImportException(genericImportError)
+        for (index in 0 until files.length()) {
+            val file = files.getJSONObject(index)
+            val path = file.optString("path")
+            val length = file.optLong("byteLength", -1)
+            if (path.isEmpty() || file.optString("name").isEmpty() || length <= 0L) {
+                throw ShareImportException(genericImportError)
+            }
+        }
+    }
+
+    private fun writeQueue(queue: JSONArray): Boolean {
+        val preferences = intakePreferences()
+        val previous = preferences.getString(intakeQueueKey, null)
+        val editor = preferences.edit()
+        if (queue.length() == 0) editor.remove(intakeQueueKey)
+        else editor.putString(intakeQueueKey, queue.toString())
+        if (editor.commit()) return true
+
+        // commit() updates the process cache before reporting a disk failure.
+        // Restore the authoritative queue in memory and best-effort on disk.
+        val rollback = preferences.edit()
+        if (previous == null) rollback.remove(intakeQueueKey)
+        else rollback.putString(intakeQueueKey, previous)
+        rollback.commit()
+        return false
+    }
+
+    private fun oldestPendingPayload(): Map<String, Any?>? = oldestPayload(readQueue())
+
+    private fun oldestPendingPayloadSafely(): Map<String, Any?>? = try {
+        oldestPendingPayload()
+    } catch (_: Exception) {
+        null
+    }
+
+    private fun oldestPayload(queue: JSONArray): Map<String, Any?>? =
+        if (queue.length() == 0) null else payloadMap(queue.getJSONObject(0))
+
+    private fun payloadMap(record: JSONObject): Map<String, Any?> {
+        val files = record.getJSONArray("files")
+        return mapOf(
+            "id" to record.getString("id"),
+            "text" to if (record.isNull("text")) null else record.getString("text"),
+            "files" to List(files.length()) { index ->
+                val file = files.getJSONObject(index)
+                mapOf(
+                    "path" to file.getString("path"),
+                    "name" to file.getString("name"),
+                    "mediaType" to file.getString("mediaType"),
+                    "byteLength" to file.getLong("byteLength"),
+                )
+            },
+        )
+    }
+
+    private fun queueBytes(queue: JSONArray): Long {
+        var total = 0L
+        for (recordIndex in 0 until queue.length()) {
+            val files = queue.getJSONObject(recordIndex).getJSONArray("files")
+            for (fileIndex in 0 until files.length()) {
+                total += files.getJSONObject(fileIndex).getLong("byteLength")
+            }
+        }
+        return total
+    }
+
+    private fun pruneOrphanedIntake(queue: JSONArray) {
+        val retained = mutableSetOf<String>()
+        for (index in 0 until queue.length()) retained += queue.getJSONObject(index).getString("id")
+        intakeDirectory().listFiles()?.forEach { file ->
+            if (file.isDirectory && file.name !in retained) file.deleteRecursively()
+        }
+    }
+
+    private fun deleteIntakeDirectory(id: String) {
+        if (uuidPattern.matches(id)) File(intakeDirectory(), id).deleteRecursively()
+    }
+
+    private fun intakeDirectory(): File = File(filesDir, "pending_intake").apply { mkdirs() }
+
+    private fun intakePreferences() =
+        getSharedPreferences(intakePreferencesName, MODE_PRIVATE)
 
     private fun extractSharedText(intent: Intent): String? {
         val text = intent.getStringExtra(Intent.EXTRA_TEXT)?.trim().orEmpty()
@@ -123,61 +372,21 @@ class MainActivity : FlutterActivity() {
         }.toMutableList()
         val clip = intent.clipData
         if (clip != null) {
-            for (index in 0 until clip.itemCount) {
-                clip.getItemAt(index).uri?.let(streams::add)
-            }
+            for (index in 0 until clip.itemCount) clip.getItemAt(index).uri?.let(streams::add)
         }
         return streams.distinct()
     }
 
-    private fun copySharedUri(
-        uri: Uri,
-        index: Int,
-        fallbackType: String?,
-        remainingBytes: Long,
-    ): Map<String, Any>? {
-        val mediaType = contentResolver.getType(uri)?.trim().orEmpty()
-            .ifEmpty { fallbackType?.trim().orEmpty() }
-            .ifEmpty { "application/octet-stream" }
-        val displayName = queryDisplayName(uri)
-            ?.let(::safeDisplayName)
-            ?.takeIf(String::isNotEmpty)
-            ?: "shared-${index + 1}"
-        val directory = File(cacheDir, "shared_intake").apply { mkdirs() }
-        val destination = File(directory, "${UUID.randomUUID()}-$displayName")
-        return try {
-            val input = contentResolver.openInputStream(uri) ?: return null
-            var total = 0L
-            input.use { source ->
-                FileOutputStream(destination).use { output ->
-                    val buffer = ByteArray(DEFAULT_BUFFER_SIZE)
-                    while (true) {
-                        val read = source.read(buffer)
-                        if (read < 0) break
-                        total += read
-                        if (total > remainingBytes) {
-                            throw IllegalArgumentException("Shared payload exceeds 64 MiB")
-                        }
-                        output.write(buffer, 0, read)
-                    }
-                    output.flush()
-                }
-            }
-            if (total <= 0L) {
-                destination.delete()
-                null
-            } else {
-                mapOf(
-                    "path" to destination.absolutePath,
-                    "name" to displayName,
-                    "mediaType" to mediaType,
-                    "byteLength" to total,
-                )
-            }
-        } catch (_: Exception) {
-            destination.delete()
-            null
+    private fun shareFingerprint(intent: Intent): String {
+        val source = buildString {
+            append(intent.action.orEmpty()).append('\u0000')
+            append(intent.type.orEmpty()).append('\u0000')
+            append(extractSharedText(intent).orEmpty()).append('\u0000')
+            sharedUris(intent).forEach { append(it.toString()).append('\u0000') }
         }
+        return MessageDigest.getInstance("SHA-256")
+            .digest(source.toByteArray(Charsets.UTF_8))
+            .joinToString("") { (it.toInt() and 0xff).toString(16).padStart(2, '0') }
     }
 
     private fun queryDisplayName(uri: Uri): String? = try {
@@ -194,4 +403,57 @@ class MainActivity : FlutterActivity() {
         value.substringAfterLast('/').substringAfterLast('\\')
             .replace(Regex("[^A-Za-z0-9._() -]"), "_")
             .take(160)
+
+    private fun postResult(result: MethodChannel.Result, value: Any?) {
+        runOnUiThread { result.success(value) }
+    }
+
+    private fun postError(result: MethodChannel.Result, code: String, message: String) {
+        runOnUiThread { result.error(code, message, null) }
+    }
+
+    private fun postSharePayload(payload: Map<String, Any?>?) {
+        if (payload != null) runOnUiThread { shareChannel?.invokeMethod("sharePayload", payload) }
+    }
+
+    private fun postShareError(message: String) {
+        runOnUiThread { shareChannel?.invokeMethod("shareError", message) }
+    }
+
+    private fun safeImportMessage(error: Exception): String =
+        (error as? ShareImportException)?.safeMessage ?: genericImportError
+
+    private fun clearConsumedShareIntent(consumed: Intent) {
+        runOnUiThread {
+            if (intent !== consumed) return@runOnUiThread
+            setIntent(
+                Intent(consumed).apply {
+                    action = null
+                    type = null
+                    clipData = null
+                    removeExtra(Intent.EXTRA_TEXT)
+                    removeExtra(Intent.EXTRA_SUBJECT)
+                    removeExtra(Intent.EXTRA_STREAM)
+                },
+            )
+        }
+    }
+
+    private class ShareImportException(val safeMessage: String) : Exception()
+
+    companion object {
+        private val intakeExecutor = Executors.newSingleThreadExecutor()
+        private val uuidPattern = Regex(
+            "^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-5][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}$",
+        )
+        private const val tooManyFilesError = "You can share up to 10 files at once."
+        private const val incomingTooLargeError = "Shared files are limited to 64 MiB at once."
+        private const val queueFullError =
+            "Shared draft storage is full. Add or discard a pending share first."
+        private const val textTooLargeError = "Shared text is too large to import."
+        private const val genericImportError =
+            "Shared content could not be imported. Try sharing it again."
+        private const val genericAcknowledgeError =
+            "The pending share could not be cleared. Try again."
+    }
 }
