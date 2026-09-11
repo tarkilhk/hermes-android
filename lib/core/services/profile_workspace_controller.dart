@@ -10,13 +10,14 @@ import '../models/answer_versions.dart';
 import '../models/hermes_profile.dart';
 import '../models/slash_command.dart';
 import 'attachment_draft_service.dart';
+import 'composer_draft_store.dart';
 import 'connection_manager.dart';
 import 'profile_gateway.dart';
 import 'profile_selection_store.dart';
 import 'profiles_repository.dart';
 import 'ws_client.dart';
-import 'chat_model_override_store.dart';
 import '../widgets/chat_intelligence_picker.dart';
+import '../models/gateway_approval.dart';
 
 class ProfileSessionKey {
   final WorkspaceScope workspace;
@@ -79,9 +80,11 @@ class ProfileChat {
   String? model;
   String? provider;
   String? reasoningEffort;
+  bool? yolo;
   bool changingIntelligence = false;
   String? intelligenceRuntime;
   String draft = '';
+  bool draftSubmissionUncertain = false;
   String streaming = '';
   String? tool;
   String? error;
@@ -89,6 +92,7 @@ class ProfileChat {
   bool commandRunning = false;
   final List<String> commandOutput = [];
   Map<String, dynamic>? approval;
+  bool approvalResponding = false;
   Map<String, dynamic>? clarification;
   List<Map<String, dynamic>> messages = [];
   String? historySessionId;
@@ -186,6 +190,7 @@ class ProfileWorkspaceController extends ChangeNotifier {
   final SharedPreferences preferences;
   final ProfileGatewayFactory _factory;
   final AttachmentDraftService attachments;
+  late final ComposerDraftStore _drafts;
   final ProfileAttention? onAttention;
   final Map<WorkspaceScope, ProfileWorkspaceData> _resources = {};
   final Set<ProfileSessionKey> _unrestoredPending = {};
@@ -220,6 +225,10 @@ class ProfileWorkspaceController extends ChangeNotifier {
     }
     _sessionVisibility = SessionVisibility.fromStored(
       preferences.getString(_visibilityKey),
+    );
+    _drafts = ComposerDraftStore(
+      preferences,
+      connectionIdentity: connectionIdentity,
     );
   }
 
@@ -681,6 +690,7 @@ class ProfileWorkspaceController extends ChangeNotifier {
     );
     resource.chats[id] = chat;
     _hydrateIntelligence(chat, response);
+    await _restoreDraft(chat);
     if (current == resource && !switching) resource.selectedSession = id;
     _changed();
     await refreshHistory(chat);
@@ -739,6 +749,14 @@ class ProfileWorkspaceController extends ChangeNotifier {
         return;
       }
       _hydrate(chat, response);
+      await _restoreDraft(chat);
+    } else if (chat.status != ProfileTurnStatus.submitting) {
+      // A chat opened elsewhere may have progressed while this view was away.
+      // Keep an in-flight local submission intact until its acknowledgement.
+      final response = await resource.gateway.resume(key.sessionId);
+      if (_closed || resource.deletedSessions.contains(key.sessionId)) return;
+      _hydrate(chat, response);
+      await _restoreDraft(chat);
     }
     // The user may have navigated again while resume was in flight.
     if (current == resource &&
@@ -900,6 +918,8 @@ class ProfileWorkspaceController extends ChangeNotifier {
       apply(resource.projectSessions);
       apply(resource.searchResults, search: true);
       if (delete) {
+        if (chat != null) await attachments.removeAll(chat.attachments);
+        await _clearStoredDraft(resource.scope, id);
         resource.deletedSessions.add(id);
         resource.chats.remove(id);
       } else if (chat != null) {
@@ -1077,6 +1097,7 @@ class ProfileWorkspaceController extends ChangeNotifier {
             existingDrafts: chat.attachments,
           );
     chat.attachments.add(draft);
+    await _persistDraft(chat);
     _changed();
   }
 
@@ -1084,8 +1105,61 @@ class ProfileWorkspaceController extends ChangeNotifier {
     _owned(chat);
     if (chat.busy) return;
     chat.attachments.remove(draft);
+    await _persistDraft(chat);
     await attachments.removeCachedFile(draft);
     _changed();
+  }
+
+  Future<void> updateDraft(ProfileChat chat, String text) {
+    _owned(chat);
+    chat.draft = text;
+    chat.draftSubmissionUncertain = false;
+    _changed();
+    return _persistDraft(chat);
+  }
+
+  Future<void> _restoreDraft(ProfileChat chat) async {
+    if (chat.draft.isNotEmpty || chat.attachments.isNotEmpty) return;
+    final restored = await _drafts.read(
+      profileName: chat.key.workspace.profileName,
+      sessionId: chat.key.sessionId,
+    );
+    if (restored == null ||
+        chat.draft.isNotEmpty ||
+        chat.attachments.isNotEmpty) {
+      return;
+    }
+    chat.draft = restored.text;
+    chat.draftSubmissionUncertain = restored.submissionUncertain;
+    chat.attachments.addAll(restored.attachments);
+    if (restored.attachments.any(
+      (draft) => draft.status == AttachmentDraftStatus.failed,
+    )) {
+      chat.error =
+          'A staged attachment is no longer available. Your draft text was kept.';
+    } else if (restored.submissionUncertain) {
+      chat.error =
+          'Delivery is uncertain. Check the server history before sending this draft again.';
+    }
+  }
+
+  Future<void> _persistDraft(ProfileChat chat) {
+    return _drafts.write(
+      profileName: chat.key.workspace.profileName,
+      sessionId: chat.key.sessionId,
+      text: chat.draft,
+      attachments: chat.attachments,
+      submissionUncertain: chat.draftSubmissionUncertain,
+    );
+  }
+
+  Future<void> _clearStoredDraft(WorkspaceScope scope, String sessionId) {
+    return _drafts.write(
+      profileName: scope.profileName,
+      sessionId: sessionId,
+      text: '',
+      attachments: const [],
+    );
   }
 
   ProfileWorkspaceData _owned(ProfileChat chat) {
@@ -1419,15 +1493,6 @@ class ProfileWorkspaceController extends ChangeNotifier {
     return !rejected;
   }
 
-  String _intelligenceOwner(ProfileChat chat) =>
-      jsonEncode([connectionIdentity, chat.key.workspace.profileName]);
-
-  ChatModelOverride? _savedIntelligence(ProfileChat chat) =>
-      ChatModelOverrideStore(preferences).read(
-        connectionIdentity: _intelligenceOwner(chat),
-        sessionId: chat.key.sessionId,
-      );
-
   void _hydrateIntelligence(ProfileChat chat, Map<String, dynamic> response) {
     final info = response['info'];
     if (info is Map) {
@@ -1435,12 +1500,7 @@ class ProfileWorkspaceController extends ChangeNotifier {
       chat.provider = info['provider']?.toString() ?? chat.provider;
       chat.reasoningEffort =
           info['reasoning_effort']?.toString() ?? chat.reasoningEffort;
-    }
-    final saved = _savedIntelligence(chat);
-    if (saved != null) {
-      chat.model = saved.model;
-      chat.provider = saved.provider;
-      chat.reasoningEffort = saved.reasoningEffort;
+      if (info['yolo'] is bool) chat.yolo = info['yolo'] as bool;
     }
   }
 
@@ -1466,6 +1526,10 @@ class ProfileWorkspaceController extends ChangeNotifier {
     final choices = <ChatModelChoice>[];
     for (final provider in ProfileGateway.records(results[1]['providers'])) {
       final slug = (provider['slug'] ?? provider['id'])?.toString() ?? '';
+      final label =
+          (provider['name'] ?? provider['display_name'] ?? provider['title'])
+              ?.toString()
+              .trim();
       if (slug.isEmpty || provider['models'] is! List) continue;
       for (final value in provider['models'] as List) {
         final model = value is String
@@ -1474,7 +1538,13 @@ class ProfileWorkspaceController extends ChangeNotifier {
             ? (value['id'] ?? value['model'] ?? value['name'])?.toString()
             : null;
         if (model != null && model.trim().isNotEmpty) {
-          choices.add(ChatModelChoice(provider: slug, model: model.trim()));
+          choices.add(
+            ChatModelChoice(
+              provider: slug,
+              model: model.trim(),
+              providerLabel: label?.isEmpty == true ? null : label,
+            ),
+          );
         }
       }
     }
@@ -1483,9 +1553,9 @@ class ProfileWorkspaceController extends ChangeNotifier {
     }
     chat.model ??= defaults['model']?.toString();
     chat.provider ??= defaults['provider']?.toString();
-    chat.reasoningEffort =
-        _savedIntelligence(chat)?.reasoningEffort ??
-        WsClient.normalizeReasoningEffort(results[2]['value']);
+    chat.reasoningEffort = WsClient.normalizeReasoningEffort(
+      results[2]['value'],
+    );
     _changed();
     return (
       choices: choices,
@@ -1522,8 +1592,6 @@ class ProfileWorkspaceController extends ChangeNotifier {
     }
     chat.model = selection.choice.model;
     chat.provider = selection.choice.provider;
-    // Save the acknowledged model even if the separate reasoning request fails.
-    await _saveIntelligence(chat);
     await gateway.call('config.set', {
       'session_id': runtime,
       'key': 'reasoning',
@@ -1533,18 +1601,8 @@ class ProfileWorkspaceController extends ChangeNotifier {
       throw StateError('Chat reconnected. Try applying again.');
     }
     chat.reasoningEffort = selection.reasoningEffort;
-    await _saveIntelligence(chat);
     chat.intelligenceRuntime = runtime;
   }
-
-  Future<void> _saveIntelligence(ProfileChat chat) =>
-      ChatModelOverrideStore(preferences).save(
-        connectionIdentity: _intelligenceOwner(chat),
-        sessionId: chat.key.sessionId,
-        provider: chat.provider!,
-        model: chat.model!,
-        reasoningEffort: chat.reasoningEffort,
-      );
 
   Future<void> setIntelligence(
     ProfileChat chat,
@@ -1568,18 +1626,6 @@ class ProfileWorkspaceController extends ChangeNotifier {
       chat.changingIntelligence = false;
       _changed();
     }
-  }
-
-  Future<void> _restoreIntelligence(ProfileChat chat) async {
-    final saved = _savedIntelligence(chat);
-    if (saved == null || chat.intelligenceRuntime == chat.runtimeId) return;
-    await _writeIntelligence(
-      chat,
-      ChatIntelligenceSelection(
-        choice: ChatModelChoice(provider: saved.provider, model: saved.model),
-        reasoningEffort: saved.reasoningEffort ?? 'medium',
-      ),
-    );
   }
 
   Future<SlashCatalog> commandCatalog(ProfileChat chat) {
@@ -1627,6 +1673,7 @@ class ProfileWorkspaceController extends ChangeNotifier {
     chat.error = null;
     _changed();
     try {
+      await _persistDraft(chat);
       await resource.gateway.requireProfile();
       final catalog = await commandCatalog(chat);
       var name = catalog.resolve(invocation.name);
@@ -1733,6 +1780,7 @@ class ProfileWorkspaceController extends ChangeNotifier {
           : e.toString();
     } finally {
       chat.commandRunning = false;
+      await _persistDraft(chat);
       _changed();
     }
   }
@@ -1830,6 +1878,39 @@ class ProfileWorkspaceController extends ChangeNotifier {
         chat.commandOutput.add(
           result['output'] as String? ?? 'Status unavailable.',
         );
+      case 'yolo':
+        if (argument.isNotEmpty) throw StateError('Usage: /yolo');
+        if (chat.yolo == null) {
+          _hydrate(chat, await resource.gateway.resume(chat.key.sessionId));
+        }
+        final currentValue = chat.yolo;
+        if (currentValue == null) {
+          throw const FormatException(
+            'The server did not report this session\'s YOLO state. '
+            'Reconnect and try again.',
+          );
+        }
+        final runtime = chat.runtimeId;
+        final result = await resource.gateway.call('config.set', {
+          'session_id': runtime,
+          'key': 'yolo',
+          'value': currentValue ? '0' : '1',
+        });
+        if (chat.runtimeId != runtime) {
+          throw StateError('Chat reconnected. Check YOLO before trying again.');
+        }
+        final effectiveValue = result['value']?.toString();
+        if (effectiveValue != '0' && effectiveValue != '1') {
+          throw const FormatException(
+            'The server did not confirm this session\'s YOLO state.',
+          );
+        }
+        chat.yolo = effectiveValue == '1';
+        chat.commandOutput.add(
+          chat.yolo!
+              ? 'YOLO enabled for this session.'
+              : 'YOLO disabled for this session.',
+        );
       case 'history':
         await refreshHistory(chat);
         chat.commandOutput.add('Conversation history refreshed.');
@@ -1895,6 +1976,7 @@ class ProfileWorkspaceController extends ChangeNotifier {
       return;
     }
     final text = prompt ?? chat.draft.trim();
+    final draftAtSubmit = chat.draft;
     chat.lastActive = DateTime.now().millisecondsSinceEpoch / 1000;
     final files = List<AttachmentDraft>.of(chat.attachments);
     chat.status = ProfileTurnStatus.submitting;
@@ -1902,8 +1984,8 @@ class ProfileWorkspaceController extends ChangeNotifier {
     _changed();
     var submitted = false;
     try {
+      await _persistDraft(chat);
       await resource.gateway.requireProfile();
-      await _restoreIntelligence(chat);
       // Persist only ownership and status. No prompt text, paths or credentials.
       await _journal();
       await AttachmentDraftSendCoordinator(attachments).uploadThenSubmit(
@@ -1920,7 +2002,10 @@ class ProfileWorkspaceController extends ChangeNotifier {
           }
           return AttachmentUploadReceipt(refText: ref);
         },
-        onChanged: (_) => _changed(),
+        onChanged: (_) {
+          unawaited(_persistDraft(chat));
+          _changed();
+        },
         submitPrompt: (refs) async {
           await resource.gateway.requireProfile();
           chat.messages.add({
@@ -1929,8 +2014,6 @@ class ProfileWorkspaceController extends ChangeNotifier {
             'display_content': ?display,
           });
           chat.streaming = '';
-          chat.draft = '';
-          chat.attachments.clear();
           chat.status = ProfileTurnStatus.running;
           if (chat.title == 'New chat') {
             chat.title = display ?? (text.isEmpty ? 'Attachment' : text);
@@ -1941,10 +2024,18 @@ class ProfileWorkspaceController extends ChangeNotifier {
             'session_id': chat.runtimeId,
             'text': [text, ...refs].where((s) => s.isNotEmpty).join('\n\n'),
           });
+          chat.draftSubmissionUncertain = false;
+          if (chat.draft == draftAtSubmit) chat.draft = '';
+          chat.attachments.removeWhere(files.contains);
+          await _persistDraft(chat);
         },
       );
       await attachments.removeAll(files);
     } catch (e) {
+      if (submitted) {
+        chat.draftSubmissionUncertain = true;
+        await _persistDraft(chat);
+      }
       chat.error = submitted
           ? 'Delivery or completion is uncertain. Reconnect to check history. The prompt will not be resent.'
           : e.toString();
@@ -1962,16 +2053,38 @@ class ProfileWorkspaceController extends ChangeNotifier {
   ).gateway.call('session.interrupt', {'session_id': chat.runtimeId});
 
   Future<void> approve(ProfileChat chat, String choice) async {
-    if (!{'once', 'deny'}.contains(choice)) {
+    final request = chat.approval;
+    if (request == null) {
+      throw StateError('There is no approval waiting for this chat.');
+    }
+    if (chat.approvalResponding) {
+      throw StateError('Approval is already being submitted.');
+    }
+    if (!{'once', 'session', 'always', 'deny'}.contains(choice)) {
       throw ArgumentError('Unsupported approval');
     }
-    await _owned(chat).gateway.call('approval.respond', {
-      'session_id': chat.runtimeId,
-      'choice': choice,
-    });
-    chat.approval = null;
-    chat.status = ProfileTurnStatus.running;
+    final supported = GatewayApprovalRequest.fromEventData(
+      request,
+    ).choices.any((candidate) => candidate.wireValue == choice);
+    if (!supported) throw ArgumentError('Approval choice is unavailable');
+    final runtime = chat.runtimeId;
+    chat.approvalResponding = true;
     _changed();
+    try {
+      await _owned(chat).gateway.call('approval.respond', {
+        'session_id': runtime,
+        'choice': choice,
+        if (request['request_id'] != null) 'request_id': request['request_id'],
+      });
+      if (chat.runtimeId != runtime || !identical(chat.approval, request)) {
+        return;
+      }
+      chat.approval = null;
+      chat.status = ProfileTurnStatus.running;
+    } finally {
+      chat.approvalResponding = false;
+      _changed();
+    }
   }
 
   Future<void> clarify(
@@ -2027,6 +2140,8 @@ class ProfileWorkspaceController extends ChangeNotifier {
         .firstOrNull;
     if (chat == null) return;
     switch (event.type) {
+      case 'session.info':
+        _hydrateIntelligence(chat, {'info': event.data});
       case 'message.delta':
         chat.streaming += event.data['text']?.toString() ?? '';
       case 'message.interim':
@@ -2178,7 +2293,8 @@ class ProfileWorkspaceController extends ChangeNotifier {
       for (final chat in resource.chats.values.toList()) {
         if (!chat.busy && chat != resource.chat) continue;
         final wasBusy = chat.busy;
-        _hydrate(chat, await resource.gateway.resume(chat.key.sessionId));
+        final result = await resource.gateway.resume(chat.key.sessionId);
+        _hydrate(chat, result);
         await refreshHistory(chat);
         if (wasBusy && !chat.busy) {
           _notify(chat, chat.status == ProfileTurnStatus.failed);
@@ -2236,6 +2352,10 @@ class ProfileWorkspaceController extends ChangeNotifier {
     chat.error = failed
         ? (inflight?['error']?.toString() ?? 'Turn failed')
         : null;
+    if (chat.draftSubmissionUncertain) {
+      chat.error =
+          'Delivery is uncertain. Check the server history before sending this draft again.';
+    }
   }
 
   Future<void> _journal() {
@@ -2281,6 +2401,7 @@ class ProfileWorkspaceController extends ChangeNotifier {
           title: 'Restored chat',
         )..status = ProfileTurnStatus.reconnecting;
         _hydrate(chat, result);
+        await _restoreDraft(chat);
         resource.chats[key.sessionId] = chat;
         await refreshHistory(chat);
         _unrestoredPending.remove(key);

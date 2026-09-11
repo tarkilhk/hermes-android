@@ -174,6 +174,10 @@ class HermesAppState extends State<HermesApp> {
         connectionIdentity: identity,
         preferences: widget.connManager.prefs,
         onAttention: (chat, needsInput) async {
+          final preference = needsInput
+              ? attentionNotificationsKey
+              : completionNotificationsKey;
+          if (widget.connManager.prefs.getBool(preference) == false) return;
           await _notificationsReady;
           await _profileNotifications.show(
             TurnNotification(

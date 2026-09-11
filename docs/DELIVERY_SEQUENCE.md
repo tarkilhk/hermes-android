@@ -1,8 +1,8 @@
-# Proposed delivery sequence
+# Delivery sequence
 
-Proposed on 2026-09-11 after the owner tried the new shell. This breaks the [product plan](PRODUCT_PLAN.md) into increments for implementation and phone use. It does not add features, change exclusions or set calendar deadlines. The order is a recommendation; owner feedback can move a slice forward.
+Approved on 2026-09-11 after the owner tried the new shell. This breaks the [product plan](PRODUCT_PLAN.md) into increments for implementation and phone use. It does not add features, change exclusions or set calendar deadlines. Owner feedback can move a slice forward.
 
-W00, the shell, is deployed. The W packages remain feature themes and coverage records. D01 through D30 below are proposed delivery slices within those themes, not new feature IDs. Each slice is still **Proposed**.
+W00, the shell, is deployed. The W packages remain feature themes and coverage records. D01 through D30 below are delivery slices within those themes, not new feature IDs. Implementation is underway; the tracking table records what has actually been verified.
 
 ## How we deliver
 
@@ -12,7 +12,7 @@ Implement one useful outcome at a time. Prefer one focused commit and a short se
 
 For each phone build, record the included slices, version, checks and remaining limits. The owner tries the change during normal use; correct problems before adding another layer to that workflow. Closely related small slices can share a build. One slice is not a promise of one day or one conversation of development.
 
-Before starting D01, save the accepted shell as a separate implementation baseline. The earlier research commit is already on `main` as `acd8c40`; the shell changes are currently uncommitted. This document proposes that next commit, it does not perform it.
+Research is on `main` as `acd8c40`; the accepted shell baseline is committed and pushed as `87ddb44`. Commit and push after each verified milestone. Use smaller, cheaper agents for bounded tasks, integrate their changes, and report progress regularly. Reuse working code and remove obsolete implementations. This is a new product: do not add backward-compatibility layers.
 
 ## 1. Make everyday conversation dependable
 
@@ -119,7 +119,12 @@ For each active slice, append a short record here or link its implementation not
 | Slice | Status | Delivered change | Verification and phone build | Remaining dependency |
 | --- | --- | --- | --- | --- |
 | W00 | Done | Shared shell and legacy UI cleanup | Personal 2.1.2 / 21452; see [shell notes](APP_SHELL.md) | No new feature coverage implied |
-| D01-D30 | Proposed | No implementation started by this proposal | None | Check relevant deployed contracts at slice start |
+| D01-D04 | Implemented; live QA pending | Durable drafts, server refresh on cached reopen, technical-provider groups, session YOLO; removed local model overrides. See [delivery notes](CONVERSATION_FOUNDATIONS.md) | Analyzer clean; full suite 890 passed / 4 opt-in skipped; signed Personal 2.1.3 / 21462 built and installed wirelessly on owner's phone | Live gateway/phone behavior verification pending; local Desktop gateway is not running |
+| D05 | In progress | Per-profile `session.active_list` discovery, preserving original session ownership | Source contract checked against pinned Desktop | No global active-list endpoint; query each discovered profile |
+| D06 | Implemented; live QA pending | Existing clarification handling retained; server-advertised approval scopes and request targeting | Included in foundation test run, 890 passed | Live gateway verification pending |
+| D07 | In progress, contract audit | Existing sudo/secret transport can be reused; vault has three distinct prompt families | Desktop prompt overlays and event store inspected | Resume exposes approval/clarify only; restoring sensitive prompts requires backend metadata |
+| D08 | Partial | Device completion/attention switches; existing notification tap routing retained | Settings widget check and full suite pass | End-to-end notification permission/tap checks remain; locked/terminated-app push remains D26/D27 |
+| D09-D30 | Planned | Not started | None | Check relevant deployed contracts at slice start |
 
 The feature ledger in PRODUCT_PLAN.md remains the coverage checklist. Mark a feature Done only after all of its selected portions are delivered; Q10, Q03, C08 and notifications deliberately span multiple slices. R18 error clarity, B15 ownership and M08 server authority apply throughout.
 

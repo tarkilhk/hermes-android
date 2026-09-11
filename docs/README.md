@@ -6,7 +6,7 @@ The [owner-selected product plan](PRODUCT_PLAN.md) is the current scope for this
 
 The [repository README](../README.md) describes the current implementation and setup. A planned feature must not be listed there as available before its active user flow works.
 
-The [proposed delivery sequence](DELIVERY_SEQUENCE.md) cuts the product plan into small phone-testable increments, starting with draft protection and conversation reliability.
+The approved [delivery sequence](DELIVERY_SEQUENCE.md) tracks implementation in small phone-testable increments, starting with draft protection and conversation reliability.
 
 ## Research preserved for future work
 
@@ -26,6 +26,7 @@ The inventories describe their inspection dates and source commits. Do not silen
 ## Current implementation contracts
 
 - [App shell](APP_SHELL.md), navigation, cleanup boundary and verification.
+- [Conversation foundations](CONVERSATION_FOUNDATIONS.md), durable drafts, server refresh, provider selection, session YOLO and approval controls.
 
 - [Slash commands](SLASH_COMMAND_SUPPORT.md).
 - [Answer actions and versions](ANSWER_VERSIONS.md). Its description of local version links is current implementation evidence; the product plan calls for server ownership as this feature evolves.

@@ -85,6 +85,11 @@ void main() {
       120,
       scrollable: find.byType(Scrollable).first,
     );
+    await tester.scrollUntilVisible(
+      find.byKey(const Key('choose-chat-model')),
+      120,
+      scrollable: find.byType(Scrollable).first,
+    );
     await tester.tap(find.byKey(const Key('choose-chat-model')));
     await tester.pumpAndSettle();
 
@@ -96,6 +101,64 @@ void main() {
     expect(result?.choice.provider, 'openai');
     expect(result?.choice.model, 'gpt-5.6-luna');
     expect(result?.reasoningEffort, 'ultra');
+  });
+
+  testWidgets('groups by route while preserving duplicate model IDs', (
+    tester,
+  ) async {
+    const grouped = [
+      ChatModelChoice(
+        provider: 'opencode-go',
+        providerLabel: 'OpenCode',
+        model: 'shared-model',
+      ),
+      ChatModelChoice(
+        provider: 'anthropic-subscription',
+        providerLabel: 'Anthropic subscription',
+        model: 'shared-model',
+      ),
+    ];
+    ChatIntelligenceSelection? result;
+    await tester.pumpWidget(
+      MaterialApp(
+        theme: hermesTheme(Brightness.dark),
+        home: Scaffold(
+          body: ChatIntelligenceSheet(
+            choices: grouped,
+            initialChoice: grouped.first,
+            initialReasoningEffort: 'high',
+            defaultModel: 'shared-model',
+            onCancel: () {},
+            onApply: (selection) => result = selection,
+          ),
+        ),
+      ),
+    );
+    await tester.scrollUntilVisible(
+      find.byKey(const Key('choose-chat-model')),
+      120,
+      scrollable: find.byType(Scrollable).first,
+    );
+    await tester.tap(find.byKey(const Key('choose-chat-model')));
+    await tester.pumpAndSettle();
+    expect(find.text('OpenCode'), findsOneWidget);
+    expect(find.text('Anthropic subscription'), findsOneWidget);
+    expect(find.byKey(const Key('model-provider-opencode-go')), findsOneWidget);
+    expect(
+      find.byKey(const Key('model-provider-anthropic-subscription')),
+      findsOneWidget,
+    );
+    await tester.tap(
+      find.byKey(const Key('model-provider-anthropic-subscription')),
+    );
+    await tester.pumpAndSettle();
+    await tester.tap(
+      find.byKey(const Key('model-anthropic-subscription-shared-model')),
+    );
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('Apply'));
+    expect(result?.choice.provider, 'anthropic-subscription');
+    expect(result?.choice.model, 'shared-model');
   });
 
   testWidgets('compact button does not overflow a narrow large-text layout', (

@@ -4,7 +4,7 @@ enum AttachmentDraftStatus { ready, uploading, attached, failed }
 
 enum AttachmentImageFormat { jpeg, png, webp }
 
-/// A composer attachment backed by an app-private cache file.
+/// A composer attachment backed by an app-private staged file.
 ///
 /// Payload bytes and Base64 are intentionally absent. The upload service reads
 /// and encodes only one [cachedPath] at a time.

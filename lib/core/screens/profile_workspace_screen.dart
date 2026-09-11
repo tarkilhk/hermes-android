@@ -9,6 +9,7 @@ import '../widgets/profile_message.dart';
 import '../models/answer_versions.dart';
 import '../widgets/answer_actions.dart';
 import '../models/gateway_clarify.dart';
+import '../models/gateway_approval.dart';
 import '../widgets/gateway_clarify_dialog.dart';
 import '../theme/profile_workspace_theme.dart';
 import '../widgets/profile_chat_indicator.dart';
@@ -68,7 +69,10 @@ class _ProfileWorkspaceScreenState extends State<ProfileWorkspaceScreen>
     if (widget.initialQuickChat || widget.initialSharedPayload != null) {
       await _run(() async {
         final chat = await controller.createChat();
-        chat.draft = widget.initialSharedPayload?.text ?? '';
+        await controller.updateDraft(
+          chat,
+          widget.initialSharedPayload?.text ?? '',
+        );
         for (final file
             in widget.initialSharedPayload?.files ?? <AndroidSharedFile>[]) {
           await controller.addAttachment(chat, file.path, file.name);
@@ -355,36 +359,65 @@ class _ProfileWorkspaceScreenState extends State<ProfileWorkspaceScreen>
                 child: const Text('Reconnect and check history'),
               ),
             if (chat.approval != null)
-              Card(
-                child: Padding(
-                  padding: const EdgeInsets.all(12),
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      const Text('Approval needed'),
-                      SelectableText(
-                        chat.approval!['command']?.toString() ??
-                            chat.approval!['description']?.toString() ??
-                            'The agent needs permission to continue.',
-                      ),
-                      Wrap(
-                        spacing: 8,
+              Builder(
+                builder: (context) {
+                  final approval = GatewayApprovalRequest.fromEventData(
+                    chat.approval!,
+                  );
+                  return Card(
+                    child: Padding(
+                      padding: const EdgeInsets.all(12),
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
                         children: [
-                          OutlinedButton(
-                            onPressed: () =>
-                                _run(() => controller.approve(chat, 'deny')),
-                            child: const Text('Deny'),
+                          const Text('Approval needed'),
+                          SelectableText(
+                            chat.approval!['command']?.toString() ??
+                                chat.approval!['description']?.toString() ??
+                                'The agent needs permission to continue.',
                           ),
-                          FilledButton(
-                            onPressed: () =>
-                                _run(() => controller.approve(chat, 'once')),
-                            child: const Text('Allow once'),
+                          Wrap(
+                            spacing: 8,
+                            children: [
+                              for (final choice in approval.choices)
+                                choice == GatewayApprovalChoice.deny
+                                    ? OutlinedButton(
+                                        onPressed: chat.approvalResponding
+                                            ? null
+                                            : () => _run(
+                                                () => controller.approve(
+                                                  chat,
+                                                  choice.wireValue,
+                                                ),
+                                              ),
+                                        child: const Text('Deny'),
+                                      )
+                                    : FilledButton(
+                                        onPressed: chat.approvalResponding
+                                            ? null
+                                            : () => _run(
+                                                () => controller.approve(
+                                                  chat,
+                                                  choice.wireValue,
+                                                ),
+                                              ),
+                                        child: Text(switch (choice) {
+                                          GatewayApprovalChoice.once =>
+                                            'Allow once',
+                                          GatewayApprovalChoice.session =>
+                                            'Allow for session',
+                                          GatewayApprovalChoice.always =>
+                                            'Always allow',
+                                          GatewayApprovalChoice.deny => 'Deny',
+                                        }),
+                                      ),
+                            ],
                           ),
                         ],
                       ),
-                    ],
-                  ),
-                ),
+                    ),
+                  );
+                },
               ),
             for (final output in chat.commandOutput)
               Padding(
@@ -439,6 +472,15 @@ class _ProfileWorkspaceScreenState extends State<ProfileWorkspaceScreen>
                                 horizontal: 4,
                               ),
                               child: InputChip(
+                                avatar: file.error == null
+                                    ? null
+                                    : Tooltip(
+                                        message: file.error!,
+                                        child: const Icon(
+                                          Icons.warning_amber_rounded,
+                                          size: 18,
+                                        ),
+                                      ),
                                 label: ConstrainedBox(
                                   constraints: const BoxConstraints(
                                     maxWidth: 180,
@@ -473,7 +515,22 @@ class _ProfileWorkspaceScreenState extends State<ProfileWorkspaceScreen>
                     maxLines: 5,
                     keyboardType: TextInputType.multiline,
                     textInputAction: TextInputAction.newline,
-                    onChanged: (value) => setState(() => chat.draft = value),
+                    onChanged: (value) {
+                      unawaited(
+                        controller.updateDraft(chat, value).catchError((_) {
+                          if (context.mounted) {
+                            ScaffoldMessenger.of(context).showSnackBar(
+                              const SnackBar(
+                                content: Text(
+                                  'This draft could not be saved on the device.',
+                                ),
+                              ),
+                            );
+                          }
+                        }),
+                      );
+                      setState(() {});
+                    },
                     decoration: InputDecoration(
                       isDense: true,
                       hintMaxLines: 1,

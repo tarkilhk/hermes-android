@@ -1,5 +1,8 @@
 import 'package:flutter_local_notifications/flutter_local_notifications.dart';
 
+const completionNotificationsKey = 'completion_notifications';
+const attentionNotificationsKey = 'attention_notifications';
+
 /// The Android/iOS notification channel a [TurnNotification] belongs to.
 ///
 /// Phase 3 of the daily-driver roadmap replaces the single Hermes Turns

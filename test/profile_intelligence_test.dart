@@ -37,10 +37,11 @@ void main() {
   tearDown(() => controller.dispose());
 
   test(
-    'selection is session scoped, persisted and restored before sending',
+    'selection writes the session and reopen uses server settings',
     () async {
       final chat = controller.current!.chat!;
-      await controller.loadIntelligence(chat);
+      final intelligence = await controller.loadIntelligence(chat);
+      expect(intelligence.choices.first.providerLabel, 'OpenAI subscription');
       await controller.setIntelligence(chat, selection);
       expect(host.writes, hasLength(2));
       expect(
@@ -56,11 +57,11 @@ void main() {
       final reopened = await open();
       addTearDown(reopened.dispose);
       final restored = reopened.current!.chat!;
-      expect(restored.model, 'gpt-5.6-sol');
-      expect(restored.reasoningEffort, 'xhigh');
+      expect(restored.model, 'gpt-6-astra');
+      expect(restored.reasoningEffort, 'high');
       restored.draft = 'Verify settings';
       await reopened.send(restored);
-      expect(host.writes, hasLength(4));
+      expect(host.writes, hasLength(2));
       await reopened.switchProfile('work');
       final other = await reopened.createChat();
       expect(other.model, 'gpt-6-astra');

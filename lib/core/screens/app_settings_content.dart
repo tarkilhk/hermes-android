@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
 import '../theme/profile_workspace_theme.dart';
+import '../services/turn_notification_service.dart';
 import '../widgets/text_size_settings_card.dart';
 
 /// Existing device preferences, shared by connected and disconnected navigation.
@@ -24,9 +25,12 @@ class AppSettingsContent extends StatefulWidget {
 class _AppSettingsContentState extends State<AppSettingsContent> {
   bool _requesting = false;
 
-  Future<void> _save(String key, String value) async {
+  Future<void> _save(String key, Object value) async {
     try {
-      if (!await widget.preferences.setString(key, value)) {
+      final saved = value is bool
+          ? await widget.preferences.setBool(key, value)
+          : await widget.preferences.setString(key, value as String);
+      if (!saved) {
         throw StateError('Could not save the setting');
       }
       if (!mounted) return;
@@ -135,6 +139,37 @@ class _AppSettingsContentState extends State<AppSettingsContent> {
           onChanged: (_) => widget.onChanged(),
         ),
         if (widget.enableNotifications != null) ...[
+          const SizedBox(height: 12),
+          Card(
+            child: Column(
+              children: [
+                SwitchListTile(
+                  title: const Text('Completed work'),
+                  value:
+                      widget.preferences.getBool(completionNotificationsKey) ??
+                      true,
+                  onChanged: (value) =>
+                      _save(completionNotificationsKey, value),
+                ),
+                SwitchListTile(
+                  title: const Text('Needs attention'),
+                  subtitle: const Text(
+                    'Questions, approvals and failed turns.',
+                  ),
+                  value:
+                      widget.preferences.getBool(attentionNotificationsKey) ??
+                      true,
+                  onChanged: (value) => _save(attentionNotificationsKey, value),
+                ),
+                const Padding(
+                  padding: EdgeInsets.fromLTRB(16, 0, 16, 16),
+                  child: Text(
+                    'Alerts currently require an active connection to Hermes. Background push is planned.',
+                  ),
+                ),
+              ],
+            ),
+          ),
           const SizedBox(height: 12),
           Card(
             child: ListTile(

@@ -6,8 +6,17 @@ import '../theme/hermes_theme.dart';
 class ChatModelChoice {
   final String provider;
   final String model;
+  final String? providerLabel;
 
-  const ChatModelChoice({required this.provider, required this.model});
+  const ChatModelChoice({
+    required this.provider,
+    required this.model,
+    this.providerLabel,
+  });
+
+  String get routeLabel => providerLabel?.trim().isNotEmpty == true
+      ? providerLabel!.trim()
+      : provider;
 }
 
 /// The per-chat model and reasoning values chosen in the picker.
@@ -305,9 +314,14 @@ class _ChatIntelligenceSheetState extends State<ChatIntelligenceSheet> {
         .where((choice) {
           if (normalizedQuery.isEmpty) return true;
           return choice.model.toLowerCase().contains(normalizedQuery) ||
-              choice.provider.toLowerCase().contains(normalizedQuery);
+              choice.provider.toLowerCase().contains(normalizedQuery) ||
+              choice.routeLabel.toLowerCase().contains(normalizedQuery);
         })
         .toList(growable: false);
+    final groups = <String, List<ChatModelChoice>>{};
+    for (final choice in visibleChoices) {
+      groups.putIfAbsent(choice.provider, () => []).add(choice);
+    }
 
     return Column(
       key: const ValueKey('model-page'),
@@ -348,22 +362,33 @@ class _ChatIntelligenceSheetState extends State<ChatIntelligenceSheet> {
                   padding: const EdgeInsets.symmetric(
                     horizontal: HermesSpacing.sm,
                   ),
-                  itemCount: visibleChoices.length,
+                  itemCount: groups.length,
                   itemBuilder: (context, index) {
-                    final choice = visibleChoices[index];
-                    final selected =
-                        choice.model == _selectedChoice.model &&
-                        choice.provider == _selectedChoice.provider;
-                    return _PickerTile(
-                      key: Key('model-${choice.provider}-${choice.model}'),
-                      title: choice.model,
-                      subtitle: choice.provider,
-                      selected: selected,
-                      onTap: () => setState(() {
-                        _selectedChoice = choice;
-                        _choosingModel = false;
-                        _modelQuery = '';
-                      }),
+                    final provider = groups.keys.elementAt(index);
+                    final choices = groups[provider]!;
+                    final label = choices.first.routeLabel;
+                    return ExpansionTile(
+                      key: Key('model-provider-$provider'),
+                      initiallyExpanded: provider == _selectedChoice.provider,
+                      title: Text(label),
+                      subtitle: Text(provider),
+                      children: [
+                        for (final choice in choices)
+                          _PickerTile(
+                            key: Key(
+                              'model-${choice.provider}-${choice.model}',
+                            ),
+                            title: choice.model,
+                            selected:
+                                choice.model == _selectedChoice.model &&
+                                choice.provider == _selectedChoice.provider,
+                            onTap: () => setState(() {
+                              _selectedChoice = choice;
+                              _choosingModel = false;
+                              _modelQuery = '';
+                            }),
+                          ),
+                      ],
                     );
                   },
                 ),
@@ -443,7 +468,6 @@ class _SheetHeader extends StatelessWidget {
 
 class _PickerTile extends StatelessWidget {
   final String title;
-  final String? subtitle;
   final bool selected;
   final VoidCallback onTap;
 
@@ -451,7 +475,6 @@ class _PickerTile extends StatelessWidget {
     required this.title,
     required this.selected,
     required this.onTap,
-    this.subtitle,
     super.key,
   });
 
@@ -464,7 +487,6 @@ class _PickerTile extends StatelessWidget {
       selected: selected,
       selectedTileColor: tokens.accent.withValues(alpha: 0.1),
       title: Text(title),
-      subtitle: subtitle == null ? null : Text(subtitle!),
       trailing: selected
           ? Icon(Icons.check_rounded, color: tokens.accent)
           : const SizedBox(width: 24),

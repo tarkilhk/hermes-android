@@ -17,6 +17,8 @@ import 'profile_workspace_controller_test.dart' show Host;
 class CommandHost extends Host {
   final commandCalls = <(String, Map<String, dynamic>)>[];
   Future<Map<String, dynamic>> Function(String, Map<String, dynamic>)? respond;
+  String yolo = '0';
+  String? yoloSetResult;
   Map<String, dynamic> catalog(String profile) => {
     'pairs': [
       ['/$profile-skill', 'Profile $profile skill'],
@@ -58,6 +60,10 @@ class CommandHost extends Host {
       rpc: (method, params) async {
         commandCalls.add((method, params));
         if (method == 'commands.catalog') return catalog(scope.profileName);
+        if (method == 'config.set' && params['key'] == 'yolo') {
+          yolo = params['value']!.toString();
+          return {'value': yoloSetResult ?? yolo};
+        }
         if (method == 'command.dispatch' ||
             method == 'slash.exec' ||
             method == 'complete.slash') {
@@ -67,7 +73,14 @@ class CommandHost extends Host {
         if (method == 'session.history') {
           return {'messages': <Map<String, dynamic>>[]};
         }
-        return base.call(method, params);
+        final result = await base.call(method, params);
+        if (method == 'session.create' || method == 'session.resume') {
+          return {
+            ...result,
+            'info': {...result['info'] as Map, 'yolo': yolo == '1'},
+          };
+        }
+        return result;
       },
     );
     gateways[scope.profileName] = gateway;
@@ -320,6 +333,55 @@ void main() {
     },
   );
 
+  test('yolo toggles the hydrated live session while busy', () async {
+    chat.status = ProfileTurnStatus.running;
+    host.event('a', 'session.info', {'yolo': true});
+    chat.draft = '/yolo';
+
+    await controller.send(chat);
+
+    expect(
+      host.commandCalls.where((call) => call.$1 == 'config.set').single.$2,
+      {'session_id': 'a-runtime', 'key': 'yolo', 'value': '0', 'profile': 'a'},
+    );
+    expect(chat.commandOutput, ['YOLO disabled for this session.']);
+    expect(chat.yolo, isFalse);
+    expect(chat.draft, isEmpty);
+    expect(chat.status, ProfileTurnStatus.running);
+    expect(
+      host.commandCalls.where(
+        (call) => {'command.dispatch', 'slash.exec'}.contains(call.$1),
+      ),
+      isEmpty,
+    );
+  });
+
+  test(
+    'yolo resumes unknown state and displays the acknowledged state',
+    () async {
+      chat.yolo = null;
+      host.yolo = '1';
+      host.yoloSetResult = '1';
+      chat.draft = '/yolo';
+
+      await controller.send(chat);
+
+      expect(
+        host.commandCalls.where((call) => call.$1 == 'config.set').single.$2,
+        containsPair('value', '0'),
+      );
+      expect(
+        host.commandCalls
+            .where((call) => call.$1 == 'session.resume')
+            .single
+            .$2,
+        {'session_id': 'same', 'omit_messages': true, 'profile': 'a'},
+      );
+      expect(chat.commandOutput, ['YOLO enabled for this session.']);
+      expect(chat.yolo, isTrue);
+    },
+  );
+
   test('terminal commands explain requirement and preserve draft', () async {
     chat.draft = '/clear';
     await controller.send(chat);
@@ -457,14 +519,15 @@ void main() {
         find.byKey(const Key('profile-message-composer')),
         '/a-skill task',
       );
-      await tester.pump();
-      // Attachment cleanup uses real filesystem futures even with no files.
-      await tester.runAsync(() async {
-        await tester.tap(find.byTooltip('Send'));
-        for (var i = 0; i < 100 && chat.commandRunning; i++) {
-          await Future<void>.delayed(const Duration(milliseconds: 10));
-        }
-      });
+      await tester.pumpAndSettle();
+      await tester.tap(find.byTooltip('Send'));
+      // The fixture and widget callbacks use different async zones.
+      for (var i = 0; i < 100 && chat.commandRunning; i++) {
+        await tester.pump(const Duration(milliseconds: 10));
+        await tester.runAsync(
+          () => Future<void>.delayed(const Duration(milliseconds: 10)),
+        );
+      }
       await tester.pump();
       expect(chat.commandRunning, isFalse);
       expect(

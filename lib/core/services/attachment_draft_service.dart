@@ -111,7 +111,7 @@ class AttachmentDraftSendCoordinator {
   }
 }
 
-/// Owns attachment cache I/O, image metadata sanitization, policy checks, and
+/// Owns staged attachment I/O, image metadata sanitization, policy checks, and
 /// sequential uploads. UI code only retains small [AttachmentDraft] records.
 class AttachmentDraftService {
   final AttachmentCacheDirectoryProvider _cacheDirectoryProvider;
@@ -136,7 +136,7 @@ class AttachmentDraftService {
   }
 
   static Future<Directory> _defaultCacheDirectory() async {
-    final root = await getTemporaryDirectory();
+    final root = await getApplicationSupportDirectory();
     return Directory('${root.path}${Platform.pathSeparator}attachment_drafts');
   }
 

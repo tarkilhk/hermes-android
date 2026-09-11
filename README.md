@@ -22,17 +22,18 @@ The current connection flow opens `ProfileWorkspaceScreen`, which owns the drawe
 - Projects, recent and pinned chats, paginated session/history loading, full-text conversation search, and an option to include automated chats.
 - Rename, pin/unpin, explicit read/unread, archive/unarchive, delete and move-to-project actions with server-side constraints.
 - Streaming conversations, selectable Markdown/code, basic tool activity and Stop.
-- Per-chat model and reasoning selection; a searchable flat model list currently shows provider identifiers.
+- Per-chat model and reasoning selection, with searchable, expandable technical-provider groups. Server session settings take precedence over former local model overrides.
+- Unsent text and staged attachments survive app restart, scoped to their original connection/profile/chat. An uncertain send retains its draft for checking against server history; it is never resent automatically.
 - Dynamic slash-command discovery, aliases, argument completion, skill dispatch, and dedicated current-session actions including steering and side questions.
 - Branching at saved answers, regeneration and answer-version navigation. Version grouping is currently stored locally and is a known mismatch with the planned server-owned behavior.
-- Phone file attachments, Android share/launcher intake, allow-once/deny and structured clarification.
-- Local completion/input notifications with original host/profile/chat routing, plus configuration restore from the connections screen.
+- Phone file attachments, Android share/launcher intake, server-advertised approval scopes and structured clarification.
+- Local completion/input notifications with device controls and original host/profile/chat routing, plus configuration restore from the connections screen.
 
 The shell cleanup removed the unreachable legacy screens and navigation widgets, including the old chat UI, Spaces, Cron, Memory, Files and Skills screens. Shared service and contract code remains available where useful for later work; no stored user data was deleted. The [Android source inventory](docs/research/HERMES_ANDROID_FEATURE_INVENTORY_2026-09-11.md) records the earlier baseline. [Shell delivery notes](docs/APP_SHELL.md) describe this change and its limits.
 
-A command appearing in the gateway catalog does not prove correct support for every client or session. Terminal-only, messaging-only and host-microphone commands have platform restrictions. The follow-up audit also records a current `/yolo` routing/availability gap; see [contract notes](docs/research/FEATURE_PLAN_CONTRACT_NOTES_2026-09-11.md).
+A command appearing in the gateway catalog does not prove correct support for every client or session. Terminal-only, messaging-only and host-microphone commands have platform restrictions. `/yolo` now uses the session's reported state and the session-scoped configuration RPC, including during a running turn. See the [delivery sequence](docs/DELIVERY_SEQUENCE.md) for verification limits.
 
-Remote work and phone notification delivery are separate. The app can reload server results when reopened. Its local notification implementation does not establish alerts after Android terminates the process. Reliable background notifications are a committed later roadmap milestone; the initial release may ship without push. Durable drafts, more complete server-backed Activity and server refresh on return are also selected work, not completed claims. Session state remains on Hermes.
+Remote work and phone notification delivery are separate. The app reloads server history and execution/pending-input state when a chat is reopened. Local notifications require an active connection; they do not establish alerts after Android terminates the process. Reliable background notifications and complete server-backed Activity remain roadmap work. Session state remains on Hermes.
 
 ## Connect to Hermes
 
@@ -50,12 +51,12 @@ The app's current slash/profile contracts and any separately maintained backend 
 
 ## Version and application identity
 
-Source version on 2026-09-11 is `2.1.2+2145` in [pubspec.yaml](pubspec.yaml). This is the checked-out version, not a claim that a matching public release has been published.
+Source version on 2026-09-11 is `2.1.3+2146` in [pubspec.yaml](pubspec.yaml). This is the checked-out version, not a claim that a matching public release has been published.
 
 - Personal release package: `com.tarkilhk.hermes.android`, labelled Hermes Personal.
 - Development package: `com.hermesagent.hermes_android.dev`.
 - The inherited upstream package is separate and is not this fork's release identity.
-- ABI-split codes derive from the base build number; the current ARM64 split uses `21452`.
+- ABI-split codes derive from the base build number; the current ARM64 split uses `21462`.
 
 The [release plan](docs/ANDROID_RELEASE_PLAN.md) and [build configuration](android/app/build.gradle.kts) document identity, signing and version-code rules. The selected S08 work will expose this client's version/build and update information in the app, separately from the backend version.
 
@@ -86,7 +87,7 @@ Personal release builds use [scripts/build-personal-release.ps1](scripts/build-p
 | [Attachment service](lib/core/services/attachment_draft_service.dart) | Staging, validation and upload |
 | [Product plan](docs/PRODUCT_PLAN.md) | Selected scope and delivery record |
 
-The older `WorkspaceScreen`, `ChatScreen` and related screens are retained implementation history. Their existence does not establish current user-facing support or oblige this fork to keep their design.
+The older `WorkspaceScreen`, `ChatScreen` and related screens were removed; Git retains their implementation history.
 
 ## Provenance and credits
 

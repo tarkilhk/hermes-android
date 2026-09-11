@@ -4,6 +4,7 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:hermes_android/core/screens/profile_workspace_screen.dart';
 import 'package:hermes_android/core/models/hermes_profile.dart';
 import 'package:hermes_android/core/services/connection_manager.dart';
+import 'package:hermes_android/core/services/composer_draft_store.dart';
 import 'package:hermes_android/core/services/profile_gateway.dart';
 import 'package:hermes_android/core/services/profile_workspace_controller.dart';
 import 'package:hermes_android/core/services/profile_selection_store.dart';
@@ -20,6 +21,11 @@ class Host {
   final closed = <String>[];
   List<String> profiles = ['a', 'b'];
   bool running = true;
+  bool promptSubmitFails = false;
+  bool approvalFails = false;
+  Completer<void>? approvalDelay;
+  Completer<void>? promptSubmitStarted;
+  Completer<void>? promptSubmitDelay;
   int connectFailures = 0;
   int connectCalls = 0;
   int resumeFailures = 0;
@@ -74,6 +80,17 @@ class Host {
       },
       rpc: (method, params) async {
         calls.add((name, method, params));
+        if (method == 'prompt.submit') {
+          promptSubmitStarted?.complete();
+          await promptSubmitDelay?.future;
+        }
+        if (method == 'prompt.submit' && promptSubmitFails) {
+          throw TimeoutException('Prompt acknowledgement was lost');
+        }
+        if (method == 'approval.respond') {
+          await approvalDelay?.future;
+          if (approvalFails) throw TimeoutException('Approval failed');
+        }
         if (method == 'session.resume' && resumeFailures > 0) {
           resumeFailures--;
           throw TimeoutException('Session resume temporarily unavailable');
@@ -173,6 +190,113 @@ void main() {
   });
   tearDown(() => controller.dispose());
 
+  test('restores draft text after controller restart', () async {
+    final chat = await controller.createChat();
+    await controller.updateDraft(chat, 'unfinished thought');
+    final key = chat.key;
+    final connection = controller.connection;
+    controller.dispose();
+
+    controller = ProfileWorkspaceController(
+      connectionIdentity: 'original-settings',
+      connection: connection,
+      preferences: preferences,
+      gatewayFactory: host.gateway,
+    );
+    await controller.initialize();
+    await controller.openSession(key);
+
+    expect(controller.current!.chat!.draft, 'unfinished thought');
+  });
+
+  test('lost prompt acknowledgement preserves the draft', () async {
+    final store = ComposerDraftStore(
+      preferences,
+      connectionIdentity: 'original-settings',
+    );
+    final chat = await controller.createChat();
+    await controller.updateDraft(chat, 'send once');
+    host.promptSubmitFails = true;
+
+    await controller.send(chat);
+
+    expect(chat.draft, 'send once');
+    expect(
+      (await store.read(profileName: 'a', sessionId: 'same'))!.text,
+      'send once',
+    );
+
+    await controller.reconnect(chat.key.workspace);
+
+    expect(chat.draft, 'send once');
+    expect(chat.error, contains('Check the server history'));
+  });
+
+  test('accepted prompt clears the durable draft', () async {
+    final store = ComposerDraftStore(
+      preferences,
+      connectionIdentity: 'original-settings',
+    );
+    final chat = await controller.createChat();
+    await controller.updateDraft(chat, 'send once');
+
+    await controller.send(chat);
+
+    expect(chat.draft, isEmpty);
+    expect(await store.read(profileName: 'a', sessionId: 'same'), isNull);
+  });
+
+  test(
+    'reconnect does not clear text edited after a lost acknowledgement',
+    () async {
+      final chat = await controller.createChat();
+      await controller.updateDraft(chat, 'first version');
+      host.promptSubmitFails = true;
+      await controller.send(chat);
+      await controller.updateDraft(chat, 'edited while checking');
+      host.promptSubmitFails = false;
+
+      await controller.reconnect(chat.key.workspace);
+
+      expect(chat.draft, 'edited while checking');
+    },
+  );
+
+  test('rapid prompt taps submit once', () async {
+    final chat = await controller.createChat();
+    await controller.updateDraft(chat, 'one prompt');
+    host.promptSubmitStarted = Completer<void>();
+    host.promptSubmitDelay = Completer<void>();
+
+    final first = controller.send(chat);
+    final second = controller.send(chat);
+    await host.promptSubmitStarted!.future;
+    expect(
+      host.calls.where((call) => call.$2 == 'prompt.submit'),
+      hasLength(1),
+    );
+    host.promptSubmitDelay!.complete();
+    await Future.wait([first, second]);
+  });
+
+  test(
+    'accepted prompt does not clear follow-up text typed while waiting',
+    () async {
+      final chat = await controller.createChat();
+      await controller.updateDraft(chat, 'first prompt');
+      host.promptSubmitStarted = Completer<void>();
+      host.promptSubmitDelay = Completer<void>();
+
+      final sending = controller.send(chat);
+      await host.promptSubmitStarted!.future;
+      await controller.updateDraft(chat, 'follow-up draft');
+      host.promptSubmitDelay!.complete();
+      await sending;
+
+      expect(chat.draft, 'follow-up draft');
+    },
+  );
+
   test('a stale question panel cannot answer a newer request', () async {
     final chat = await controller.createChat();
     final old = <String, dynamic>{
@@ -210,6 +334,10 @@ void main() {
     final chat = await controller.createChat();
     chat.draft = 'hello';
     await controller.send(chat);
+    chat.approval = {
+      'request_id': 'once',
+      'choices': ['once', 'deny'],
+    };
     await controller.approve(chat, 'once');
     await controller.stop(chat);
     expect(host.calls.every((c) => c.$3['profile'] == c.$1), isTrue);
@@ -224,6 +352,75 @@ void main() {
         'session.interrupt',
       ]),
     );
+  });
+
+  test('approval accepts each server-supported scope', () async {
+    final chat = await controller.createChat();
+    chat.draft = 'hello';
+    await controller.send(chat);
+
+    chat.approval = {
+      'request_id': 'session',
+      'choices': ['session', 'deny'],
+    };
+    await controller.approve(chat, 'session');
+    chat.approval = {
+      'request_id': 'always',
+      'choices': ['always', 'deny'],
+    };
+    await controller.approve(chat, 'always');
+
+    expect(
+      host.calls
+          .where((call) => call.$2 == 'approval.respond')
+          .map((call) => call.$3['choice']),
+      ['session', 'always'],
+    );
+  });
+
+  test('approval sends request ID and keeps a replacement request', () async {
+    final chat = await controller.createChat();
+    chat.approval = {
+      'request_id': 'old-request',
+      'choices': ['once', 'deny'],
+      'command': 'old command',
+    };
+    host.approvalDelay = Completer<void>();
+    final response = controller.approve(chat, 'once');
+    await Future<void>.delayed(Duration.zero);
+    expect(chat.approvalResponding, isTrue);
+    chat.approval = {
+      'request_id': 'new-request',
+      'choices': ['session', 'deny'],
+      'command': 'new command',
+    };
+    host.approvalDelay!.complete();
+    await response;
+    expect(chat.approval?['request_id'], 'new-request');
+    expect(chat.approvalResponding, isFalse);
+    expect(host.calls.last.$3['request_id'], 'old-request');
+  });
+
+  test('failed approval retains the request for retry', () async {
+    final chat = await controller.createChat();
+    chat.approval = {
+      'request_id': 'failed-request',
+      'choices': ['always', 'deny'],
+    };
+    host.approvalFails = true;
+    await expectLater(controller.approve(chat, 'always'), throwsException);
+    expect(chat.approval?['request_id'], 'failed-request');
+    expect(chat.approvalResponding, isFalse);
+  });
+
+  test('approval rejects a scope the server did not offer', () async {
+    final chat = await controller.createChat();
+    chat.approval = {
+      'request_id': 'once-only',
+      'choices': ['once', 'deny'],
+    };
+    await expectLater(controller.approve(chat, 'always'), throwsArgumentError);
+    expect(host.calls.where((call) => call.$2 == 'approval.respond'), isEmpty);
   });
 
   test(

@@ -2,7 +2,7 @@
 
 Owner-selected scope recorded on 2026-09-11. This is the working product plan for this fork. Maintain it as work proceeds over the coming days and weeks.
 
-The initial research and scope decisions are recorded below. Implementation has started with the app shell only; see W00 and the delivery log. A selected feature remains planned until its behavior is implemented and verified.
+The initial research and scope decisions are recorded below. The app shell is deployed and feature implementation is underway; see the delivery sequence for current progress. A selected feature remains planned until its behavior is implemented and verified.
 
 ## Authority and references
 
@@ -10,7 +10,7 @@ The initial research and scope decisions are recorded below. Implementation has 
 - The research is an evidence snapshot and a menu of possibilities. Its original priorities and suggested architecture are not the approved backlog. This plan narrows and changes them.
 - Earlier inherited roadmaps and UI specifications are historical. They must not add requirements or dictate the appearance of this fork.
 - The owner does not require preservation of the old app's UI or unselected functionality. Remove or replace that code when relevant to selected work, while preserving user data and current selected behaviors. The owner subsequently authorized removal of obsolete UI as part of the app-shell work.
-- No calendar schedule or automatic background work has been created. Work advances incrementally when requested.
+- The owner authorized continuing through the milestones, with regular progress reports and a commit/push after each milestone. Use cheaper agents for bounded work, keep implementations small, and reuse existing code. No backward compatibility is required. No calendar schedule or unattended automation has been created.
 
 Supporting evidence is indexed in [docs/README.md](README.md), including all three source inventories and [follow-up contract notes](research/FEATURE_PLAN_CONTRACT_NOTES_2026-09-11.md).
 
@@ -52,7 +52,7 @@ The owner clarified B15: selecting or activating profile A changes only that cli
 
 ## Work packages and progress
 
-The [proposed delivery sequence](DELIVERY_SEQUENCE.md) breaks these themes into small implementation slices, with suggested order and acceptance outcomes. It is a proposal following the shell delivery, not a new feature commitment or calendar schedule.
+The approved [delivery sequence](DELIVERY_SEQUENCE.md) breaks these themes into small implementation slices, with priority order, acceptance outcomes and verification status.
 
 Use these packages to avoid building the same requirement twice. Their order is a suggested dependency sequence, not a fixed schedule. The shell is tracked separately from the feature packages. Some underlying features already exist; Planned does not mean all code is missing.
 
