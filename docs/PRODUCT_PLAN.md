@@ -279,6 +279,10 @@ For M06, Android's [sharing contract](https://developer.android.com/develop/ui/c
 | 2026-09-12 | Delivered execution details, Find in chat and initial per-chat Outputs with authenticated previews and save/share. Adopted minor version bumps for features, patch bumps for fixes and major bumps for breaking changes; maintain the changelog and commit/push each milestone to main. | Personal 2.2.0 / 21492 installed and launched; 970 tests passed, four opt-in skips; analyzer and release-identity checks clean. [Delivery notes](EXECUTION_FIND_AND_OUTPUTS.md) retain live gateway and richer-media limitations. |
 | 2026-09-12 | Delivered paginated Unread only, Activity status filters and server project actions. Applied screenshot feedback to move the context fuse onto the message box top edge with a mini endpoint dot and no extra row. | Personal 2.3.0 / 21502 installed and launched; 984 tests passed, four opt-in skips; analyzer clean. See [filters and projects](FILTERS_AND_PROJECTS.md) and the [changelog](../CHANGELOG.md). |
 
+## Active owner feedback
+
+- 2026-09-12, D15/T10: the integrated fuse design is accepted. Opening an existing chat with saved history currently leaves its context fullness unloaded. Load authoritative session context usage on open/reopen without requiring a new message. The source-based reopen path loads usage after its reply, so the reported settled-empty state is not reproduced by available fixtures. Inspect the deployed resume/context reply and runtime binding before choosing a fix. This remains an active bug, with no speculative timing change shipped. All other planned milestones and exclusions remain unchanged.
+
 ## Questions resolved now and details left for implementation
 
 The [contract notes](research/FEATURE_PLAN_CONTRACT_NOTES_2026-09-11.md) preserve source evidence for project metadata, slash command routing and provider/context data. P08 is approved. Q05 needs no extra entry point and B03 is discarded. The fuse concept is sufficiently clear to record without a mockup now.
