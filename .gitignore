@@ -32,6 +32,7 @@ migrate_working_dir/
 .pub/
 /build/
 /coverage/
+/.codex-remote-attachments/
 
 # Symbolication related
 app.*.symbols

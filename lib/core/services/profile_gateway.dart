@@ -530,6 +530,48 @@ class ProfileGateway {
     return Map<String, dynamic>.from(result['project']);
   }
 
+  Future<Map<String, dynamic>> updateProject(
+    String id, {
+    String? name,
+    String? color,
+    String? icon,
+  }) async {
+    final projectId = id.trim();
+    final projectName = name?.trim();
+    if (projectId.isEmpty || projectName != null && projectName.isEmpty) {
+      throw ArgumentError('A project id and non-empty name are required');
+    }
+    final changes = <String, dynamic>{
+      if (name != null) 'name': projectName,
+      if (color != null) 'color': color.trim(),
+      if (icon != null) 'icon': icon.trim(),
+    };
+    if (changes.isEmpty) throw ArgumentError('No project changes supplied');
+    await requireProfile();
+    final result = await call('projects.update', {'id': projectId, ...changes});
+    final project = result['project'];
+    if (project is! Map || project['id'] != projectId) {
+      throw const FormatException('Project update not acknowledged');
+    }
+    return Map<String, dynamic>.from(project);
+  }
+
+  Future<void> deleteProject(String id) async {
+    final projectId = id.trim();
+    if (projectId.isEmpty) throw ArgumentError('Missing project');
+    await requireProfile();
+    final result = await call('projects.delete', {'id': projectId});
+    final projects = result['projects'];
+    final activeId = result['active_id'];
+    if (projects is! List ||
+        projects.any((project) => project is! Map) ||
+        projects.any((project) => (project as Map)['id'] == projectId) ||
+        activeId != null && activeId is! String ||
+        activeId == projectId) {
+      throw const FormatException('Project delete not acknowledged');
+    }
+  }
+
   Future<Map<String, dynamic>> updateSession(
     String id,
     Map<String, dynamic> changes,

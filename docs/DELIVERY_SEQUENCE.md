@@ -61,7 +61,7 @@ Deliver the path from an answer to a usable result on the phone. Keep the genera
 | D12 Read common answer content | T03 P1, T04 | Common Markdown, code, tables and supported diagrams are readable on a narrow phone, including large text and long content. Advanced math remains outside this slice. |
 | D13 Read media and links | T05, T06 | Images and other supported media display or open sensibly, and links/previews return cleanly to the conversation. |
 | D14 Understand execution output | T07, T08, T09, G07 | Tool output, server-provided todos and optional reasoning/time information are readable and expandable. No terminal or Git client is implied. |
-| D15 Show the context fuse | T10 | A thin line near the model/composer shows server-reported context occupancy, with an accessible value and clear unknown/estimated states. |
+| D15 Show the context fuse | T10 | A thin line integrated into the composer border shows server-reported context occupancy, with a mini dot at the current position, an accessible value and clear unknown/estimated states. Owner screenshot feedback on 2026-09-12 removes the separate row. |
 | D16 Retrieve chat outputs | F03, F04, F05 P1 | A per-chat Outputs entry opens and downloads actual backend results from the right host. No global artifact library. |
 | D17 Preview results | F06, F07 | Common file previews and interactive web output open from D16 and return to the originating chat. Reuse the media/link handling from D13. |
 
@@ -134,13 +134,17 @@ For each active slice, append a short record here or link its implementation not
 | D16 | Initial flow implemented; live QA pending | Per-chat transcript-derived Outputs; scoped authenticated bytes into Android save/share | Extraction/scoping/size-limit and actual-byte delivery tests | Candidate paths are heuristic; live relative-path resolution and endpoint support unverified |
 | D17 | Partial | Authenticated/embedded image preview, text/code preview and binary save/share | Preview navigation/failure checks | Interactive HTML and specialized media/PDF views remain |
 | D18 | Implemented; live QA pending | Find in selected chat with expandable matches, accurate counts and retry; existing pagination/search/Latest retained | Saved-page, Find and existing transcript/search tests | Complete-history loader has explicit size limits |
-| D19-D30 | Planned | Not started | None | Check relevant deployed contracts at slice start |
+| D19 | Implemented; live QA pending | Paginated Unread only in Chats; All/Running/Needs input in Activity reuse authoritative server rows | Pagination/filter/navigation fixture checks | Unread has no server query filter; older pages must be loaded |
+| D20 | Implemented; live QA pending | Project rename, appearance and confirmed deletion; existing creation/membership retained | Scoped write/ACK, deletion preservation, failure and UI checks | Deployed project write support still needs live verification |
+| D21-D30 | Planned | Not started | None | Check relevant deployed contracts at slice start |
 
 D05/D07/D08/D09 delivery on 2026-09-12: analyzer clean, full suite 921 passed and four opt-in skips. Signed Personal 2.1.4 / 21472 passed package/certificate checks, installed in place on the owner's phone at the requested wireless endpoint, and launched successfully. See [supervision and queue notes](SUPERVISION_AND_QUEUES.md). Phone evidence is installed version/process metadata; live gateway feature checks remain as listed above.
 
 D10-D13/D15 batch on 2026-09-12: analyzer clean, full suite 944 passed and four opt-in skips. Signed Personal 2.1.5 / 21482 passed package/certificate checks, installed in place wirelessly on the owner's phone, and launched successfully. See [conversation actions and reading](CONVERSATION_ACTIONS_AND_READING.md) for delivered portions and remaining diagram/media/version/background gaps. No live gateway feature verification is implied by package/process checks.
 
 D14/D16-D18 batch on 2026-09-12: analyzer clean, full suite 970 passed and four opt-in skips; release-identity checks passed after the semantic version adjustment. Signed Personal 2.2.0 / 21492 passed package/certificate checks, installed in place wirelessly on the owner's phone, and launched successfully. See [execution, Find and Outputs](EXECUTION_FIND_AND_OUTPUTS.md) for the delivered behavior and limits. Phone checks cover package/process metadata, not live gateway feature verification. The [changelog](../CHANGELOG.md) now backfills the prior milestones and records this release; previously published version numbers are preserved.
+
+D19/D20 and the owner-requested D15 fuse adjustment on 2026-09-12: full suite 984 passed, four opt-in skips; analyzer clean. The five project dialog checks also passed after a test-fixture cleanup. Signed Personal 2.3.0 / 21502 passed certificate/package checks, installed in place wirelessly on the owner's phone, and launched successfully. See [filters and projects](FILTERS_AND_PROJECTS.md). The fuse is integrated into the composer's top edge with an endpoint dot, rather than occupying a separate row. Phone checks verify package/process metadata; live gateway feature verification remains outstanding.
 
 The feature ledger in PRODUCT_PLAN.md remains the coverage checklist. Mark a feature Done only after all of its selected portions are delivered; Q10, Q03, C08 and notifications deliberately span multiple slices. R18 error clarity, B15 ownership and M08 server authority apply throughout.
 

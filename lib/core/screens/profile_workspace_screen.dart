@@ -673,223 +673,232 @@ class _ProfileWorkspaceScreenState extends State<ProfileWorkspaceScreen>
                 ),
               ],
             ),
-            child: Padding(
-              padding: const EdgeInsets.all(6),
-              child: Column(
-                mainAxisSize: MainAxisSize.min,
-                children: [
-                  if (chat.attachments.isNotEmpty)
-                    SingleChildScrollView(
-                      scrollDirection: Axis.horizontal,
-                      child: Row(
-                        children: [
-                          for (final file in chat.attachments)
-                            Padding(
-                              padding: const EdgeInsets.symmetric(
-                                horizontal: 4,
-                              ),
-                              child: InputChip(
-                                avatar: file.error == null
-                                    ? null
-                                    : Tooltip(
-                                        message: file.error!,
-                                        child: const Icon(
-                                          Icons.warning_amber_rounded,
-                                          size: 18,
-                                        ),
-                                      ),
-                                label: ConstrainedBox(
-                                  constraints: const BoxConstraints(
-                                    maxWidth: 180,
-                                  ),
-                                  child: Text(
-                                    file.name,
-                                    overflow: TextOverflow.ellipsis,
-                                  ),
-                                ),
-                                onDeleted:
-                                    chat.busy ||
-                                        chat.changingAnswer ||
-                                        chat.commandRunning ||
-                                        controller.switching
-                                    ? null
-                                    : () => _run(
-                                        () => controller.removeAttachment(
-                                          chat,
-                                          file,
-                                        ),
-                                      ),
-                              ),
-                            ),
-                        ],
-                      ),
-                    ),
-                  TextField(
-                    key: const Key('profile-message-composer'),
-                    controller: _composer,
-                    enabled: !chat.commandRunning,
-                    minLines: 1,
-                    maxLines: 5,
-                    keyboardType: TextInputType.multiline,
-                    textInputAction: TextInputAction.newline,
-                    onChanged: (value) {
-                      unawaited(
-                        controller.updateDraft(chat, value).catchError((_) {
-                          if (context.mounted) {
-                            ScaffoldMessenger.of(context).showSnackBar(
-                              const SnackBar(
-                                content: Text(
-                                  'This draft could not be saved on the device.',
-                                ),
-                              ),
-                            );
-                          }
-                        }),
-                      );
-                      setState(() {});
-                    },
-                    decoration: InputDecoration(
-                      isDense: true,
-                      hintMaxLines: 1,
-                      hintText: chat.busy
-                          ? 'Draft your next message'
-                          : 'Message Hermes or type /',
-                      border: InputBorder.none,
-                      enabledBorder: InputBorder.none,
-                      focusedBorder: InputBorder.none,
-                      filled: false,
-                      contentPadding: const EdgeInsets.symmetric(
-                        horizontal: 12,
-                        vertical: 12,
-                      ),
-                    ),
-                  ),
-                  Padding(
-                    padding: const EdgeInsets.symmetric(horizontal: 12),
-                    child: ContextFuse(occupancy: chat.context),
-                  ),
-                  Row(
-                    crossAxisAlignment: CrossAxisAlignment.end,
+            child: Stack(
+              clipBehavior: Clip.none,
+              children: [
+                Padding(
+                  padding: const EdgeInsets.all(6),
+                  child: Column(
+                    mainAxisSize: MainAxisSize.min,
                     children: [
-                      IconButton(
-                        tooltip: 'Attach file',
-                        style: IconButton.styleFrom(
-                          minimumSize: const Size(48, 48),
+                      if (chat.attachments.isNotEmpty)
+                        SingleChildScrollView(
+                          scrollDirection: Axis.horizontal,
+                          child: Row(
+                            children: [
+                              for (final file in chat.attachments)
+                                Padding(
+                                  padding: const EdgeInsets.symmetric(
+                                    horizontal: 4,
+                                  ),
+                                  child: InputChip(
+                                    avatar: file.error == null
+                                        ? null
+                                        : Tooltip(
+                                            message: file.error!,
+                                            child: const Icon(
+                                              Icons.warning_amber_rounded,
+                                              size: 18,
+                                            ),
+                                          ),
+                                    label: ConstrainedBox(
+                                      constraints: const BoxConstraints(
+                                        maxWidth: 180,
+                                      ),
+                                      child: Text(
+                                        file.name,
+                                        overflow: TextOverflow.ellipsis,
+                                      ),
+                                    ),
+                                    onDeleted:
+                                        chat.busy ||
+                                            chat.changingAnswer ||
+                                            chat.commandRunning ||
+                                            controller.switching
+                                        ? null
+                                        : () => _run(
+                                            () => controller.removeAttachment(
+                                              chat,
+                                              file,
+                                            ),
+                                          ),
+                                  ),
+                                ),
+                            ],
+                          ),
                         ),
-                        icon: const Icon(Icons.add),
-                        onPressed:
-                            chat.busy ||
-                                chat.changingAnswer ||
-                                chat.commandRunning ||
-                                controller.switching
-                            ? null
-                            : () => _run(() async {
-                                final result = await FilePicker.platform
-                                    .pickFiles();
-                                final file = result?.files.single;
-                                if (file?.path != null) {
-                                  await controller.addAttachment(
-                                    chat,
-                                    file!.path!,
-                                    file.name,
-                                  );
-                                }
-                              }),
+                      TextField(
+                        key: const Key('profile-message-composer'),
+                        controller: _composer,
+                        enabled: !chat.commandRunning,
+                        minLines: 1,
+                        maxLines: 5,
+                        keyboardType: TextInputType.multiline,
+                        textInputAction: TextInputAction.newline,
+                        onChanged: (value) {
+                          unawaited(
+                            controller.updateDraft(chat, value).catchError((_) {
+                              if (context.mounted) {
+                                ScaffoldMessenger.of(context).showSnackBar(
+                                  const SnackBar(
+                                    content: Text(
+                                      'This draft could not be saved on the device.',
+                                    ),
+                                  ),
+                                );
+                              }
+                            }),
+                          );
+                          setState(() {});
+                        },
+                        decoration: InputDecoration(
+                          isDense: true,
+                          hintMaxLines: 1,
+                          hintText: chat.busy
+                              ? 'Draft your next message'
+                              : 'Message Hermes or type /',
+                          border: InputBorder.none,
+                          enabledBorder: InputBorder.none,
+                          focusedBorder: InputBorder.none,
+                          filled: false,
+                          contentPadding: const EdgeInsets.symmetric(
+                            horizontal: 12,
+                            vertical: 12,
+                          ),
+                        ),
                       ),
-                      Expanded(
-                        child: Align(
-                          alignment: Alignment.centerRight,
-                          child: ChatIntelligenceButton(
-                            model: chat.model ?? 'Model',
-                            reasoningEffort: chat.reasoningEffort ?? 'default',
-                            loading:
-                                _loadingIntelligence == chat.key ||
-                                chat.changingIntelligence,
+                      Row(
+                        crossAxisAlignment: CrossAxisAlignment.end,
+                        children: [
+                          IconButton(
+                            tooltip: 'Attach file',
+                            style: IconButton.styleFrom(
+                              minimumSize: const Size(48, 48),
+                            ),
+                            icon: const Icon(Icons.add),
                             onPressed:
                                 chat.busy ||
                                     chat.changingAnswer ||
                                     chat.commandRunning ||
-                                    controller.switching ||
-                                    chat.changingIntelligence ||
-                                    _loadingIntelligence != null
+                                    controller.switching
                                 ? null
-                                : () => _run(
-                                    () => _chooseIntelligence(chat, context),
-                                  ),
+                                : () => _run(() async {
+                                    final result = await FilePicker.platform
+                                        .pickFiles();
+                                    final file = result?.files.single;
+                                    if (file?.path != null) {
+                                      await controller.addAttachment(
+                                        chat,
+                                        file!.path!,
+                                        file.name,
+                                      );
+                                    }
+                                  }),
                           ),
-                        ),
-                      ),
-                      const SizedBox(width: 6),
-                      if (_hasMessageActions(chat))
-                        IconButton(
-                          tooltip: 'Message actions',
-                          icon: Badge(
-                            isLabelVisible: chat.queuedPrompts.isNotEmpty,
-                            label: Text('${chat.queuedPrompts.length}'),
-                            child: const Icon(Icons.more_horiz),
-                          ),
-                          onPressed: () => _showBusyActions(chat, context),
-                        ),
-                      Semantics(
-                        container: true,
-                        hint:
-                            chat.queuedPrompts.isNotEmpty ||
-                                (chat.busy &&
-                                    chat.draft.trim().isNotEmpty &&
-                                    chat.attachments.isEmpty)
-                            ? 'Long press for steer or queue actions'
-                            : null,
-                        child: GestureDetector(
-                          onLongPress:
-                              chat.queuedPrompts.isNotEmpty ||
-                                  (chat.busy &&
-                                      chat.draft.trim().isNotEmpty &&
-                                      chat.attachments.isEmpty)
-                              ? () => _showBusyActions(chat, context)
-                              : null,
-                          child: IconButton.filled(
-                            style: IconButton.styleFrom(
-                              minimumSize: const Size(48, 48),
-                              shape: RoundedRectangleBorder(
-                                borderRadius: BorderRadius.circular(14),
+                          Expanded(
+                            child: Align(
+                              alignment: Alignment.centerRight,
+                              child: ChatIntelligenceButton(
+                                model: chat.model ?? 'Model',
+                                reasoningEffort:
+                                    chat.reasoningEffort ?? 'default',
+                                loading:
+                                    _loadingIntelligence == chat.key ||
+                                    chat.changingIntelligence,
+                                onPressed:
+                                    chat.busy ||
+                                        chat.changingAnswer ||
+                                        chat.commandRunning ||
+                                        controller.switching ||
+                                        chat.changingIntelligence ||
+                                        _loadingIntelligence != null
+                                    ? null
+                                    : () => _run(
+                                        () =>
+                                            _chooseIntelligence(chat, context),
+                                      ),
                               ),
                             ),
-                            tooltip:
-                                chat.busy &&
-                                    !chat.draft.trimLeft().startsWith('/')
-                                ? 'Stop'
-                                : 'Send',
-                            icon: Icon(
-                              chat.busy &&
-                                      !chat.draft.trimLeft().startsWith('/')
-                                  ? Icons.stop
-                                  : Icons.arrow_upward,
-                            ),
-                            onPressed:
-                                controller.switching ||
-                                    chat.changingAnswer ||
-                                    chat.commandRunning ||
-                                    chat.changingIntelligence ||
-                                    (!chat.busy &&
-                                        chat.draft.trim().isEmpty &&
-                                        chat.attachments.isEmpty)
-                                ? null
-                                : () => _run(
-                                    () =>
-                                        chat.busy &&
-                                            !chat.draft.trimLeft().startsWith(
-                                              '/',
-                                            )
-                                        ? controller.stop(chat)
-                                        : controller.send(chat),
-                                  ),
                           ),
-                        ),
+                          const SizedBox(width: 6),
+                          if (_hasMessageActions(chat))
+                            IconButton(
+                              tooltip: 'Message actions',
+                              icon: Badge(
+                                isLabelVisible: chat.queuedPrompts.isNotEmpty,
+                                label: Text('${chat.queuedPrompts.length}'),
+                                child: const Icon(Icons.more_horiz),
+                              ),
+                              onPressed: () => _showBusyActions(chat, context),
+                            ),
+                          Semantics(
+                            container: true,
+                            hint:
+                                chat.queuedPrompts.isNotEmpty ||
+                                    (chat.busy &&
+                                        chat.draft.trim().isNotEmpty &&
+                                        chat.attachments.isEmpty)
+                                ? 'Long press for steer or queue actions'
+                                : null,
+                            child: GestureDetector(
+                              onLongPress:
+                                  chat.queuedPrompts.isNotEmpty ||
+                                      (chat.busy &&
+                                          chat.draft.trim().isNotEmpty &&
+                                          chat.attachments.isEmpty)
+                                  ? () => _showBusyActions(chat, context)
+                                  : null,
+                              child: IconButton.filled(
+                                style: IconButton.styleFrom(
+                                  minimumSize: const Size(48, 48),
+                                  shape: RoundedRectangleBorder(
+                                    borderRadius: BorderRadius.circular(14),
+                                  ),
+                                ),
+                                tooltip:
+                                    chat.busy &&
+                                        !chat.draft.trimLeft().startsWith('/')
+                                    ? 'Stop'
+                                    : 'Send',
+                                icon: Icon(
+                                  chat.busy &&
+                                          !chat.draft.trimLeft().startsWith('/')
+                                      ? Icons.stop
+                                      : Icons.arrow_upward,
+                                ),
+                                onPressed:
+                                    controller.switching ||
+                                        chat.changingAnswer ||
+                                        chat.commandRunning ||
+                                        chat.changingIntelligence ||
+                                        (!chat.busy &&
+                                            chat.draft.trim().isEmpty &&
+                                            chat.attachments.isEmpty)
+                                    ? null
+                                    : () => _run(
+                                        () =>
+                                            chat.busy &&
+                                                !chat.draft
+                                                    .trimLeft()
+                                                    .startsWith('/')
+                                            ? controller.stop(chat)
+                                            : controller.send(chat),
+                                      ),
+                              ),
+                            ),
+                          ),
+                        ],
                       ),
                     ],
                   ),
-                ],
-              ),
+                ),
+                Positioned(
+                  top: -4,
+                  left: 24,
+                  right: 24,
+                  child: ContextFuse(occupancy: chat.context),
+                ),
+              ],
             ),
           ),
         ),

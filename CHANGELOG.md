@@ -8,6 +8,27 @@ Feature releases increment the minor version, fixes increment the patch version,
 and breaking changes increment the major version. The Android build number after
 `+` always increases. Update this changelog for every release milestone.
 
+## [2.3.0+2150] - 2026-09-12
+
+### Added
+
+- Added Running and Needs input filters to cross-profile Activity.
+- Added Unread only to Chats, with explicit loaded-page coverage and access to
+  older pages even when the current page has no unread chats.
+- Added project rename, appearance and confirmed deletion through server-owned
+  project actions. Project icons and colors now display server metadata.
+
+### Changed
+
+- Moved the context fuse onto the message box's top border and added a small dot
+  at the current usage position, removing the separate composer row.
+
+### Known limitations
+
+- The session API has no unread query filter. Unread title search covers loaded
+  pages, and older pages must be loaded to complete the list.
+- Live gateway verification remains outstanding for project changes.
+
 ## [2.2.0+2149] - 2026-09-12
 
 ### Added

@@ -10,6 +10,7 @@ import '../theme/hermes_theme.dart';
 import '../theme/profile_workspace_theme.dart';
 import '../widgets/profile_chat_indicator.dart';
 import 'profile_row_actions.dart';
+import 'profile_project_actions.dart';
 
 /// The reference-inspired navigation tree. All rows come from its immutable
 /// profile owner; project membership remains the server's decision.
@@ -32,6 +33,7 @@ class _ProfileWorkspaceBrowserState extends State<ProfileWorkspaceBrowser> {
   ProfileWorkspaceController get controller => widget.controller;
   String _query = '';
   String _view = 'home';
+  bool _unreadOnly = false;
   final _search = TextEditingController();
   final _scaffoldKey = GlobalKey<ScaffoldState>();
   Timer? _searchDebounce;
@@ -41,6 +43,7 @@ class _ProfileWorkspaceBrowserState extends State<ProfileWorkspaceBrowser> {
     setState(() => _query = query);
     controller.clearSearch();
     if (query.isNotEmpty &&
+        !_unreadOnly &&
         _view == 'home' &&
         controller.current?.selectedProject == null) {
       _searchDebounce = Timer(const Duration(milliseconds: 350), () {
@@ -110,7 +113,9 @@ class _ProfileWorkspaceBrowserState extends State<ProfileWorkspaceBrowser> {
 
   void _back() {
     if (controller.switching) return;
-    if (controller.current?.archivedOnly == true) {
+    if (_unreadOnly) {
+      setState(() => _unreadOnly = false);
+    } else if (controller.current?.archivedOnly == true) {
       unawaited(_run(() => controller.showArchived(false)));
       setState(() => _view = 'home');
     } else if (controller.current?.selectedProject != null) {
@@ -177,11 +182,7 @@ class _ProfileWorkspaceBrowserState extends State<ProfileWorkspaceBrowser> {
           minTileHeight: 48,
           minVerticalPadding: 0,
           horizontalTitleGap: 12,
-          leading: Icon(
-            Icons.folder_outlined,
-            size: 20,
-            color: projectAccent(context, project['id'] as String),
-          ),
+          leading: projectAvatar(context, project, size: 22),
           minLeadingWidth: 22,
           title: Text(
             project['name'] as String,
@@ -190,21 +191,41 @@ class _ProfileWorkspaceBrowserState extends State<ProfileWorkspaceBrowser> {
             style: const TextStyle(fontSize: 15, fontWeight: FontWeight.w500),
           ),
           onTap: controller.switching ? null : () => _openProject(project),
-          trailing: IconButton(
-            tooltip: 'New conversation',
-            style: IconButton.styleFrom(
-              minimumSize: const Size(48, 48),
-              visualDensity: VisualDensity.standard,
-            ),
-            icon: const Icon(Icons.edit_square, size: 20),
-            onPressed: controller.switching
-                ? null
-                : () => _run(
-                    () => controller.createChat(
-                      inProject: project,
-                      owner: controller.current!.scope,
-                    ),
-                  ),
+          onLongPress: controller.switching
+              ? null
+              : () => _run(
+                  () => showProjectActions(rowContext, controller, project),
+                ),
+          trailing: Row(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              IconButton(
+                tooltip: 'New conversation',
+                style: IconButton.styleFrom(
+                  minimumSize: const Size(48, 48),
+                  visualDensity: VisualDensity.standard,
+                ),
+                icon: const Icon(Icons.edit_square, size: 20),
+                onPressed: controller.switching
+                    ? null
+                    : () => _run(
+                        () => controller.createChat(
+                          inProject: project,
+                          owner: controller.current!.scope,
+                        ),
+                      ),
+              ),
+              IconButton(
+                tooltip: 'Project actions',
+                icon: const Icon(Icons.more_horiz, size: 18),
+                onPressed: controller.switching
+                    ? null
+                    : () => _run(
+                        () =>
+                            showProjectActions(rowContext, controller, project),
+                      ),
+              ),
+            ],
           ),
         ),
       ),
@@ -307,6 +328,7 @@ class _ProfileWorkspaceBrowserState extends State<ProfileWorkspaceBrowser> {
     setState(() {
       _query = '';
       _view = 'home';
+      _unreadOnly = false;
     });
     unawaited(_run(() => controller.selectProject(project)));
   }
@@ -330,7 +352,10 @@ class _ProfileWorkspaceBrowserState extends State<ProfileWorkspaceBrowser> {
       ];
     }
     final project = resource.selectedProject;
-    if (project == null && !resource.archivedOnly && _query.isNotEmpty) {
+    if (project == null &&
+        !_unreadOnly &&
+        !resource.archivedOnly &&
+        _query.isNotEmpty) {
       final pending = resource.searchQuery != _query || resource.searchLoading;
       final results = <String, Map<String, dynamic>>{
         for (final row in resource.sessions.where(
@@ -402,6 +427,7 @@ class _ProfileWorkspaceBrowserState extends State<ProfileWorkspaceBrowser> {
                   controller.sessionVisibility.includes(
                     r['source'] as String?,
                   ) &&
+                  (!_unreadOnly || r['unread'] == true) &&
                   r['title'].toString().toLowerCase().contains(_query),
             )
             .toList()
@@ -410,7 +436,16 @@ class _ProfileWorkspaceBrowserState extends State<ProfileWorkspaceBrowser> {
     final recent = matches.where((r) => r['pinned'] != true).toList();
     _projectHasMore = project != null && recent.length > _projectVisibleCount;
     return [
-      if (project == null && !resource.archivedOnly && _query.isEmpty) ...[
+      if (_unreadOnly)
+        _empty(
+          resource.nextSessionOffset != null
+              ? 'Unread chats in loaded results. Load more chats to check older pages.'
+              : 'Unread chats in this profile.',
+        ),
+      if (project == null &&
+          !_unreadOnly &&
+          !resource.archivedOnly &&
+          _query.isEmpty) ...[
         _heading(
           'Projects',
           action: resource.projects.length > 5
@@ -454,7 +489,11 @@ class _ProfileWorkspaceBrowserState extends State<ProfileWorkspaceBrowser> {
       if (project == null || pinned.isNotEmpty)
         _heading(
           _query.isEmpty
-              ? (resource.archivedOnly ? 'Archived chats' : 'Recents')
+              ? (_unreadOnly
+                    ? 'Unread chats'
+                    : resource.archivedOnly
+                    ? 'Archived chats'
+                    : 'Recents')
               : 'Search results',
         ),
       ...(project == null ? recent : recent.take(_projectVisibleCount)).map(
@@ -463,7 +502,13 @@ class _ProfileWorkspaceBrowserState extends State<ProfileWorkspaceBrowser> {
       if (matches.isEmpty &&
           !resource.projectSessionsLoading &&
           resource.projectSessionsError == null)
-        _empty(_query.isEmpty ? 'No chats here yet' : 'No matching chats'),
+        _empty(
+          _unreadOnly
+              ? 'No unread chats in loaded results'
+              : _query.isEmpty
+              ? 'No chats here yet'
+              : 'No matching chats',
+        ),
       if (project == null && resource.sessionsLoadingMore)
         const Padding(
           padding: EdgeInsets.all(16),
@@ -508,11 +553,24 @@ class _ProfileWorkspaceBrowserState extends State<ProfileWorkspaceBrowser> {
     final colors = Theme.of(context).colorScheme;
     final background = HermesTokens.of(context).surface;
     final isWorkspaceHome =
-        project == null && _view == 'home' && resource?.archivedOnly != true;
+        project == null &&
+        !_unreadOnly &&
+        _view == 'home' &&
+        resource?.archivedOnly != true;
     final workspaceOptions = PopupMenuButton<String>(
       enabled: resource != null && !controller.switching,
       tooltip: 'Workspace options',
       onSelected: (value) {
+        if (value == 'unread') {
+          _searchDebounce?.cancel();
+          _search.clear();
+          controller.clearSearch();
+          setState(() {
+            _unreadOnly = !_unreadOnly;
+            _query = '';
+            _view = 'home';
+          });
+        }
         if (value == 'include-automated' && resource != null) {
           _searchDebounce?.cancel();
           setState(() => _projectVisibleCount = ProfileGateway.sessionPageSize);
@@ -526,6 +584,7 @@ class _ProfileWorkspaceBrowserState extends State<ProfileWorkspaceBrowser> {
               if (mounted &&
                   controller.current == resource &&
                   _query.isNotEmpty &&
+                  !_unreadOnly &&
                   resource.selectedProject == null &&
                   !resource.archivedOnly &&
                   resource.searchQuery != _query) {
@@ -535,6 +594,11 @@ class _ProfileWorkspaceBrowserState extends State<ProfileWorkspaceBrowser> {
           );
         }
         if (value == 'refresh') unawaited(_run(controller.refresh));
+        if (value == 'project-actions' && project != null) {
+          unawaited(
+            _run(() => showProjectActions(context, controller, project)),
+          );
+        }
         if (value == 'new-project') unawaited(_run(widget.newProject));
         if (value == 'archived') {
           _search.clear();
@@ -542,24 +606,39 @@ class _ProfileWorkspaceBrowserState extends State<ProfileWorkspaceBrowser> {
           setState(() {
             _query = '';
             _view = 'archived';
+            _unreadOnly = false;
           });
           unawaited(_run(() => controller.showArchived(true)));
         }
       },
       itemBuilder: (_) => [
+        if (project == null && resource?.archivedOnly != true)
+          CheckedPopupMenuItem<String>(
+            value: 'unread',
+            checked: _unreadOnly,
+            child: const Text('Unread only'),
+          ),
         CheckedPopupMenuItem<String>(
           value: 'include-automated',
           checked: controller.sessionVisibility == SessionVisibility.all,
           child: const Text('Include automated chats'),
         ),
         const PopupMenuItem(value: 'refresh', child: Text('Refresh')),
+        if (project != null)
+          const PopupMenuItem(
+            value: 'project-actions',
+            child: Text('Project actions'),
+          ),
         const PopupMenuItem(value: 'new-project', child: Text('New project')),
         const PopupMenuItem(value: 'archived', child: Text('Archived chats')),
       ],
     );
     return PopScope(
       canPop:
-          project == null && _view == 'home' && resource?.archivedOnly != true,
+          project == null &&
+          !_unreadOnly &&
+          _view == 'home' &&
+          resource?.archivedOnly != true,
       onPopInvokedWithResult: (didPop, _) {
         if (!didPop) {
           if (_scaffoldKey.currentState?.isDrawerOpen == true) {
@@ -708,6 +787,7 @@ class _ProfileWorkspaceBrowserState extends State<ProfileWorkspaceBrowser> {
                                       setState(() {
                                         _query = '';
                                         _view = 'home';
+                                        _unreadOnly = false;
                                       });
                                       unawaited(
                                         _run(
@@ -750,7 +830,7 @@ class _ProfileWorkspaceBrowserState extends State<ProfileWorkspaceBrowser> {
                                 final rows = _tree();
                                 return ListView.builder(
                                   key: ValueKey(
-                                    '${resource.scope.storageNamespace}-${project?['id']}-$_view-${controller.sessionVisibility.name}',
+                                    '${resource.scope.storageNamespace}-${project?['id']}-$_view-$_unreadOnly-${controller.sessionVisibility.name}',
                                   ),
                                   physics:
                                       const AlwaysScrollableScrollPhysics(),
@@ -795,6 +875,8 @@ class _ProfileWorkspaceBrowserState extends State<ProfileWorkspaceBrowser> {
                         decoration: InputDecoration(
                           hintText: _view == 'projects'
                               ? 'Search projects'
+                              : _unreadOnly
+                              ? 'Search loaded unread titles'
                               : 'Search chats',
                           prefixIcon: const Icon(Icons.search),
                           filled: true,

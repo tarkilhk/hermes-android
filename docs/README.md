@@ -31,6 +31,7 @@ The inventories describe their inspection dates and source commits. Do not silen
 - [Supervision and queues](SUPERVISION_AND_QUEUES.md), cross-profile Activity, sensitive responses, notification controls and client-owned follow-up queues.
 - [Conversation actions and reading](CONVERSATION_ACTIONS_AND_READING.md), saved-message actions, side-question deliveries, phone reading improvements and the context fuse.
 - [Execution, Find and Outputs](EXECUTION_FIND_AND_OUTPUTS.md), live tool/todo/reasoning views, current-chat search and scoped output retrieval.
+- [Filters and projects](FILTERS_AND_PROJECTS.md), paginated unread filtering, Activity status filters and server project management.
 
 - [Slash commands](SLASH_COMMAND_SUPPORT.md).
 - [Answer actions and versions](ANSWER_VERSIONS.md). Its description of local version links is current implementation evidence; the product plan calls for server ownership as this feature evolves.

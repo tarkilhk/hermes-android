@@ -5,6 +5,7 @@ import 'package:shared_preferences/shared_preferences.dart';
 import 'package:hermes_android/core/services/connection_manager.dart';
 import 'package:hermes_android/core/services/profile_workspace_controller.dart';
 import 'package:hermes_android/core/screens/profile_workspace_screen.dart';
+import 'package:hermes_android/core/widgets/context_fuse.dart';
 import 'support/profile_browser_fixture.dart';
 
 void main() {
@@ -35,6 +36,30 @@ void main() {
       MaterialApp(home: ProfileWorkspaceScreen(controller: controller)),
     );
   }
+
+  testWidgets('context fuse overlays the composer top edge without a row', (
+    tester,
+  ) async {
+    await controller.createChat();
+    await show(tester);
+    await tester.pumpAndSettle();
+    final composer = tester.getRect(
+      find.byKey(const ValueKey('conversation-composer')),
+    );
+    final fuse = tester.getRect(find.byType(ContextFuse));
+    expect(fuse.center.dy, closeTo(composer.top, .1));
+    expect(fuse.left, closeTo(composer.left + 24, .1));
+    expect(fuse.right, closeTo(composer.right - 24, .1));
+    expect(
+      find.ancestor(
+        of: find.byType(ContextFuse),
+        matching: find.byType(Positioned),
+      ),
+      findsOneWidget,
+    );
+    expect(tester.takeException(), isNull);
+    await tester.pumpWidget(const SizedBox.shrink());
+  });
 
   testWidgets('chat header shows gateway and project without a switcher', (
     tester,

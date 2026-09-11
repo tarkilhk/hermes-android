@@ -1283,6 +1283,102 @@ class ProfileWorkspaceController extends ChangeNotifier {
     _changed();
   }
 
+  ProfileWorkspaceData _projectMutationOwner(
+    WorkspaceScope owner,
+    String projectId,
+  ) {
+    final resource = _writable();
+    if (resource.scope != owner) {
+      throw StateError('Profile changed. Open the project menu again.');
+    }
+    if (!resource.projects.any((project) => project['id'] == projectId)) {
+      throw StateError('Project is unavailable. Refresh and try again.');
+    }
+    return resource;
+  }
+
+  void _applyProjectRefresh(
+    ProfileWorkspaceData resource,
+    List<Map<String, dynamic>> projects, {
+    String? deletedId,
+    String? selectedSessionAtMutation,
+  }) {
+    resource.projects = projects;
+    resource.projectsError = null;
+    if (deletedId != null) {
+      for (final chat in resource.chats.values) {
+        if (chat.projectId == deletedId) {
+          chat.projectId = null;
+          chat.projectLoading = false;
+          chat.projectLookupFailed = false;
+        }
+      }
+    }
+    final selectedId = resource.selectedProject?['id'];
+    if (deletedId != null && selectedId == deletedId) {
+      _clearSearch(resource);
+      resource.selectedProject = null;
+      if (resource.selectedSession == selectedSessionAtMutation) {
+        resource.selectedSession = null;
+      }
+      resource.projectGeneration++;
+      resource.projectSessions = [];
+      resource.projectSessionsLoading = false;
+      resource.projectSessionsError = null;
+    } else if (selectedId != null) {
+      resource.selectedProject =
+          projects
+              .where((project) => project['id'] == selectedId)
+              .firstOrNull ??
+          resource.selectedProject;
+    }
+    _changed();
+  }
+
+  Future<void> updateProject(
+    WorkspaceScope owner,
+    String id, {
+    String? name,
+    String? color,
+    String? icon,
+  }) async {
+    final resource = _projectMutationOwner(owner, id);
+    await resource.gateway.updateProject(
+      id,
+      name: name,
+      color: color,
+      icon: icon,
+    );
+    final projects = await resource.gateway.projects();
+    if (!projects.any((project) => project['id'] == id)) {
+      throw StateError('Updated project is missing from Hermes.');
+    }
+    if (!_closed) _applyProjectRefresh(resource, projects);
+  }
+
+  Future<void> deleteProject(WorkspaceScope owner, String id) async {
+    final resource = _projectMutationOwner(owner, id);
+    final selectedSession = resource.selectedSession;
+    await resource.gateway.deleteProject(id);
+    if (_closed) return;
+    _applyProjectRefresh(
+      resource,
+      resource.projects.where((project) => project['id'] != id).toList(),
+      deletedId: id,
+      selectedSessionAtMutation: selectedSession,
+    );
+    try {
+      final projects = await resource.gateway.projects();
+      if (!_closed) _applyProjectRefresh(resource, projects);
+    } catch (_) {
+      if (!_closed) {
+        resource.projectsError =
+            'Project deleted, but Projects could not be refreshed.';
+        _changed();
+      }
+    }
+  }
+
   Future<void> addAttachment(ProfileChat chat, String path, String name) async {
     _owned(chat);
     if (chat.busy) throw StateError('Wait for the current turn');

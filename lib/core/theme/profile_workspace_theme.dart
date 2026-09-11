@@ -120,13 +120,3 @@ Color profileAccent(BuildContext context, String name) {
   );
   return palette[hash % palette.length];
 }
-
-/// Decorative project accents are identities, never execution status.
-Color projectAccent(BuildContext context, String id) {
-  final dark = Theme.of(context).brightness == Brightness.dark;
-  final palette = dark
-      ? const [Color(0xFFBEB4FF), Color(0xFFA8D9FF), Color(0xFFFFC3A0)]
-      : const [Color(0xFF6752A6), Color(0xFF23638D), Color(0xFF984A22)];
-  final hash = id.codeUnits.fold(0, (a, b) => a * 31 + b);
-  return palette[hash.abs() % palette.length];
-}

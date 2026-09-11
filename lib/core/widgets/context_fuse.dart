@@ -28,25 +28,60 @@ class ContextFuse extends StatelessWidget {
       child: Tooltip(
         message: label,
         child: SizedBox(
-          height: 12,
+          height: 8,
           width: double.infinity,
-          child: Align(
-            alignment: Alignment.center,
-            child: ClipRRect(
-              borderRadius: BorderRadius.circular(3),
-              child: SizedBox(
-                height: 4,
-                width: double.infinity,
-                child: value == null
-                    ? ColoredBox(color: color)
-                    : LinearProgressIndicator(
-                        value: value.percent / 100,
-                        minHeight: 4,
-                        backgroundColor: color.withValues(alpha: .16),
-                        color: color,
+          child: LayoutBuilder(
+            builder: (context, constraints) {
+              final double progress = value == null
+                  ? 0.0
+                  : (value.percent.clamp(0, 100) / 100).toDouble();
+              return Stack(
+                clipBehavior: Clip.none,
+                children: [
+                  Align(
+                    alignment: Alignment.center,
+                    child: ClipRRect(
+                      borderRadius: BorderRadius.circular(3),
+                      child: SizedBox(
+                        height: 4,
+                        width: double.infinity,
+                        child: value == null
+                            ? ColoredBox(color: color)
+                            : LinearProgressIndicator(
+                                value: progress,
+                                minHeight: 4,
+                                backgroundColor: color.withValues(alpha: .16),
+                                color: color,
+                              ),
                       ),
-              ),
-            ),
+                    ),
+                  ),
+                  if (value != null)
+                    Positioned(
+                      left: (constraints.maxWidth * progress - 4).clamp(
+                        0,
+                        constraints.maxWidth - 8,
+                      ),
+                      top: 0,
+                      child: DecoratedBox(
+                        decoration: BoxDecoration(
+                          color: color,
+                          shape: BoxShape.circle,
+                          border: Border.all(
+                            color: Theme.of(context).colorScheme.surface,
+                            width: 1,
+                          ),
+                        ),
+                        child: const SizedBox(
+                          key: ValueKey('context-fuse-dot'),
+                          width: 8,
+                          height: 8,
+                        ),
+                      ),
+                    ),
+                ],
+              );
+            },
           ),
         ),
       ),
