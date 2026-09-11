@@ -1,5 +1,7 @@
 # Hermes Android — functional and interface audit
 
+> Current fork scope is recorded in the [owner-selected product plan](PRODUCT_PLAN.md), dated 2026-09-11. This document is a dated design, audit or implementation record. Its earlier roadmap and approval statements do not add requirements to the current plan; retain useful evidence and ownership contracts without restoring the old UI by default.
+
 Audit date: 2026-08-29  
 Evidence: live SM-S948B UI hierarchy, Flutter source, widget tests, and `ANDROID_DAILY_DRIVER_ROADMAP.md`.
 

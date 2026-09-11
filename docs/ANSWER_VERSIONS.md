@@ -1,5 +1,10 @@
 # Answer actions
 
+This describes the current implementation. The owner-selected
+[product plan](PRODUCT_PLAN.md) requires server-owned work state, so the local
+version-group links described below are a known migration question for Q09.
+They are not the approved long-term authority for answer relationships.
+
 The profile workspace displays **Branch in new session** and **Regenerate
 response** below saved assistant answers. A turn with alternate answers also
 displays previous/next buttons and a position such as `1 / 2`.

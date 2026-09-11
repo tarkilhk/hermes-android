@@ -1,5 +1,7 @@
 # Hermes Android profile switching that matches Hermes Desktop
 
+> Current fork scope is recorded in the [owner-selected product plan](PRODUCT_PLAN.md), dated 2026-09-11. This document is a dated design, audit or implementation record. Its earlier roadmap and approval statements do not add requirements to the current plan; retain useful evidence and ownership contracts without restoring the old UI by default.
+
 **Evidence baseline (2026-09-06).** Hermes Agent checkout `b499ab11fe8b081470e269f2fb27abae03000da5` (2026-09-05); Hermes Android release tag `v2.1.1`, commit `e1b94e2b4cef661174e3c6382407c05749087753`. All citations below are first-party source or documentation.
 
 ## What “Desktop-style” means upstream

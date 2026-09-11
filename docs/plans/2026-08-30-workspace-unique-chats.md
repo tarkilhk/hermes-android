@@ -1,5 +1,7 @@
 # Workspace Unique + Chats Implementation Plan
 
+> Current fork scope is recorded in the [owner-selected product plan](../PRODUCT_PLAN.md), dated 2026-09-11. This document is a dated design, audit or implementation record. Its earlier roadmap and approval statements do not add requirements to the current plan; retain useful evidence and ownership contracts without restoring the old UI by default.
+
 > **Status 2026-08-30 : COMPLETED.** All six tasks done, 879 tests green, analyze clean, signed APKs installed on phone (SM-S948B) and emulator (hermes-test).
 
 ## Bugs discovered and fixed during on-device verification

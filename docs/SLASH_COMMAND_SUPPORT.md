@@ -1,5 +1,11 @@
 # Mobile slash commands
 
+Current product scope is maintained in [PRODUCT_PLAN.md](PRODUCT_PLAN.md). The
+2026-09-11 [follow-up contract check](research/FEATURE_PLAN_CONTRACT_NOTES_2026-09-11.md)
+confirms active-turn support for `/steer`, `/btw` and `/bg`, but identifies a
+missing dedicated current-session `/yolo` handler. Generic catalog/dispatch
+support must not be read as a guarantee of complete command parity.
+
 In the profile workspace, type `/` to browse the connected gateway's command
 catalog. Search matches names, aliases and descriptions. The list includes user
 commands, plugin commands and installed skills without a client-side size limit.

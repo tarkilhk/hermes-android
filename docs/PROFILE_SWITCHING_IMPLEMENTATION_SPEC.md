@@ -1,5 +1,7 @@
 # Profile-aware Workspace implementation specification
 
+> Current fork scope is recorded in the [owner-selected product plan](PRODUCT_PLAN.md), dated 2026-09-11. This document is a dated design, audit or implementation record. Its earlier roadmap and approval statements do not add requirements to the current plan; retain useful evidence and ownership contracts without restoring the old UI by default.
+
 Status: **Approved design target**  
 Baseline: Hermes Android `v2.1.1` / `e1b94e2b4cef661174e3c6382407c05749087753`  
 Companion design note: [PROFILE_SWITCHING_DESIGN.md](PROFILE_SWITCHING_DESIGN.md)

@@ -1,5 +1,7 @@
 # Conversation polish
 
+> Current fork scope is recorded in the [owner-selected product plan](../PRODUCT_PLAN.md), dated 2026-09-11. This document is a dated design, audit or implementation record. Its earlier roadmap and approval statements do not add requirements to the current plan; retain useful evidence and ownership contracts without restoring the old UI by default.
+
 The owner approved long-conversation work and then asked for denser, more
 enjoyable UI throughout. This pass concentrates on the conversation, retaining
 the compact workspace/project/profile changes already installed.

@@ -1,0 +1,283 @@
+# Hermes Android product plan
+
+Owner-selected scope recorded on 2026-09-11. This is the working product plan for this fork. Maintain it as work proceeds over the coming days and weeks.
+
+This update records decisions and proposed flows only. It does not implement the selected features, the navigation, or the administration screen. Existing implementations require inspection before deciding whether to retain, adapt or replace them.
+
+## Authority and references
+
+- This plan records the owner's selections from the [Desktop/Android analysis](HERMES_DESKTOP_ANDROID_FEATURE_ANALYSIS.md). Feature IDs retain their meaning from that research.
+- The research is an evidence snapshot and a menu of possibilities. Its original priorities and suggested architecture are not the approved backlog. This plan narrows and changes them.
+- Earlier inherited roadmaps and UI specifications are historical. They must not add requirements or dictate the appearance of this fork.
+- The owner does not require preservation of the old app's UI or unselected functionality. Remove or replace that code when relevant to selected work, while preserving user data and current selected behaviors. This is not a request to delete code in this documentation update.
+- No calendar schedule or automatic background work has been created. Work advances incrementally when requested.
+
+Supporting evidence is indexed in [docs/README.md](README.md), including all three source inventories and [follow-up contract notes](research/FEATURE_PLAN_CONTRACT_NOTES_2026-09-11.md).
+
+## Product decisions
+
+1. Build a productive general Hermes client. Pure coding workflows are not the primary optimization target. Useful command/tool output still belongs in scope.
+2. Hermes owns conversations, projects, status, configuration, appearance metadata where supported, and execution. Read current state from the server and write changes back there. Do not introduce a competing phone database of tasks or organization.
+3. Persist unsent text and staged attachments on the phone so they survive interruption. Temporary render/network state is unavoidable but must be disposable and refreshed. Connection credentials and device settings are separate from Hermes work state; see the storage boundary below.
+4. Start with simple resume/refresh and honest network errors. Reliable background notifications are a committed later milestone, even if the first release ships without them. Server execution and delivery of a phone notification are different concerns.
+5. Keep existing tap/Enter behavior. Alternative send actions must be one-shot choices and must not silently change the default.
+6. Show the backend's actual technical provider route when choosing a model. Group by routes such as OpenCode, OpenAI subscription and Anthropic subscription, not merely by the company that trained the model.
+7. Use a left hamburger drawer for the agreed destinations. Do not build permanent bottom navigation from the previous proposal.
+8. Prefer current profile-workspace appearance throughout, including saved connections and future settings. Existing functionality is reusable code, not a requirement to retain old screens.
+
+## Navigation and initial administration flow
+
+The proposed primary drawer has Chats, Activity and More. Projects remain a scope inside Chats. If More becomes an unnecessary extra level, its small set of destinations can appear directly under a drawer divider without changing the agreed information grouping.
+
+| Entry | Initial flow |
+| --- | --- |
+| Chats | Current connection/profile, search, projects, pins and recents. Conversation actions expose archives and selected work filters. |
+| Activity | Ongoing work across profiles, including running, queued and awaiting input where the server exposes those states. Open an item in its original host/profile/chat. Refresh from the server. |
+| Conversation | Transcript and composer; compact model/provider/context display; per-chat Outputs and task details. Leaving a preview returns to this chat. |
+| More / Connections | A redesigned connection list and add/edit/test flow using this fork's current visual language. |
+| More / App settings | Theme/text size, simple notification controls, selected reading preferences, Android version/build and update information. |
+| More / Hermes administration | A small, functional backend administration entry. Explicit connection/profile header, then the seed features below. Broader K features are later additions. |
+
+The administration screen is a planned shell with real useful functions, not a page full of dead placeholders. Suggested initial contents are deliberately small:
+
+- Connection health and backend version, with Refresh and access to the connection repair flow. Restart/update belong to the selected B11 work when that contract is implemented, not to an invented local process manager.
+- Selected profile details and SOUL/persona viewing/editing, covering B14 and B15.
+- Current default model/provider information and capability readiness, initially read-only. Link to existing chat model selection; do not silently add a full provider credential editor or make per-chat choices change profile defaults.
+
+Those are the proposed few initial K-adjacent functions. No other K item is individually approved for the first administration screen. Later work can add a focused capability or setting as needed. Cron, messaging, webhooks and Kanban are explicitly outside this phase.
+
+Settings writes must show their scope. For example, "Prestige / Work profile" identifies a profile setting; "Prestige / Entire backend" identifies a restart or update. A profile selector cannot make a server-wide operation profile-local.
+
+The owner clarified B15: selecting or activating profile A changes only that client's active view. It must not switch another client to profile A or change a global active-profile setting. Each request carries the intended host/profile/session independently of other clients' selections. Editing actual server options changes them centrally, and every client reading those options sees the change. Device appearance and notification preferences remain specific to the installation. There is no requirement for phone-only overrides of server configuration.
+
+## Work packages and progress
+
+Use these packages to avoid building the same requirement twice. Their order is a suggested dependency sequence, not a fixed schedule. Every package is currently **Planned**; some underlying features already exist. Planned does not mean all code is missing.
+
+| Package | Selected IDs | Intended outcome | Status |
+| --- | --- | --- | --- |
+| W01 Find and resume work | C02, C03, C07, C08 P1, C09 ongoing only, T11, T12, R02, R03, M01, M02, M04 | Authoritative history/status, useful search and filters, simple refresh/recovery and cross-profile Activity. | Planned |
+| W02 Protect drafts and control submission | Q02, Q03, Q07, Q09, Q10, Q11, Q12, M03 | Unsent work survives interruption; correct, branch, steer and queue without changing default send behavior. | Planned |
+| W03 Commands, model choice and context | Q16, T10, R06 | Correct session-scoped `/yolo`, real provider grouping with collapsible sections, minimal context indicator. Keep typing `/` as the command entry point. | Planned |
+| W04 Projects | P03, P04, P06, P08 | Useful project creation/admin/context with server-owned metadata. | Planned |
+| W05 Read and use results | T03 common content, T04, T05, T06, T07, T08, T09, T14, F03, F04, F05 per-chat only, F06, F07, G07 | Read media and tool progress; open, download and use generated results without a general filesystem browser. | Planned |
+| W06 Unblock and supervise work | R04, R05, R07, R08, R09, R10, R11, R12, R13, R14, R15, R18 | Answer requests and inspect/control active agent work through supported server contracts. | Planned |
+| W07 Notifications | R16, R17, S12, M01, M09 | First, useful local notices and correct task opening. Later, server-triggered push delivery through Firebase Cloud Messaging while the app is absent. Both phases are selected; the first release may omit push. | Planned |
+| W08 Connections and operations | B01, B02, B04, B10, B11 all proposed, B14, B15, S01, S02 | Current-looking password setup and repair, understandable health/usage, scoped profile/admin actions and backend updates. | Planned |
+| W09 App navigation and preferences | S08, S10, left drawer | Consistent navigation, version/build visibility and readable preferences. Server session restoration belongs to W01. | Planned |
+| W10 Phone capture | M06 plus Q03 | Share text, links, images or files into a reviewed draft; add camera/photo capture in the same flow. | Planned |
+| W11 Small administration screen | Limited K-family seed described above, integrated with B11/B14/B15 | A low-priority administration flow with a few real functions that can grow later. | Planned, lower priority |
+
+When beginning a slice, record its package and precise IDs here, inspect the current app and deployed backend, and specify the observable change. When finishing, record the code/PR reference, relevant checks, remaining limits, and date. Use **In progress**, **Done**, **Blocked on server**, or **Deferred** as needed. Mark a slice done only when its UI and server behavior are complete; existing source or a mock alone is not completion evidence.
+
+Do not infer that a selected existing feature needs a rewrite. C02 and several approval/history actions may require preservation, a focused improvement or verification rather than new implementation. Q05 needs no new work.
+
+## Selected feature ledger
+
+Rows record selected work and explicit decisions to discard or merge a proposal. Follow each row's decision rather than treating every ID as implementation work. Unlisted research features are not new work for this plan. Existing behaviors supporting selected workflows remain available until deliberately changed.
+
+### Conversations
+
+| ID | Selected scope and owner qualification |
+| --- | --- |
+| C02 | Paginated conversation/history browsing. Preserve working behavior and improve actual limits/usability as needed. |
+| C03 | Conversation search, including older server history and useful result navigation. |
+| C07 | Read/unread behavior sourced from Hermes, including consistency when reopening work or using another client. |
+| C08 | Only the P1 task-state filters, such as Needs input, Running and Unread. Exclude cost/manual-order/PR filter expansion. |
+| C09 | See all ongoing work across profiles. Merge with R03/M02 into Activity; no separate merged archive/search project. |
+
+### Projects
+
+| ID | Selected scope and owner qualification |
+| --- | --- |
+| P03 | Create a project and choose its host working folder through a phone-appropriate flow. |
+| P04 | Rename and delete projects. Do not import unselected legacy project administration. |
+| P06 | Clear selected project and destination for new work. Distinguish UI selection from server defaults. |
+| P08 | Approved after the backend contract check. Read/write supported project icon/color metadata through Hermes; no phone-only appearance override database. Verify the deployed server supports the researched contract. Backend status is separate and remains server-owned too. |
+
+### Composer, commands and models
+
+| ID | Selected scope and owner qualification |
+| --- | --- |
+| Q02 | Persist drafts and staged attachments across navigation/restart. Merge with M03. |
+| Q03 | Better file/image/link intake and draft feedback; reuse the same pipeline for M06. |
+| Q05 | No new work. Typing `/` is the intended shortcut for the existing command picker. Discard the proposed discoverability button/toolbar change. Preserve the working catalog. |
+| Q07 | Edit a prior user message and resend with clear history consequences. |
+| Q09 | Preserve/improve regeneration and answer versions, but use server-owned relationships. Current local-only version grouping conflicts with the desired end state; inspect backend support before choosing a migration. |
+| Q10 | Existing steering should be made usable during a running turn. Candidate: long-press Send/Enter to choose Queue, Steer or Fork for this submission. Preserve ordinary tap/Enter behavior and never make the choice a new default. |
+| Q11 | Queue follow-up prompts and manage the queue using supported server semantics. A durable queue of accepted work must not exist only on the phone. |
+| Q12 | Important: side/background questions and their visible results/status. Commands already exist in part; improve the interaction and verify busy-turn submission rather than claiming this is entirely new. |
+| Q16 | Collapsible model groups by the Hermes technical provider/account route, including OpenCode, OpenAI subscription and Anthropic subscription as examples. Preserve exact route IDs; do not group solely by model vendor or infer a route from the model name. |
+
+The long-press proposal needs a small interaction specification when W02 starts. Queue means after the current work, Steer means correction to the current run, and Fork means a separate conversation with an explicit history boundary. Availability must reflect current state. For example, do not claim a busy chat can fork at an unsaved answer. Keep Stop usable. An ordinary accessible menu should expose the same alternatives so long press is not the only way to reach them.
+
+Source check confirms `/steer`, `/btw`, `/bg` and `/background` already have active-turn paths. Typing a slash draft changes the busy composer button from Stop to Send. The work here is therefore interaction and completeness, not initial command support. `/yolo` is different: Android lacks Desktop's dedicated current-session handler, and generic command dispatch is blocked while busy. The correct current-chat effect while idle is not established. See the [contract notes](research/FEATURE_PLAN_CONTRACT_NOTES_2026-09-11.md).
+
+### Transcript and output presentation
+
+| ID | Selected scope and owner qualification |
+| --- | --- |
+| T03 | P1 common content only: readable Markdown, code, tables and large content. A separate advanced math project is not selected here. |
+| T04 | Readable diagrams and supported visual blocks with a useful fallback. |
+| T05 | Images and other media, not images alone. |
+| T06 | Useful link/media previews and opening in the appropriate app/browser. |
+| T07 | Structured, expandable tool status and results. |
+| T08 | Optional readable reasoning/time information where Hermes supplies it. |
+| T09 | Server-provided todo/progress summary. |
+| T10 | A very thin context-usage line near the model name or composer, like a fuse/battery indicator. It changes color as context fills. Use server used/max values or a labelled server estimate; show unknown when absent. No large panel or decorative continuous animation. Exact placement and thresholds can be chosen in the implementation slice. |
+| T11 | Find within a conversation. |
+| T12 | Stable reading position, older history and return/jump to latest. Do not treat a local scroll position as authoritative conversation state. |
+| T14 | Distinguish system/control notices, agent deliveries and linked task references. |
+
+### Running work and attention
+
+| ID | Selected scope and owner qualification |
+| --- | --- |
+| R02 | Simple reconnect/resume and server refresh. Preserve uncertain-send protection without building a separate turn ledger. |
+| R03 | Authoritative Activity across profiles, merged with C09/M02. |
+| R04 | Allow once/reject, preserving request details and acknowledged outcome. |
+| R05 | Other server-supported approval scopes and visible effective policy. |
+| R06 | Confirmed fix required. Make `/yolo` work through the correct current-session contract and display the server's effective state, including during a running turn where supported. Do not change global defaults or assume generic dispatch works. |
+| R07 | Structured clarification and multiple questions. |
+| R08 | Supported sudo/password/environment-secret requests through dedicated responses. |
+| R09 | Supported vault/login/verification-code requests. |
+| R10 | Subagent roster and progress. |
+| R11 | Subagent details/transcript and targeted steer/interrupt. |
+| R12 | Goal status and pause/resume/clear controls. |
+| R13 | Goal criteria and details/verification information. |
+| R14 | Session heartbeat/loop state and controls. This remains selected even though the separate Cron/messaging/webhook section is deferred. |
+| R15 | Background process status and controls. |
+| R16 | Attention/completion notifications. Start with available local delivery; committed later push delivery covers the app being absent, as specified in M01/W07. |
+| R17 | Correct task opening and simple notices/actions. Start with taps opening the task; inline reply/approval complexity is not required initially. |
+| R18 | Clear cause and next action for errors: retry/reconnect, credentials, model/provider or server capability as appropriate. |
+
+### Files and command output
+
+| ID | Selected scope and owner qualification |
+| --- | --- |
+| F03 | Open and read the result file from a conversation. |
+| F04 | Download a result from the backend to the phone. |
+| F05 | P1 per-chat Outputs only. No global artifact library for now. |
+| F06 | Common file previews/viewers such as image, PDF, Markdown and code. |
+| F07 | Open an interactive HTML/web preview and return to the chat. |
+| G07 | Read command/tool output and relevant log details. No implied full terminal, Git or coding-client scope. |
+
+### Connections and backend operations
+
+| ID | Selected scope and owner qualification |
+| --- | --- |
+| B01 | Redesign saved connections and their management in this fork's current look and feel. The old screen is not a design reference. |
+| B02 | Tested modern gateway authentication/connection flow. |
+| B03 | Discarded. The owner uses the password authentication flow; no browser/OAuth sign-in work is selected. |
+| B04 | Advanced proxy/header access where needed. |
+| B10 | Repair a connection from an unavailable/error state. |
+| B11 | All proposed operations, including triggering backend update. Show backend version/health/restart/update progress and results. Eligible multi-connection update support remains in selected scope, with a deliberate target list and per-host outcomes. Implement one-host behavior first. |
+| B14 | Profile details and SOUL/persona editing. |
+| B15 | Client-local active-profile selection. Selecting profile A in one client must not switch another client's active profile or mutate a global selection. Actual server-setting edits remain central and visible to every client using the affected scope. Requests must target the intended host/profile/session. |
+
+B16, B17, B18, B19 and B20 are deferred. The owner wants profiles rather than a separate bot product model for now. This does not defer R10/R11 subagent supervision.
+
+### App settings and operation
+
+| ID | Selected scope and owner qualification |
+| --- | --- |
+| S01 | Useful connection/backend health and diagnostic details. |
+| S02 | Server usage/cost information. Do not compute a competing authoritative account ledger locally. |
+| S08 | Android client version/build, release/update information, and distinction from backend version. Include the identity/version of this fork, not the upstream app's release label. |
+| S10 | Reachable theme/readability/text-size controls. |
+| S12 | Simple notification enablement/categories and a test; no complex policy engine. |
+| S14 | No standalone client restoration or extra preference project. On opening a session, display its latest server-owned history, run state and pending requests. This is existing R02/T12 work in W01. If restoring a last-read location or last-opened session across devices needs a missing server field, record that backend dependency; do not create durable local substitutes. |
+
+### Mobile additions and deduplication
+
+| ID | Owner decision | Canonical work |
+| --- | --- | --- |
+| M01 | Approved in two phases. First, server execution, auto-refresh on reopen/resume, manual Refresh and available local notifications. Later, reliable server-triggered background notifications even when Android has terminated the app normally. Push is committed roadmap work, although the initial release may ship without it. | R02/R16, W01/W07 |
+| M02 | Accepted; same cross-profile attention/activity requirement already selected. | C09/R03 |
+| M03 | Accepted; same persistent unsent-draft requirement already selected. | Q02 |
+| M04 | Accepted, keep simple. Show disconnected/sending/accepted/uncertain as needed, preserve drafts, do not blindly resend. No elaborate offline outbox. | R02/Q02 |
+| M05 | Not separately selected. F03/F04/F05 cover usable output access; do not silently broaden into full transcript sharing/export. | No separate work item |
+| M06 | Accepted. Android Share or composer attachment/camera/photo choice creates a reviewable draft in an explicit destination; never send invisibly. | Q03/W10 |
+| M07 | Future possibility. No near-term voice/dictation implementation from the previous recommendation. | Deferred |
+| M08 | Server-authoritative state requirement replaces the proposed local handoff feature. No independent deep-link/cross-device feature project yet. Avoid durable phone-only chat relationships. | Applies to all packages, especially Q09 |
+| M09 | Accepted, start simple: permission, completion/input controls and correct task opening; basic private preview if exposed. Quiet hours and elaborate rules are not initial work. | R16/R17/S12 |
+| M10 | No offline conversation/result library. Temporary viewing or explicitly downloading a file is not a separate offline-history feature. | Excluded |
+| M11 | No favorites/popularity feature or local ranking. If the server already supplies skill order, preserve it. Do not build a ranking store. | Excluded |
+| M12 | Maybe later as a dedicated accessibility/tablet expansion. Selected S10/readability improvements and basic accessible controls still apply now. | Deferred expansion |
+| M13 | Maybe later; no widget project now. | Deferred |
+
+## Storage and recovery boundary
+
+Hermes must remain the authority for task and conversation data. Server-owned relationships include history, read/unread, project membership, accepted queues, answer-version relationships where supported, model/provider configuration, goals, status and results. The client may render cached values during a request, but it must not manufacture a success or preserve a conflicting local truth.
+
+The owner explicitly allows durable drafts/unsent messages. Staged attachments are part of that draft. Unsure submission is different from unsent: after a lost acknowledgement, reconcile with the server before retrying automatically. If the server cannot disambiguate, show that uncertainty and preserve the user's text.
+
+Some local data is needed for the other selected features: saved connection addresses and securely stored credentials for B01, device appearance/notification settings for S10/S12, and transient navigation/render state, including this client's active profile under B15. These are device configuration and navigation, not replicated Hermes work. The owner's "only drafts locally" requirement is interpreted as prohibiting an independent durable work database. Confirm any broader persistence proposal before adding it. S14 adds no local restoration store. The server supplies wherever the session last stood; any missing server contract is a backend dependency. Client-local profile selection does not authorize a new durable local session history.
+
+Current deviations to address as selected work reaches them:
+
+- Answer-version links currently persist in Android preferences. Q09 requires a server-owned alternative or a clear backend dependency; do not claim those links already synchronize.
+- Chat model overrides also have local persistence today. Preserve the server's current session configuration as authoritative; reconcile or remove the override store as Q16/model work proceeds rather than letting it overwrite a change made by another client.
+- Activity currently includes work held by this app's controllers. C09/R03 requires server discovery rather than merely aggregating those controllers.
+- Drafts are mostly in memory today. Q02/M03 explicitly authorizes durable local storage for them.
+- Pending identity journaling exists. Keep only the minimal references needed to reconcile uncertain work; do not expand it into a shadow transcript or task database.
+
+Server work can finish while Android is closed. Refresh on reopening retrieves the result, but cannot alert someone before they reopen. A live WebSocket plus local notifications does not guarantee an alert when Android has killed the process. The first release may accept that limit; W07's later background delivery phase must address it. This phase is now selected, not contingent on a future demand assessment. Refreshing a chat alone also cannot reveal an unseen question in another profile; that is why server-backed Activity remains selected. Android's [process lifecycle documentation](https://developer.android.com/guide/components/activities/process-lifecycle) explains why the phone process cannot be assumed to keep running.
+
+### W07 delivery phases and feasibility
+
+1. Initial delivery. Preserve local notices, simple completion/input controls and permission handling. Tapping opens the correct host/profile/session and loads current server state. Refresh remains available even when notifications are disabled.
+2. Background delivery, later milestone. Have a trusted backend component send completion/input events through Firebase Cloud Messaging. Register each app installation against its authorized Hermes targets, keep registrations current, avoid duplicate or stale alerts, and route taps through an authenticated server refresh. Use minimal notification content; the push payload is not a transcript or an authoritative task record.
+
+This is moderate work across Android and the backend. The owner selected Firebase Cloud Messaging for this later milestone after reviewing its pricing. FCM is available at no cost, including on the Spark plan, according to [Firebase pricing](https://firebase.google.com/pricing), checked on 2026-09-11. Plan to send from the existing Hermes backend; paid Firebase hosting, databases and Cloud Functions are not required by this design. Creating the Firebase project and configuring credentials belong to the later implementation work.
+
+The [FCM server environment documentation](https://firebase.google.com/docs/cloud-messaging/server-environment) describes the trusted sender and app-instance targeting. Its [Flutter receive documentation](https://firebase.google.com/docs/cloud-messaging/flutter/receive-messages) covers permission, background delivery and opening from a notification. The current Android source uses local notifications; deployed Hermes push/event support has not been verified. First inspect existing backend delivery hooks before estimating or adding a relay.
+
+The proposed boundary keeps all Hermes work on the server. The phone retains only installation/delivery configuration needed for notifications alongside existing device settings. A private Hermes gateway should remain private; assess whether a backend sender can use outbound push delivery and let the phone fetch details over its existing authenticated connection.
+
+Verify completion and input requests across profiles with the phone locked, the app in the background, and the app process terminated by Android. Also verify token changes, logout/target removal, duplicate events, notification taps and offline recovery. The goal is seamless ordinary use, but permission denial, offline devices and Android force-stop remain delivery limits. Firebase documents that a settings-level force-quit requires reopening the app before messages work again. A missing notification must never lose the server's result or pending request.
+
+For M06, Android's [sharing contract](https://developer.android.com/develop/ui/compose/sharing/receive) provides the OS entry point. Proposed flow: Share from a browser/gallery/document app, choose Hermes, review the text/files, choose the connection/profile and new or existing conversation, then explicitly Send. An attachment menu inside chat can add Camera, Photos and Files to the same staging flow. This is a product flow to implement on the current Flutter/native bridge, not a request to switch UI frameworks.
+
+## Explicitly outside the current scope
+
+- Q05 command-discoverability UI, B03 browser/OAuth gateway sign-in, and a separate S14 client-side restoration/preferences project. Existing slash entry and server refresh remain part of the app.
+- The full section 11: Cron authoring/management, messaging-channel administration, pairing, webhooks and Kanban. Session heartbeat/loop controls R14 remain selected.
+- Bot Mode/canonical bot chats and group-bot features B16 through B20. Selected subagent supervision remains in scope.
+- Broad K-family administration beyond the small seed flow. It is a possible future direction, not 30 automatically approved features.
+- Offline transcript library, local skill popularity/favorites, widgets, continuous voice and a full tablet layout effort.
+- General remote filesystem browsing, a full terminal, Git/PR administration, and a global artifact library. G07 and per-chat output access remain selected.
+- Inherited app functionality solely to preserve compatibility with the old UI. Reuse code only when it helps selected outcomes.
+- Research items not selected above. Omission does not authorize deleting user data or removing existing behavior without examining dependencies.
+
+## Acceptance baseline for each slice
+
+- Verify backend support before presenting a capability as available. Prefer a short explanation to silently routing a command into an unrelated session or profile.
+- Reads and writes retain their actual host/profile/chat owner after navigation, refresh and late responses.
+- With two clients connected, switching one from profile A to B leaves the other's selected profile unchanged. Editing a server option is visible to both clients when they read that option's scope.
+- A task started elsewhere can be discovered when the relevant server endpoint supports it; show bounded/incomplete results honestly.
+- Drafts and attachments survive interruption without duplicate submission or silent destination changes.
+- Show refresh/error/pending states clearly. Notifications supplement server state rather than becoming the only record of an input request or result.
+- Outputs resolve on the correct host and open on Android with their real contents. A printed backend path is not a completed download.
+- A backend restart/update reports progress, interruption/failure and reconnect outcome. Showing "requested" is not the same as a verified new version.
+- Update this plan and the current-behavior docs when a slice actually ships. Keep historical research dated.
+
+## Decision log
+
+| Date | Decision/change | Delivery evidence |
+| --- | --- | --- |
+| 2026-09-11 | Recorded owner selections and exclusions, left drawer, minimal local work state, simple refresh/notifications, technical-provider model grouping, optional one-shot long-press submit actions, context fuse, redesigned connections, backend update support and a small later administration screen. | Documentation only. No app features implemented in this update. |
+| 2026-09-11 | Follow-up approved P08, declined Q05 discoverability work and B03 OAuth, confirmed the R06 fix, merged S14 into server refresh, and committed later background notifications under M01/W07. B15 clarified: active-profile selection affects only that client; actual server-option edits are central and affect all clients using those options. | Documentation only. No application code or push infrastructure changed. |
+| 2026-09-11 | Selected Firebase Cloud Messaging as the transport for the later M01/W07 background-notification milestone, with sending from the existing Hermes backend and no planned paid Firebase services. | Roadmap update only. No Firebase project, credentials or integration created. |
+
+## Questions resolved now and details left for implementation
+
+The [contract notes](research/FEATURE_PLAN_CONTRACT_NOTES_2026-09-11.md) preserve source evidence for project metadata, slash command routing and provider/context data. P08 is approved. Q05 needs no extra entry point and B03 is discarded. The fuse concept is sufficiently clear to record without a mockup now.
+
+B03 concerned gateway browser/identity-provider sign-in, separate from model-provider subscriptions. The owner confirmed password authentication, so this proposal is removed from planned work.
+
+B15 is settled. Profile selection is navigation local to each client. Client 1 selecting Work must not switch client 2 away from Personal. Changing Work's persona edits Work centrally, so any client reading Work sees the new persona. A backend update affects the whole backend even if reached from Work. Keep selections independent, route requests to their actual scope, and display shared server configuration faithfully.
+
+S14 originally bundled return-to-last-chat and transcript display preferences too broadly. It adds no separate feature now. Reopening a session loads what Hermes knows about that session, including where its execution stood and any pending interaction. Any cross-device remembered reading location must also come from Hermes if supported. Temporary scroll/render state is disposable and does not become a local session record.
+
+Before implementing W02/W03, settle the Fork boundary and verify active-turn submission and `/yolo` target routing. Before Q09, determine where the server can store answer relationships. Before expanding local persistence, check it against the explicit storage boundary. These are concrete implementation questions, not reasons to start more infrastructure or to postpone unrelated selected work.

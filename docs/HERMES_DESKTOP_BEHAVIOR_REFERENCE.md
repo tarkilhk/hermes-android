@@ -1,5 +1,7 @@
 # Official Hermes Desktop behavior reference
 
+> Current fork scope is recorded in the [owner-selected product plan](PRODUCT_PLAN.md), dated 2026-09-11. This document is a dated design, audit or implementation record. Its earlier roadmap and approval statements do not add requirements to the current plan; retain useful evidence and ownership contracts without restoring the old UI by default.
+
 Research date: 2026-09-06. Official source inspected: `NousResearch/hermes-agent` commit `245e48008fa814b3251f50755eb656bd9fb86cb1` (2026-09-06 UTC). Android baseline: `e1b94e2b4cef661174e3c6382407c05749087753`, with fork documentation commit `116b1f9`. This is a source-based comparison, not a claim that Desktop or a live two-profile server was exercised.
 
 Related mobile interaction research: [Codex Android UI reference](CODEX_ANDROID_UI_REFERENCE.md). Hermes Desktop remains the behavior reference for this document.

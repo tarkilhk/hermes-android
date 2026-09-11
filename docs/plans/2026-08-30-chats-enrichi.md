@@ -1,5 +1,7 @@
 # Chats enrichi — filtres, regroupement, lignes riches
 
+> Current fork scope is recorded in the [owner-selected product plan](../PRODUCT_PLAN.md), dated 2026-09-11. This document is a dated design, audit or implementation record. Its earlier roadmap and approval statements do not add requirements to the current plan; retain useful evidence and ownership contracts without restoring the old UI by default.
+
 > **Statut : en cours (2026-08-30).** Suite du schéma UI validé — décision #4 : « Non classés, Récents et Archivés deviennent des filtres de Chats ».
 
 ## Objectif

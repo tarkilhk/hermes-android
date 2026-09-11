@@ -1,5 +1,7 @@
 # Android Spaces — validated prototype specification
 
+> Current fork scope is recorded in the [owner-selected product plan](PRODUCT_PLAN.md), dated 2026-09-11. This document is a dated design, audit or implementation record. Its earlier roadmap and approval statements do not add requirements to the current plan; retain useful evidence and ownership contracts without restoring the old UI by default.
+
 Status: `[superseded as target architecture; retained as prototype record]`
 
 Validated by Carlos on 2026-08-24 after requesting Android-only organization comparable to Discord channels. On 2026-08-25, Carlos expanded the goal to an AI-organized Android daily driver with native Projects, smart views, files, assets, settings parity, and actionable notifications. The new draft source of truth is [`ANDROID_DAILY_DRIVER_ROADMAP.md`](ANDROID_DAILY_DRIVER_ROADMAP.md).
