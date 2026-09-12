@@ -3,15 +3,15 @@ import 'dart:io';
 import 'package:flutter/material.dart';
 import 'package:path_provider/path_provider.dart';
 import 'package:share_plus/share_plus.dart';
-import 'package:url_launcher/url_launcher.dart';
 
 import '../models/chat_output.dart';
 import '../services/connection_manager.dart';
 import '../services/android_file_delivery_service.dart';
 import '../services/remote_files_client.dart';
+import '../services/web_preview.dart';
 import '../widgets/chat_image_preview.dart';
 import '../widgets/markdown_code_block.dart';
-import '../widgets/profile_message.dart';
+import '../widgets/markdown_message_content.dart';
 import 'pdf_preview_screen.dart';
 
 class ChatOutputsScreen extends StatefulWidget {
@@ -79,9 +79,8 @@ class _ChatOutputsScreenState extends State<ChatOutputsScreen> {
   }
 
   Future<void> _openLink(String target) async {
-    final uri = ProfileMessage.externalLink(target);
-    if (uri == null ||
-        !await launchUrl(uri, mode: LaunchMode.externalApplication)) {
+    final uri = externalWebLink(target);
+    if (uri == null || !await openWebPreview(uri)) {
       throw StateError('Could not open link');
     }
   }
@@ -109,7 +108,7 @@ class _ChatOutputsScreenState extends State<ChatOutputsScreen> {
           bytes: data.contentAsBytes(),
         );
       } else {
-        uri = ProfileMessage.externalLink(output.url!);
+        uri = externalWebLink(output.url!);
         if (uri == null) throw StateError('Invalid image link');
       }
       if (!mounted) return;
@@ -150,7 +149,9 @@ class _ChatOutputsScreenState extends State<ChatOutputsScreen> {
         preview.mimeType.split(';').first.trim().toLowerCase() ==
             'application/pdf' ||
         output.label.toLowerCase().endsWith('.pdf');
+    final isMarkdown = _isMarkdownPreview(output, preview);
     var delivering = false;
+    var showMarkdownSource = false;
     await Navigator.of(context).push(
       MaterialPageRoute<void>(
         builder: (_) => StatefulBuilder(
@@ -194,6 +195,22 @@ class _ChatOutputsScreenState extends State<ChatOutputsScreen> {
                   maxLines: 1,
                   overflow: TextOverflow.ellipsis,
                 ),
+                actions: [
+                  if (isMarkdown)
+                    IconButton(
+                      tooltip: showMarkdownSource
+                          ? 'Show preview'
+                          : 'Show source',
+                      icon: Icon(
+                        showMarkdownSource
+                            ? Icons.visibility_outlined
+                            : Icons.code_outlined,
+                      ),
+                      onPressed: () => setPreviewState(
+                        () => showMarkdownSource = !showMarkdownSource,
+                      ),
+                    ),
+                ],
               ),
               body: ListView(
                 padding: const EdgeInsets.all(16),
@@ -209,10 +226,13 @@ class _ChatOutputsScreenState extends State<ChatOutputsScreen> {
                       const Text(
                         'Preview shortened by Hermes. Save the file to read it all.',
                       ),
-                    MarkdownCodeBlock(
-                      code: preview.text,
-                      language: preview.language,
-                    ),
+                    if (isMarkdown && !showMarkdownSource)
+                      MarkdownMessageContent(data: preview.text)
+                    else
+                      MarkdownCodeBlock(
+                        code: preview.text,
+                        language: preview.language,
+                      ),
                   ],
                   if (isPdf)
                     FilledButton.icon(
@@ -372,4 +392,19 @@ class _ChatOutputsScreenState extends State<ChatOutputsScreen> {
       ],
     ),
   );
+}
+
+bool _isMarkdownPreview(ChatOutput output, RemoteTextPreview preview) {
+  if (preview.binary) return false;
+  final language = preview.language.trim().toLowerCase();
+  final mimeType = preview.mimeType.split(';').first.trim().toLowerCase();
+  final label = output.label.toLowerCase();
+  final path = preview.path.toLowerCase();
+  return language == 'markdown' ||
+      language == 'md' ||
+      mimeType == 'text/markdown' ||
+      label.endsWith('.md') ||
+      label.endsWith('.markdown') ||
+      path.endsWith('.md') ||
+      path.endsWith('.markdown');
 }

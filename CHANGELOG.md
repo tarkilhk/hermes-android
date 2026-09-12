@@ -8,6 +8,26 @@ Feature releases increment the minor version, fixes increment the patch version,
 and breaking changes increment the major version. The Android build number after
 `+` always increases. Update this changelog for every release milestone.
 
+## [2.21.0+2170] - 2026-09-12
+
+### Added
+
+- Formatted Markdown file previews in chat Outputs, reusing reply formatting,
+  tables, code and diagrams. Toggle to the exact source for copying; keep the
+  server's truncation notice and full-file save/share actions.
+- Browser previews for web links in replies and Outputs, with an external
+  browser fallback. Returning from the browser preserves the originating chat.
+
+### Verification
+
+- Full suite: 1,161 passed, four opt-in skips. Analyzer clean; 41 focused
+  reading/link checks passed.
+- Signed Personal 2.21.0 / 21702 passed native compilation and certificate/package
+  checks, installed in place through wireless debugging, and launched. Phone
+  verification covers version/process metadata; live reading/browser QA remains.
+- Downloaded interactive HTML, integrated audio/video and remaining visual
+  formats stay planned. See [preview behavior](docs/MARKDOWN_AND_WEB_PREVIEWS.md).
+
 ## [2.20.0+2169] - 2026-09-12
 
 ### Added

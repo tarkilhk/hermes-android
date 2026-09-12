@@ -17,6 +17,9 @@ vendored renderer and remaining visual-block scope.
 [PDF reading](PDF_READING.md) records in-app PDF pages, native resource cleanup
 and the external-viewer fallback.
 
+[Markdown and web previews](MARKDOWN_AND_WEB_PREVIEWS.md) records formatted file
+reading, source access and browser previews that return to the chat.
+
 ## Research preserved for future work
 
 | Document | Purpose |

@@ -1,12 +1,9 @@
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
-import 'package:flutter_markdown/flutter_markdown.dart';
-import 'package:url_launcher/url_launcher.dart';
 
-import 'markdown_code_block.dart';
-import 'chat_image_preview.dart';
+import '../services/web_preview.dart';
+import 'markdown_message_content.dart';
 import 'profile_tool_activity.dart';
-import '../theme/profile_markdown_style.dart';
 
 /// Remote content is display-only. Links require a tap, and images never fetch
 /// automatically or resolve a remote host path against the phone's filesystem.
@@ -19,56 +16,7 @@ class ProfileMessage extends StatelessWidget {
     this.streaming = false,
   });
 
-  static Uri? externalLink(String href) {
-    final uri = Uri.tryParse(href);
-    if (uri == null ||
-        !{'http', 'https'}.contains(uri.scheme) ||
-        uri.host.isEmpty ||
-        uri.userInfo.isNotEmpty) {
-      return null;
-    }
-    return uri;
-  }
-
-  Future<void> _open(BuildContext context, String href) async {
-    final uri = externalLink(href);
-    var opened = false;
-    if (uri != null) {
-      try {
-        opened = await launchUrl(uri, mode: LaunchMode.externalApplication);
-      } catch (_) {
-        // A missing browser is a visible, recoverable UI error.
-      }
-    }
-    if (!opened && context.mounted) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(
-          content: Text(
-            uri == null
-                ? 'Only http and https web links can be opened here.'
-                : 'Could not open this link.',
-          ),
-        ),
-      );
-    }
-  }
-
-  void _previewImage(BuildContext context, String href, String title) {
-    final uri = externalLink(href);
-    if (uri == null) {
-      _open(context, href);
-      return;
-    }
-    Navigator.of(context).push(
-      MaterialPageRoute<void>(
-        builder: (previewContext) => ChatImagePreview(
-          uri: uri,
-          title: title,
-          onOpenExternal: () => _open(previewContext, href),
-        ),
-      ),
-    );
-  }
+  static Uri? externalLink(String href) => externalWebLink(href);
 
   Widget _copy(BuildContext context, String content) => IconButton(
     tooltip: 'Copy message',
@@ -169,44 +117,9 @@ class ProfileMessage extends StatelessWidget {
                             color: theme.colorScheme.onPrimaryContainer,
                           ),
                         )
-                      : Column(
-                          crossAxisAlignment: CrossAxisAlignment.stretch,
-                          children: [
-                            for (final segment in splitMarkdownCodeBlocks(
-                              content,
-                              streaming: streaming,
-                            ))
-                              if (segment is MarkdownCodeBlock)
-                                segment
-                              else
-                                Theme(
-                                  data: profileMarkdownTheme(theme),
-                                  child: MarkdownBody(
-                                    data: segment as String,
-                                    selectable: true,
-                                    onTapLink: (_, href, _) {
-                                      if (href != null) _open(context, href);
-                                    },
-                                    sizedImageBuilder: (config) =>
-                                        OutlinedButton.icon(
-                                          onPressed: () => _previewImage(
-                                            context,
-                                            config.uri.toString(),
-                                            config.alt ?? 'Image',
-                                          ),
-                                          icon: const Icon(
-                                            Icons.image_outlined,
-                                          ),
-                                          label: Text(
-                                            config.alt ?? 'Open image link',
-                                            maxLines: 2,
-                                            overflow: TextOverflow.ellipsis,
-                                          ),
-                                        ),
-                                    styleSheet: profileMarkdownStyle(theme),
-                                  ),
-                                ),
-                          ],
+                      : MarkdownMessageContent(
+                          data: content,
+                          streaming: streaming,
                         ),
                 ),
               ),

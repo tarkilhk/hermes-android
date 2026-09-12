@@ -2,12 +2,15 @@ import 'dart:async';
 
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
+import 'package:flutter_markdown/flutter_markdown.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:hermes_android/core/screens/chat_outputs_screen.dart';
 import 'package:hermes_android/core/services/connection_manager.dart';
 import 'package:hermes_android/core/services/remote_files_client.dart';
 import 'package:hermes_android/core/services/android_file_delivery_service.dart';
 import 'package:hermes_android/core/services/pdf_preview_service.dart';
+import 'package:hermes_android/core/widgets/markdown_code_block.dart';
+import 'package:hermes_android/core/widgets/markdown_message_content.dart';
 
 class _FileDelivery extends AndroidFileDeliveryService {
   final Future<bool> Function(RemoteFileDownload file, String? mimeType) open;
@@ -243,17 +246,134 @@ void main() {
     await tester.pumpAndSettle();
 
     expect(readPath, '/srv/current/notes.md');
-    expect(
-      tester
-          .widgetList<SelectableText>(find.byType(SelectableText))
-          .map((widget) => widget.data),
-      contains('void main() {}'),
-    );
+    expect(find.byType(MarkdownMessageContent), findsOneWidget);
+    expect(find.byType(MarkdownBody), findsOneWidget);
 
     await tester.pageBack();
     await tester.pumpAndSettle();
     expect(find.text('Outputs · Only this chat'), findsOneWidget);
     expect(find.text('notes.md'), findsOneWidget);
+  });
+
+  testWidgets(
+    'markdown preview is formatted without chat chrome and source stays exact',
+    (tester) async {
+      String? copied;
+      tester.binding.defaultBinaryMessenger.setMockMethodCallHandler(
+        SystemChannels.platform,
+        (call) async {
+          if (call.method == 'Clipboard.setData') {
+            copied = (call.arguments as Map)['text'] as String;
+          }
+          return null;
+        },
+      );
+      addTearDown(
+        () => tester.binding.defaultBinaryMessenger.setMockMethodCallHandler(
+          SystemChannels.platform,
+          null,
+        ),
+      );
+      const source =
+          '# Release notes\n\n**Ready**\n\n![Remote](https://example.com/a.png)';
+      await tester.pumpWidget(
+        _screen(
+          loadHistory: () async => [
+            {'role': 'assistant', 'content': 'Saved /srv/current/notes.md'},
+          ],
+          readText: (path) async => RemoteTextPreview(
+            path: path,
+            text: source,
+            language: 'text',
+            mimeType: 'text/plain',
+            byteSize: source.length,
+            binary: false,
+            truncated: true,
+          ),
+          download: (_) async => throw StateError('Unexpected download'),
+        ),
+      );
+      await tester.pumpAndSettle();
+      await tester.tap(find.text('notes.md'));
+      await tester.pumpAndSettle();
+
+      expect(find.byType(MarkdownMessageContent), findsOneWidget);
+      expect(find.byType(MarkdownBody), findsOneWidget);
+      expect(find.text('Release notes'), findsOneWidget);
+      expect(find.text('Hermes'), findsNothing);
+      expect(find.byType(Image), findsNothing);
+      expect(
+        find.text('Preview shortened by Hermes. Save the file to read it all.'),
+        findsOneWidget,
+      );
+
+      await tester.tap(find.byTooltip('Show source'));
+      await tester.pump();
+      expect(find.byType(MarkdownMessageContent), findsNothing);
+      expect(find.byType(MarkdownCodeBlock), findsOneWidget);
+      expect(find.byTooltip('Show preview'), findsOneWidget);
+      await tester.tap(find.byTooltip('Copy code'));
+      await tester.pump();
+      expect(copied, source);
+
+      await tester.tap(find.byTooltip('Show preview'));
+      await tester.pump();
+      expect(find.byType(MarkdownMessageContent), findsOneWidget);
+    },
+  );
+
+  testWidgets('markdown detection accepts language and MIME but excludes binary', (
+    tester,
+  ) async {
+    final cases = <({String language, String mimeType, bool binary})>[
+      (language: 'md', mimeType: 'text/plain', binary: false),
+      (language: 'text', mimeType: 'text/markdown; charset=utf-8', binary: false),
+      (language: 'markdown', mimeType: 'text/plain', binary: true),
+    ];
+    var index = 0;
+    await tester.pumpWidget(
+      _screen(
+        loadHistory: () async => [
+          {
+            'role': 'assistant',
+            'content': 'Saved /srv/current/notes-$index.txt',
+          },
+        ],
+        readText: (path) async {
+          final current = cases[index];
+          return RemoteTextPreview(
+            path: path,
+            text: '# Heading',
+            language: current.language,
+            mimeType: current.mimeType,
+            byteSize: 9,
+            binary: current.binary,
+            truncated: false,
+          );
+        },
+        download: (_) async => throw StateError('Unexpected download'),
+      ),
+    );
+
+    for (index = 0; index < cases.length; index++) {
+      if (index > 0) {
+        await tester.tap(find.byTooltip('Refresh outputs'));
+        await tester.pumpAndSettle();
+      } else {
+        await tester.pumpAndSettle();
+      }
+      await tester.tap(find.text('notes-$index.txt'));
+      await tester.pumpAndSettle();
+      if (cases[index].binary) {
+        expect(find.byType(MarkdownMessageContent), findsNothing);
+        expect(find.byTooltip('Show source'), findsNothing);
+      } else {
+        expect(find.byType(MarkdownMessageContent), findsOneWidget);
+        expect(find.byTooltip('Show source'), findsOneWidget);
+      }
+      await tester.pageBack();
+      await tester.pumpAndSettle();
+    }
   });
 
   testWidgets('delivers the downloaded filename and exact bytes', (
