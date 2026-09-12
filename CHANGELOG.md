@@ -8,6 +8,25 @@ Feature releases increment the minor version, fixes increment the patch version,
 and breaking changes increment the major version. The Android build number after
 `+` always increases. Update this changelog for every release milestone.
 
+## [2.25.0+2175] - 2026-09-12
+
+### Added
+
+- `/bg` and `/background` use the existing side-question card to show each
+  task's prompt, running state and result. Server task IDs keep out-of-order
+  completions attached to the right task and originating profile/chat.
+- Preserve a result that arrives before the start acknowledgement, and show
+  a neutral explanation when a completed task returns no text. These are live
+  task views; no local task database or invented child-chat link is added.
+
+### Verification
+
+- All 30 focused command/card checks passed. Full suite: 1,182 passed, four
+  opt-in skips. Analyzer clean. Dependencies were reviewed and the lockfile was
+  retained; this feature needs no dependency upgrade.
+- Signed Personal 2.25.0 / 21752 passed native compilation and certificate/package checks. Phone installation waits for a new
+  wireless-debugging endpoint; the last verified installation is 2.24.0.
+
 ## [2.24.1+2174] - 2026-09-12
 
 ### Fixed

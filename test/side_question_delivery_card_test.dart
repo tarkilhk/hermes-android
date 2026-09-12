@@ -67,4 +67,33 @@ void main() {
       findsOneWidget,
     );
   });
+
+  testWidgets('labels background work as running and result', (tester) async {
+    Future<void> pump(SideQuestionDeliveryState state) => tester.pumpWidget(
+      MaterialApp(
+        home: Scaffold(
+          body: SideQuestionDeliveryCard(
+            delivery: SideQuestionDelivery(
+              kind: SideQuestionDeliveryKind.backgroundTask,
+              taskId: 'background-1',
+              question: 'Check the deployment',
+              state: state,
+              result: 'The deployment failed.',
+            ),
+          ),
+        ),
+      ),
+    );
+
+    await pump(SideQuestionDeliveryState.pending);
+    expect(find.text('Background task running'), findsOneWidget);
+    expect(find.text('Background task result'), findsNothing);
+
+    await pump(SideQuestionDeliveryState.completed);
+    expect(find.text('Background task result'), findsOneWidget);
+    expect(
+      find.widgetWithText(SelectableText, 'The deployment failed.'),
+      findsOneWidget,
+    );
+  });
 }

@@ -705,7 +705,12 @@ class _ProfileWorkspaceScreenState extends State<ProfileWorkspaceScreen>
               ),
             for (final delivery in chat.sideQuestionDeliveries)
               SideQuestionDeliveryCard(
-                key: ValueKey((chat.key, delivery.taskId, delivery.state)),
+                key: ValueKey((
+                  chat.key,
+                  delivery.kind,
+                  delivery.taskId,
+                  delivery.state,
+                )),
                 delivery: delivery,
               ),
             if (chat.pendingQuestion != null) _questionPanel(chat),

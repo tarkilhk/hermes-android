@@ -2706,6 +2706,10 @@ class ProfileWorkspaceController extends ChangeNotifier {
     } catch (e) {
       chat.error = e is TimeoutException
           ? 'Command status is uncertain. It was not retried. Check the session before running it again.'
+          : e is FormatException
+          ? e.message.toString()
+          : e is StateError
+          ? e.message.toString()
           : e.toString();
     } finally {
       chat.commandRunning = false;
@@ -2846,35 +2850,23 @@ class ProfileWorkspaceController extends ChangeNotifier {
       case 'bg':
       case 'background':
         if (argument.isEmpty) throw StateError('Usage: /$name <message>');
-        await resource.gateway.call('prompt.background', {
-          'session_id': chat.runtimeId,
-          'text': argument,
-        });
+        await _startTaskDelivery(
+          chat,
+          resource,
+          kind: SideQuestionDeliveryKind.backgroundTask,
+          method: 'prompt.background',
+          prompt: argument,
+        );
         chat.commandOutput.add('Started /$name on the Hermes host.');
       case 'btw':
         if (argument.isEmpty) throw StateError('Usage: /btw <message>');
-        final result = await resource.gateway.call('prompt.btw', {
-          'session_id': chat.runtimeId,
-          'text': argument,
-        });
-        final taskId = result['task_id'];
-        if (taskId is! String || taskId.trim().isEmpty) {
-          throw const FormatException(
-            'The Hermes host did not identify the side question.',
-          );
-        }
-        final normalizedTaskId = taskId.trim();
-        if (!chat.sideQuestionDeliveries.any(
-          (delivery) => delivery.taskId == normalizedTaskId,
-        )) {
-          chat.sideQuestionDeliveries.add(
-            SideQuestionDelivery(
-              taskId: normalizedTaskId,
-              question: argument,
-              state: SideQuestionDeliveryState.pending,
-            ),
-          );
-        }
+        await _startTaskDelivery(
+          chat,
+          resource,
+          kind: SideQuestionDeliveryKind.sideQuestion,
+          method: 'prompt.btw',
+          prompt: argument,
+        );
         chat.commandOutput.add('Started /btw on the Hermes host.');
       case 'stop':
       case 'interrupt':
@@ -2913,6 +2905,90 @@ class ProfileWorkspaceController extends ChangeNotifier {
         return false;
     }
     return true;
+  }
+
+  Future<void> _startTaskDelivery(
+    ProfileChat chat,
+    ProfileWorkspaceData resource, {
+    required SideQuestionDeliveryKind kind,
+    required String method,
+    required String prompt,
+  }) async {
+    final result = await resource.gateway.call(method, {
+      'session_id': chat.runtimeId,
+      'text': prompt,
+    });
+    final rawTaskId = result['task_id'];
+    if (rawTaskId is! String || rawTaskId.trim().isEmpty) {
+      final task = kind == SideQuestionDeliveryKind.sideQuestion
+          ? 'side question'
+          : 'background task';
+      throw FormatException(
+        'Hermes did not confirm the $task. '
+        'Check whether it started before sending this draft again.',
+      );
+    }
+    final taskId = rawTaskId.trim();
+    final index = chat.sideQuestionDeliveries.indexWhere(
+      (delivery) => delivery.kind == kind && delivery.taskId == taskId,
+    );
+    if (index < 0) {
+      chat.sideQuestionDeliveries.add(
+        SideQuestionDelivery(
+          kind: kind,
+          taskId: taskId,
+          question: prompt,
+          state: SideQuestionDeliveryState.pending,
+        ),
+      );
+      return;
+    }
+    final delivery = chat.sideQuestionDeliveries[index];
+    if (delivery.question.isEmpty &&
+        delivery.state == SideQuestionDeliveryState.completed) {
+      chat.sideQuestionDeliveries[index] = delivery.complete(
+        result: delivery.result,
+        question: prompt,
+      );
+    }
+  }
+
+  void _completeTaskDelivery(
+    ProfileChat chat,
+    SideQuestionDeliveryKind kind,
+    Map<String, dynamic> data, {
+    bool skipBlankResult = false,
+  }) {
+    final response = data['text']?.toString().trim() ?? '';
+    if (response.isEmpty && skipBlankResult) return;
+    final result = response.isEmpty
+        ? 'No response text was returned.'
+        : response;
+    final rawTaskId = data['task_id'];
+    final taskId = rawTaskId is String && rawTaskId.trim().isNotEmpty
+        ? rawTaskId.trim()
+        : null;
+    final question = data['question']?.toString().trim() ?? '';
+    final index = taskId == null
+        ? -1
+        : chat.sideQuestionDeliveries.indexWhere(
+            (delivery) => delivery.kind == kind && delivery.taskId == taskId,
+          );
+    if (index >= 0) {
+      chat.sideQuestionDeliveries[index] = chat.sideQuestionDeliveries[index]
+          .complete(result: result, question: question);
+    } else {
+      chat.sideQuestionDeliveries.add(
+        SideQuestionDelivery(
+          kind: kind,
+          taskId: taskId,
+          question: question,
+          state: SideQuestionDeliveryState.completed,
+          result: result,
+        ),
+      );
+    }
+    _notify(chat, false);
   }
 
   Future<bool> _sendPrompt(
@@ -3463,38 +3539,18 @@ class ProfileWorkspaceController extends ChangeNotifier {
           chat.reasoningVerbose = update.verbose;
         }
       case 'btw.complete':
-        final text = event.data['text']?.toString().trim() ?? '';
-        if (text.isEmpty) break;
-        final rawTaskId = event.data['task_id'];
-        final taskId = rawTaskId is String && rawTaskId.trim().isNotEmpty
-            ? rawTaskId.trim()
-            : null;
-        final question = event.data['question']?.toString().trim() ?? '';
-        final index = taskId == null
-            ? -1
-            : chat.sideQuestionDeliveries.indexWhere(
-                (delivery) => delivery.taskId == taskId,
-              );
-        if (index >= 0) {
-          chat.sideQuestionDeliveries[index] = chat
-              .sideQuestionDeliveries[index]
-              .complete(result: text, question: question);
-        } else {
-          chat.sideQuestionDeliveries.add(
-            SideQuestionDelivery(
-              taskId: taskId,
-              question: question,
-              state: SideQuestionDeliveryState.completed,
-              result: text,
-            ),
-          );
-        }
-        _notify(chat, false);
-      case 'background.complete':
-        chat.commandOutput.add(
-          event.data['text']?.toString() ?? 'Background command finished.',
+        _completeTaskDelivery(
+          chat,
+          SideQuestionDeliveryKind.sideQuestion,
+          event.data,
+          skipBlankResult: true,
         );
-        _notify(chat, false);
+      case 'background.complete':
+        _completeTaskDelivery(
+          chat,
+          SideQuestionDeliveryKind.backgroundTask,
+          event.data,
+        );
       case 'approval.request':
         chat.approval = event.data;
         chat.status = ProfileTurnStatus.attention;

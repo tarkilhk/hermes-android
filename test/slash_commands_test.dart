@@ -21,6 +21,9 @@ class CommandHost extends Host {
   String yolo = '0';
   String? yoloSetResult;
   final List<String> sideQuestionTaskIds = ['side-task-1'];
+  final List<String> backgroundTaskIds = ['background-task-1'];
+  FutureOr<Map<String, dynamic>> Function(Map<String, dynamic>)?
+  backgroundRespond;
   Map<String, dynamic> catalog(String profile) => {
     'pairs': [
       ['/$profile-skill', 'Profile $profile skill'],
@@ -68,6 +71,10 @@ class CommandHost extends Host {
         }
         if (method == 'prompt.btw') {
           return {'task_id': sideQuestionTaskIds.removeAt(0)};
+        }
+        if (method == 'prompt.background') {
+          return await backgroundRespond?.call(params) ??
+              {'task_id': backgroundTaskIds.removeAt(0)};
         }
         if (method == 'command.dispatch' ||
             method == 'slash.exec' ||
@@ -401,6 +408,107 @@ void main() {
     expect(delivery.state, SideQuestionDeliveryState.completed);
     expect(delivery.result, 'Remote answer');
   });
+
+  test(
+    'background acknowledgement and completion stay with their owner while busy',
+    () async {
+      chat.status = ProfileTurnStatus.running;
+      chat.draft = '/bg Check the deployment';
+      await controller.send(chat);
+
+      final pending = chat.sideQuestionDeliveries.single;
+      expect(pending.kind, SideQuestionDeliveryKind.backgroundTask);
+      expect(pending.taskId, 'background-task-1');
+      expect(pending.question, 'Check the deployment');
+      expect(pending.state, SideQuestionDeliveryState.pending);
+      expect(chat.status, ProfileTurnStatus.running);
+      await controller.switchProfile('b');
+      final other = await controller.createChat();
+
+      host.event('a', 'background.complete', {
+        'task_id': 'background-task-1',
+        'text': ' Deployment failed: inspect logs. ',
+      });
+
+      final completed = chat.sideQuestionDeliveries.single;
+      expect(completed.state, SideQuestionDeliveryState.completed);
+      expect(completed.result, 'Deployment failed: inspect logs.');
+      expect(other.sideQuestionDeliveries, isEmpty);
+      expect(
+        host.commandCalls
+            .singleWhere((call) => call.$1 == 'prompt.background')
+            .$2,
+        {
+          'session_id': 'a-runtime',
+          'text': 'Check the deployment',
+          'profile': 'a',
+        },
+      );
+    },
+  );
+
+  test(
+    'background completion before acknowledgement keeps its result and prompt',
+    () async {
+      host.sideQuestionTaskIds[0] = 'shared-task';
+      chat.draft = '/btw Side work';
+      await controller.send(chat);
+      host.backgroundRespond = (params) {
+        host.event('a', 'background.complete', {
+          'task_id': 'shared-task',
+          'text': 'Background result',
+        });
+        return {'task_id': 'shared-task'};
+      };
+
+      chat.draft = '/background Background work';
+      await controller.send(chat);
+
+      expect(chat.sideQuestionDeliveries, hasLength(2));
+      final side = chat.sideQuestionDeliveries.singleWhere(
+        (delivery) => delivery.kind == SideQuestionDeliveryKind.sideQuestion,
+      );
+      final background = chat.sideQuestionDeliveries.singleWhere(
+        (delivery) => delivery.kind == SideQuestionDeliveryKind.backgroundTask,
+      );
+      expect(side.state, SideQuestionDeliveryState.pending);
+      expect(background.taskId, 'shared-task');
+      expect(background.question, 'Background work');
+      expect(background.state, SideQuestionDeliveryState.completed);
+      expect(background.result, 'Background result');
+    },
+  );
+
+  test('blank background completion reports a neutral completed result', () {
+    host.event('a', 'background.complete', {
+      'task_id': 'external-background',
+      'text': '   ',
+    });
+
+    final delivery = chat.sideQuestionDeliveries.single;
+    expect(delivery.kind, SideQuestionDeliveryKind.backgroundTask);
+    expect(delivery.state, SideQuestionDeliveryState.completed);
+    expect(delivery.result, 'No response text was returned.');
+  });
+
+  test(
+    'background acknowledgement without a task ID preserves the draft',
+    () async {
+      host.backgroundRespond = (_) => <String, dynamic>{};
+      chat.draft = '/bg Keep this command';
+
+      await controller.send(chat);
+
+      expect(chat.draft, '/bg Keep this command');
+      expect(chat.sideQuestionDeliveries, isEmpty);
+      expect(
+        chat.error,
+        'Hermes did not confirm the background task. '
+        'Check whether it started before sending this draft again.',
+      );
+      expect(chat.error, isNot(contains('FormatException')));
+    },
+  );
 
   test('yolo toggles the hydrated live session while busy', () async {
     chat.status = ProfileTurnStatus.running;

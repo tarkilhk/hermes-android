@@ -122,9 +122,9 @@ Deliver and verify each before adding the next layer.
 1. D18 / T11: implemented in 2.24.1, awaiting phone installation. Find uses the
    same saved-page loader as Outputs, labels partial history, retains results on
    failed older batches and keeps earlier matches accessible.
-2. D11 / Q12: correlate `/bg` and `/background` acknowledgements and completions
-   by the server's task ID. Reuse the side-question card for identifiable pending
-   and completed background work. Recovery after reconnect remains separate.
+2. D11 / Q12: implemented and verified in 2.25.0, awaiting phone installation. `/bg` and
+   `/background` acknowledgements and completions use the server's task ID and
+   the shared side-question card. Recovery after reconnect remains separate.
 3. D19 / C07: complete the server-backed read/unread lifecycle when the owner
    opens and reads a chat. Check Desktop behavior and concurrent completion
    semantics before changing read markers.
@@ -151,7 +151,7 @@ For each active slice, append a short record here or link its implementation not
 | D08 | Implemented; live QA pending | Independent completion/attention switches, optional chat titles, permission/test alert and existing notification routing | Settings widget tests | End-to-end notification permission/tap checks remain; locked/terminated-app push remains D26/D27 |
 | D09 | Implemented; live QA pending | Desktop-style text queues with review/removal and one-shot Steer through Message actions or long press | Queue tests cover ordered drain, separate drafts/attachments, restart, lost acknowledgement, stop/failure and repeated resume; Steer checks queued/rejected outcomes | Phone must be connected to drain; attachments cannot be queued in this slice |
 | D10 | Partial; live QA pending | Saved-message Edit/resend, one-shot idle Fork and Regenerate; phone-only answer links removed; Parent chat uses server metadata. See [relationships](SERVER_CHAT_RELATIONSHIPS.md) | 2.18.0: 1,143 tests passed, four opt-in skips; 31 focused checks passed; analyzer clean; signed Personal 21672 installed and launched | A synchronized answer carousel needs server origin-row, relationship-kind and ordering metadata |
-| D11 | Partial; live QA pending | Identifiable side-question cards and out-of-order completion by task ID | Scoped command/delivery tests | `/bg` and task recovery still need verified server contracts |
+| D11 | Live side/background cards implemented; phone installation pending | Identifiable `/btw`, `/bg` and `/background` cards, task-kind/ID correlation, original prompts and early/out-of-order completions | 2.25.0: 30 focused checks and 1,182 full-suite tests passed/four skips; analyzer clean; signed Personal 21752 verified | Recovery after reconnect/process death still needs a server listing/resume contract; live gateway QA remains |
 | D12 | Common content, Mermaid and SVG implemented; live QA pending | Wide tables, selectable streamed/nested fenced code and copy/wrap controls; on-demand Mermaid/SVG previews with zoom and source access. See [diagram notes](DIAGRAM_PREVIEWS.md) | 2.23.0: 1,169 tests passed, four opt-in skips; analyzer clean; browser fixtures passed; signed Personal 21722 installed and launched | Other diagram formats retain source fallback; live device preview/zoom QA remains |
 | D13 | Common media implemented; live QA pending | Zoomable images, hosted web page previews and downloaded audio/video playback with native controls; see [opening files](OPENING_OUTPUT_FILES.md) | 2.22.0: 1,166 full-suite passes/four skips before helper consolidation; 19 focused checks afterward; analyzer clean; signed Personal 21712 installed and launched | Device codec/playback and browser QA remain; unsupported files keep external-open/save-share fallback |
 | D14 | Implemented; live QA pending | Expandable live tools with args/results/server duration, revisioned server todos, live/historical reasoning | Event and widget tests; existing stored-tool display retained | Only server-exposed reasoning/timing can be shown |

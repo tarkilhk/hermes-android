@@ -10,6 +10,13 @@ class SideQuestionDeliveryCard extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final pending = delivery.state == SideQuestionDeliveryState.pending;
+    final background = delivery.kind == SideQuestionDeliveryKind.backgroundTask;
+    final label = switch ((background, pending)) {
+      (false, true) => 'Side question running',
+      (false, false) => 'Side question answer',
+      (true, true) => 'Background task running',
+      (true, false) => 'Background task result',
+    };
     final colors = Theme.of(context).colorScheme;
     return Card(
       color: colors.secondaryContainer.withValues(alpha: 0.45),
@@ -28,7 +35,7 @@ class SideQuestionDeliveryCard extends StatelessWidget {
                 const SizedBox(width: 8),
                 Expanded(
                   child: Text(
-                    pending ? 'Side question running' : 'Side question answer',
+                    label,
                     style: Theme.of(context).textTheme.labelLarge?.copyWith(
                       color: colors.onSecondaryContainer,
                     ),

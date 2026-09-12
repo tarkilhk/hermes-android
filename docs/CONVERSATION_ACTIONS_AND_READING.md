@@ -14,7 +14,7 @@ Update for 2.18.0: regeneration remains server-backed. The phone-only answer ind
 
 `/btw` records the server's task ID and displays a distinct side-question card in the owning chat. Completion updates the matching card even when several questions finish out of order. Results remain selectable, empty events are ignored, and a completion observed without its start still displays its question/result.
 
-These are transient display records. No verified side-question recovery API was found. Existing `/bg` handling still displays an uncorrelated completion notice; its pending/result card is the next D11 delivery.
+These are transient display records. No verified side-question recovery API was found. Version 2.25.0 extends the same card to `/bg` and `/background`, replacing the uncorrelated completion notice.
 
 The 2026-09-12 follow-up source check verifies the missing client path in the
 installed backend at `tui_gateway/methods_prompt.py:916-1004`.
@@ -26,9 +26,23 @@ original question, so the client should retain that question with the returned
 task ID while the view exists. Completion can race ahead of the acknowledgement;
 the acknowledgement must not turn a completed card back into a pending card.
 
+Both commands retain the original prompt with the acknowledged task ID and
+display a running card. A matching completion replaces its status with the
+result even when other tasks finish first. Matching includes the task kind, so
+a side question cannot overwrite a background task with the same ID. An early
+completion remains completed when its later acknowledgement supplies the prompt.
+An empty background result is shown as "No response text was returned."
+
 This contract is enough for identifiable live cards. It does not establish a
 durable child-chat link, task cancellation or recovery after reconnect. Those
 must not be inferred from the transient `bg_*` task ID.
+
+The 2.25.0 checks cover active-turn submission, owning profile, task-kind/ID
+collisions, completion before acknowledgement, empty results and preserved
+drafts when the server does not identify the task. All 30 focused checks pass;
+the full suite passes 1,182 tests with four opt-in skips, and analysis is clean.
+Dependency updates were reviewed and deferred because no new package is needed.
+Live gateway behavior remains separate from fixture verification.
 
 ## Reading and context
 
