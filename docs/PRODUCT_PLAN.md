@@ -68,7 +68,7 @@ Use these packages to avoid building the same requirement twice. Their order is 
 | W07 Notifications | R16, R17, S12, M01, M09 | First, useful local notices and correct task opening. Later, server-triggered push delivery through Firebase Cloud Messaging while the app is absent. Both phases are selected; the first release may omit push. | Local controls implemented; live QA and later push remain |
 | W08 Connections and operations | B01, B02, B04, B10, B11 all proposed, B14, B15, S01, S02 | Current-looking password setup and repair, understandable health/usage, scoped profile/admin actions and backend updates. | Planned |
 | W09 App navigation and preferences | S08, S10, left drawer | Consistent navigation, version/build visibility and readable preferences. Server session restoration belongs to W01. | Planned |
-| W10 Phone capture | M06 plus Q03 | Share text, links, images or files into a reviewed draft; add camera/photo capture in the same flow. | Planned |
+| W10 Phone capture | M06 plus Q03 | Share text, links, images or files into a reviewed draft; add camera/photo capture in the same flow. | Implemented; native capture/interruption QA remains |
 | W11 Small administration screen | Limited K-family seed described above, integrated with B11/B14/B15 | A low-priority administration flow with a few real functions that can grow later. | Planned, lower priority |
 
 When beginning a slice, record its package and precise IDs here, inspect the current app and deployed backend, and specify the observable change. When finishing, record the code/PR reference, relevant checks, remaining limits, and date. Use **In progress**, **Done**, **Blocked on server**, or **Deferred** as needed. Mark a slice done only when its UI and server behavior are complete; existing source or a mock alone is not completion evidence.
@@ -282,7 +282,7 @@ For M06, Android's [sharing contract](https://developer.android.com/develop/ui/c
 
 ## Active owner feedback
 
-Latest delivery, 2026-09-12: Personal 2.6.0 / 21552 adds Camera to the existing attachment/draft flow and preserves the D15 reopen and recent chat-deletion fixes. It is installed and launched on the owner's phone. Camera routing/review tests and analyzer pass; live capture/cancellation/interruption QA remains. See [capture notes](SHARING_AND_CAPTURE.md). D23 subagent supervision is in progress; all other selected milestones and exclusions remain in the plan.
+Latest delivery, 2026-09-12: Personal 2.7.0 / 21562 adds scoped subagent supervision and preserves Camera, the D15 reopen fix and recent chat-deletion fixes. It is installed and launched on the owner's phone; 1,029 tests passed, four opt-in skips, analyzer clean. See [subagent notes](SUBAGENT_SUPERVISION.md) and [capture notes](SHARING_AND_CAPTURE.md) for outstanding live QA. D24 goal controls are in progress; all other selected milestones and exclusions remain in the plan.
 
 - 2026-09-12, D15/T10: the integrated fuse design is accepted. Opening an existing chat must load authoritative context fullness without requiring a new message. The owner reiterated that this must be fixed, so it moved ahead of Camera. The missing deferred-agent ready-event refresh was reproduced and fixed for 2.5.0; see [cause and regression evidence](CONTEXT_REOPEN_FIX.md). Final live-server phone verification remains outstanding. All other planned milestones and exclusions remain unchanged.
 
