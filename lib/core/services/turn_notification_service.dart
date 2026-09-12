@@ -54,6 +54,10 @@ abstract class TurnNotificationSink {
   /// is already allowed.
   Future<bool?> requestPermission();
 
+  /// Reports whether the platform currently permits visible notifications.
+  /// `null` means the platform does not expose a status check.
+  Future<bool?> notificationsEnabled() async => null;
+
   Future<void> show(TurnNotification notification);
 
   Future<void> cancel(int id);
@@ -110,6 +114,18 @@ class PluginTurnNotificationSink implements TurnNotificationSink {
         if (payload != null) onOpen?.call(payload);
       },
     );
+    await _plugin
+        .resolvePlatformSpecificImplementation<
+          AndroidFlutterLocalNotificationsPlugin
+        >()
+        ?.createNotificationChannel(
+          const AndroidNotificationChannel(
+            'hermes_turn_notifications',
+            'Hermes Turns',
+            description: 'Notifications for completed background turns',
+            importance: Importance.defaultImportance,
+          ),
+        );
     final launch = await _plugin.getNotificationAppLaunchDetails();
     final payload = launch?.notificationResponse?.payload;
     if (launch?.didNotificationLaunchApp == true && payload != null) {
@@ -138,6 +154,16 @@ class PluginTurnNotificationSink implements TurnNotificationSink {
 
     // No platform implementation resolved: nothing gates posting here.
     return null;
+  }
+
+  @override
+  Future<bool?> notificationsEnabled() async {
+    await initialize();
+    final android = _plugin
+        .resolvePlatformSpecificImplementation<
+          AndroidFlutterLocalNotificationsPlugin
+        >();
+    return android?.areNotificationsEnabled();
   }
 
   @override

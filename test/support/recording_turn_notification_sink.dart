@@ -37,6 +37,9 @@ class RecordingTurnNotificationSink implements TurnNotificationSink {
   }
 
   @override
+  Future<bool?> notificationsEnabled() async => permissionResult;
+
+  @override
   Future<void> show(TurnNotification notification) async {
     shown.add(notification);
   }

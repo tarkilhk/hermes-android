@@ -66,6 +66,7 @@ The inventories describe their inspection dates and source commits. Do not silen
 
 ## Build, distribution and verification
 
+- [Roadmap emulator verification](EMULATOR_ROADMAP_VERIFICATION.md), actual Android UI checks, synthetic server scenarios and remaining device/server acceptance checks.
 - [Local build setup](LOCAL_BUILD_SETUP.md). Host paths and tool versions are dated evidence; use the actual current checkout rather than assuming an old location.
 - [Android release identity and signing](ANDROID_RELEASE_PLAN.md).
 - [Code quality and release checks](../CODE_QUALITY_CHECKLIST.md).

@@ -1,6 +1,7 @@
 param(
     [Parameter(Mandatory = $true)][string]$ToolchainRoot,
     [string]$SigningDirectory = (Join-Path $env:LOCALAPPDATA 'HermesPersonal\signing'),
+    [string]$FirebaseOptionsFile,
     [switch]$InitializeSigning
 )
 $ErrorActionPreference = 'Stop'
@@ -14,6 +15,11 @@ $keytool = Join-Path $ToolchainRoot 'jdk-17\bin\keytool.exe'
 $flutter = Join-Path $ToolchainRoot 'flutter\bin\flutter.bat'
 $sdk = Join-Path $ToolchainRoot 'android-sdk'
 $buildTools = Join-Path $sdk 'build-tools\36.0.0'
+$firebaseBuildArguments = @()
+if ($FirebaseOptionsFile) {
+    $firebaseOptionsPath = (Resolve-Path -LiteralPath $FirebaseOptionsFile -ErrorAction Stop).Path
+    $firebaseBuildArguments = @("--dart-define-from-file=$firebaseOptionsPath")
+}
 foreach ($required in @($keytool, $flutter, (Join-Path $buildTools 'apksigner.bat'))) {
     if (!(Test-Path -LiteralPath $required)) { throw 'Required release tool is missing' }
 }
@@ -53,7 +59,7 @@ try {
     $env:HERMES_KEY_PASSWORD = $env:HERMES_STORE_PASSWORD
     # Flutter 3.44 skips release-specific plugin regeneration with --no-pub.
     # Keep the pub step so integration_test is excluded from the native registry.
-    & $flutter build apk --release --target-platform android-arm64 --split-per-abi --split-debug-info=build/personal-symbols -t lib/main.dart
+    & $flutter build apk --release --target-platform android-arm64 --split-per-abi --split-debug-info=build/personal-symbols -t lib/main.dart @firebaseBuildArguments
     if ($LASTEXITCODE -ne 0) { throw 'Release build failed' }
     $apk = Join-Path $repository 'build\app\outputs\flutter-apk\app-arm64-v8a-release.apk'
     $signature = & (Join-Path $buildTools 'apksigner.bat') verify --verbose --print-certs $apk

@@ -2,6 +2,7 @@ import 'dart:async';
 import 'dart:convert';
 
 import 'package:flutter/material.dart';
+import 'package:flutter/foundation.dart' show ValueListenable;
 import 'package:shared_preferences/shared_preferences.dart';
 import 'core/services/android_launch_intent_service.dart';
 import 'core/services/android_share_intent_service.dart';
@@ -19,6 +20,7 @@ import 'core/services/profile_gateway.dart';
 import 'core/services/profiles_repository.dart';
 import 'core/models/hermes_profile.dart';
 import 'core/services/turn_notification_service.dart';
+import 'core/services/background_push_service.dart';
 import 'core/theme/hermes_theme.dart';
 import 'core/theme/profile_workspace_theme.dart';
 import 'core/widgets/app_drawer.dart';
@@ -90,16 +92,20 @@ class HermesApp extends StatefulWidget {
   }
 }
 
-class HermesAppState extends State<HermesApp> {
+class HermesAppState extends State<HermesApp> with WidgetsBindingObserver {
   final _navigatorKey = GlobalKey<NavigatorState>();
   final _homeKey = GlobalKey<HomeScreenState>();
   final _notificationRoutes = <ProfileWorkspaceController, Route<void>>{};
   late final ProfileWorkspaceRegistry _profileControllers;
   late final PluginTurnNotificationSink _profileNotifications;
+  late final PushDeliveryLedger _notificationDeliveries;
   late final Future<void> _notificationsReady;
+  Future<BackgroundPushService?>? _backgroundPushReady;
+  late final ValueNotifier<BackgroundPushState> _backgroundPushState;
   ProfileSessionKey? _pendingNotificationKey;
   Future<void>? _pendingNotificationOpen;
   int _notificationOpenGeneration = 0;
+  bool _disposed = false;
 
   Future<ProfileWorkspaceController> profileController(
     SavedConnection connection,
@@ -119,6 +125,10 @@ class HermesAppState extends State<HermesApp> {
     if (granted == false) {
       throw StateError('Notifications are disabled in Android settings.');
     }
+    await widget.connManager.prefs.setBool(
+      backgroundPushPermissionRequestedKey,
+      true,
+    );
     await _profileNotifications.show(
       const TurnNotification(
         id: 214600,
@@ -128,6 +138,7 @@ class HermesAppState extends State<HermesApp> {
         channel: TurnNotificationService.turnChannel,
       ),
     );
+    unawaited(_syncBackgroundPush());
   }
 
   Future<void> openProfileNotification(String payload) async {
@@ -236,6 +247,7 @@ class HermesAppState extends State<HermesApp> {
   @override
   void initState() {
     super.initState();
+    WidgetsBinding.instance.addObserver(this);
     _profileNotifications = PluginTurnNotificationSink(
       onOpen: (payload) {
         unawaited(
@@ -245,8 +257,17 @@ class HermesAppState extends State<HermesApp> {
         );
       },
     );
+    _notificationDeliveries = PushDeliveryLedger(widget.connManager.prefs);
+    _backgroundPushState = ValueNotifier(
+      hermesFirebaseOptions() == null
+          ? BackgroundPushState.unavailableBuild
+          : BackgroundPushState.syncing,
+    );
     _notificationsReady = _profileNotifications.initialize().catchError(
       (Object _) {},
+    );
+    unawaited(
+      WidgetsBinding.instance.endOfFrame.then((_) => _syncBackgroundPush()),
     );
     _profileControllers =
         widget.profileControllers ??
@@ -256,27 +277,45 @@ class HermesAppState extends State<HermesApp> {
             connection: connection,
             connectionIdentity: identity,
             preferences: widget.connManager.prefs,
-            onAttention: (chat, needsInput) async {
+            onAttention: (chat, needsInput, [eventId]) async {
               final preference = needsInput
                   ? attentionNotificationsKey
                   : completionNotificationsKey;
               if (widget.connManager.prefs.getBool(preference) == false) return;
               await _notificationsReady;
+              if (await _profileNotifications.notificationsEnabled() == false) {
+                return;
+              }
+              if (eventId != null &&
+                  !await _notificationDeliveries.claim(eventId)) {
+                return;
+              }
               final payload = jsonEncode(chat.key.toJson());
-              await _profileNotifications.show(
-                TurnNotification(
-                  id: TurnNotificationService.notificationIdFor(payload),
-                  title:
-                      '${chat.key.workspace.profileName}: ${needsInput ? 'Needs attention' : 'Chat finished'}',
-                  body:
-                      widget.connManager.prefs.getBool(notificationTitlesKey) ==
-                          true
-                      ? chat.title
-                      : 'Open Hermes to view this chat.',
-                  payload: payload,
-                  channel: TurnNotificationService.turnChannel,
-                ),
-              );
+              try {
+                await _profileNotifications.show(
+                  TurnNotification(
+                    id: TurnNotificationService.notificationIdFor(
+                      eventId == null ? payload : 'push-event:$eventId',
+                    ),
+                    title:
+                        '${chat.key.workspace.profileName}: ${needsInput ? 'Needs attention' : 'Chat finished'}',
+                    body:
+                        widget.connManager.prefs.getBool(
+                              notificationTitlesKey,
+                            ) ==
+                            true
+                        ? chat.title
+                        : 'Open Hermes to view this chat.',
+                    payload: payload,
+                    channel: TurnNotificationService.turnChannel,
+                  ),
+                );
+              } catch (_) {
+                if (eventId != null) {
+                  await _notificationDeliveries.release(eventId);
+                }
+                rethrow;
+              }
             },
           ),
         );
@@ -284,6 +323,58 @@ class HermesAppState extends State<HermesApp> {
 
   void refreshPreferences() {
     if (mounted) setState(() {});
+    unawaited(_syncBackgroundPush());
+  }
+
+  Future<void> _syncBackgroundPush() async {
+    if (_disposed) return;
+    try {
+      await (await _backgroundPush())?.sync();
+    } catch (_) {
+      if (!_disposed) {
+        _backgroundPushState.value = BackgroundPushState.unavailableServer;
+      }
+      // Registration failure must not interrupt local Hermes use.
+    }
+  }
+
+  Future<BackgroundPushService?> _backgroundPush() {
+    if (hermesFirebaseOptions() == null) return Future.value(null);
+    final existing = _backgroundPushReady;
+    if (existing != null) return existing;
+    final attempt = BackgroundPushService.create(
+      preferences: widget.connManager.prefs,
+      connectionManager: widget.connManager,
+      notifications: _profileNotifications,
+      deliveries: _notificationDeliveries,
+      onOpen: openProfileNotification,
+      state: _backgroundPushState,
+    );
+    _backgroundPushReady = attempt;
+    return attempt.catchError((Object error) {
+      if (identical(_backgroundPushReady, attempt)) {
+        _backgroundPushReady = null;
+      }
+      if (!_disposed) {
+        _backgroundPushState.value = BackgroundPushState.unavailableServer;
+      }
+      throw error;
+    });
+  }
+
+  Future<void> _unregisterBackgroundPush(SavedConnection connection) async {
+    try {
+      await (await _backgroundPush())?.unregisterConnection(connection);
+    } catch (_) {
+      // The server expires registrations that cannot be removed while offline.
+    }
+  }
+
+  @override
+  void didChangeAppLifecycleState(AppLifecycleState state) {
+    if (state == AppLifecycleState.resumed) {
+      unawaited(_syncBackgroundPush());
+    }
   }
 
   void openConnections() {
@@ -332,6 +423,9 @@ class HermesAppState extends State<HermesApp> {
         enableProfileNotifications: enableProfileNotifications,
         connManager: widget.connManager,
         onPreferencesChanged: refreshPreferences,
+        onConfigurationChanged: () => unawaited(_syncBackgroundPush()),
+        onConnectionInvalidated: _unregisterBackgroundPush,
+        backgroundPushState: _backgroundPushState,
         shareIntents: widget.shareIntents,
         launchIntents: widget.launchIntents,
       ),
@@ -340,6 +434,22 @@ class HermesAppState extends State<HermesApp> {
 
   @override
   void dispose() {
+    _disposed = true;
+    WidgetsBinding.instance.removeObserver(this);
+    final backgroundPush = _backgroundPushReady;
+    if (backgroundPush != null) {
+      unawaited(() async {
+        try {
+          await (await backgroundPush)?.dispose();
+        } catch (_) {
+          // A failed initialization has no live subscriptions to release.
+        } finally {
+          _backgroundPushState.dispose();
+        }
+      }());
+    } else {
+      _backgroundPushState.dispose();
+    }
     _profileControllers.dispose();
     super.dispose();
   }
@@ -351,6 +461,10 @@ class HomeScreen extends StatefulWidget {
   final Future<void> Function()? enableProfileNotifications;
   final ConnectionManager connManager;
   final VoidCallback? onPreferencesChanged;
+  final VoidCallback? onConfigurationChanged;
+  final Future<void> Function(SavedConnection connection)?
+  onConnectionInvalidated;
+  final ValueListenable<BackgroundPushState>? backgroundPushState;
   final AndroidShareIntentService? shareIntents;
   final AndroidLaunchIntentService? launchIntents;
   final Future<String?> Function()? pickBackupFile;
@@ -366,6 +480,9 @@ class HomeScreen extends StatefulWidget {
     this.enableProfileNotifications,
     required this.connManager,
     this.onPreferencesChanged,
+    this.onConfigurationChanged,
+    this.onConnectionInvalidated,
+    this.backgroundPushState,
     this.shareIntents,
     this.launchIntents,
     this.pickBackupFile,
@@ -389,6 +506,7 @@ class HomeScreenState extends State<HomeScreen> {
 
   void _refresh() {
     setState(() => _connections = widget.connManager.getConnections());
+    widget.onConfigurationChanged?.call();
   }
 
   /// Public only so the import flow and its widget test can refresh Home after
@@ -759,6 +877,10 @@ class HomeScreenState extends State<HomeScreen> {
                   ),
                 );
               } else {
+                final unregister = widget.onConnectionInvalidated?.call(
+                  existing,
+                );
+                if (unregister != null) unawaited(unregister);
                 await widget.connManager.updateConnection(
                   existing.id,
                   label,
@@ -805,6 +927,8 @@ class HomeScreenState extends State<HomeScreen> {
           onSelected: (v) async {
             if (v == 'delete') {
               try {
+                final unregister = widget.onConnectionInvalidated?.call(conn);
+                if (unregister != null) unawaited(unregister);
                 await widget.connManager.deleteConnection(conn.id);
                 if (mounted) _refresh();
               } on CredentialStorageException {
@@ -897,6 +1021,7 @@ class HomeScreenState extends State<HomeScreen> {
             ? AppSettingsContent(
                 preferences: widget.connManager.prefs,
                 enableNotifications: widget.enableProfileNotifications,
+                backgroundPushState: widget.backgroundPushState,
                 onChanged: () {
                   setState(() {});
                   widget.onPreferencesChanged?.call();

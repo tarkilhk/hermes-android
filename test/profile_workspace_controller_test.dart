@@ -197,7 +197,7 @@ void main() {
       ),
       preferences: preferences,
       gatewayFactory: host.gateway,
-      onAttention: (chat, _) async => notifications.add(chat.key),
+      onAttention: (chat, _, [_]) async => notifications.add(chat.key),
     );
     await controller.initialize();
   });
@@ -505,6 +505,26 @@ void main() {
     await controller.openSession(a.key);
     expect(controller.current!.scope.profileName, 'a');
     expect(controller.current!.chat!.messages.single['content'], 'a completed');
+  });
+
+  test('forwards the server push identity with live attention', () async {
+    final eventIds = <String?>[];
+    final connection = controller.connection;
+    controller.dispose();
+    controller = ProfileWorkspaceController(
+      connectionIdentity: 'original-settings',
+      connection: connection,
+      preferences: preferences,
+      gatewayFactory: host.gateway,
+      onAttention: (chat, attention, [eventId]) async => eventIds.add(eventId),
+    );
+    await controller.initialize();
+    final chat = await controller.createChat();
+    chat.draft = 'work';
+    await controller.send(chat);
+    host.event('a', 'message.complete', {'mobile_push_event_id': 'delivery-1'});
+    await Future<void>.delayed(Duration.zero);
+    expect(eventIds, ['delivery-1']);
   });
 
   test('rapid A B A ignores a late B load and persists A', () async {

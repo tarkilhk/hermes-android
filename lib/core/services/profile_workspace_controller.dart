@@ -229,7 +229,7 @@ class ProfileWorkspaceData {
 
 typedef ProfileGatewayFactory = ProfileGateway Function(WorkspaceScope scope);
 typedef ProfileAttention =
-    Future<void> Function(ProfileChat chat, bool needsInput);
+    Future<void> Function(ProfileChat chat, bool needsInput, [String? eventId]);
 
 /// Owned by the application, not the workspace/chat widgets. A foreground
 /// switch never closes a socket, changes a chat owner, or cancels a turn.
@@ -3049,7 +3049,7 @@ class ProfileWorkspaceController extends ChangeNotifier {
         ),
       );
     }
-    _notify(chat, false);
+    _notify(chat, false, eventId: _notificationEventId(data));
   }
 
   Future<bool> _sendPrompt(
@@ -3712,11 +3712,11 @@ class ProfileWorkspaceController extends ChangeNotifier {
       case 'approval.request':
         chat.approval = event.data;
         chat.status = ProfileTurnStatus.attention;
-        _notify(chat, true);
+        _notify(chat, true, eventId: _notificationEventId(event.data));
       case 'clarify.request':
         chat.clarification = event.data;
         chat.status = ProfileTurnStatus.attention;
-        _notify(chat, true);
+        _notify(chat, true, eventId: _notificationEventId(event.data));
       case 'sudo.request':
       case 'secret.request':
       case 'vault.unlock.request':
@@ -3737,7 +3737,7 @@ class ProfileWorkspaceController extends ChangeNotifier {
           chat.sensitivePrompt = request;
           chat.sensitivePromptResponding = false;
           chat.status = ProfileTurnStatus.attention;
-          _notify(chat, true);
+          _notify(chat, true, eventId: _notificationEventId(event.data));
         }
       case 'vault.unlock.expire':
       case 'vault.save_login.expire':
@@ -3775,7 +3775,7 @@ class ProfileWorkspaceController extends ChangeNotifier {
       case 'turn.error':
         chat.status = ProfileTurnStatus.failed;
         chat.error = event.data['message']?.toString() ?? 'Turn failed';
-        _notify(chat, true);
+        _notify(chat, true, eventId: _notificationEventId(event.data));
         unawaited(_journal().catchError((Object _) {}));
     }
     _changed();
@@ -3848,7 +3848,7 @@ class ProfileWorkspaceController extends ChangeNotifier {
     }
     await _journal();
     if (failed || cancelled || chat.queuedPrompts.isEmpty || chat.queuePaused) {
-      _notify(chat, failed);
+      _notify(chat, failed, eventId: _notificationEventId(completion));
     }
     if (!failed && !cancelled) {
       unawaited(_drainQueuedPrompts(chat));
@@ -3856,11 +3856,16 @@ class ProfileWorkspaceController extends ChangeNotifier {
     _changed();
   }
 
-  void _notify(ProfileChat chat, bool attention) {
+  String? _notificationEventId(Map<String, dynamic> data) {
+    final value = data['mobile_push_event_id'];
+    return value is String && value.trim().isNotEmpty ? value.trim() : null;
+  }
+
+  void _notify(ProfileChat chat, bool attention, {String? eventId}) {
     if (visible && current?.chat == chat) return;
     final callback = onAttention;
     if (callback != null) {
-      unawaited(callback(chat, attention).catchError((Object _) {}));
+      unawaited(callback(chat, attention, eventId).catchError((Object _) {}));
     }
   }
 

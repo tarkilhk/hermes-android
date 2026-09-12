@@ -57,6 +57,14 @@ away from home for several hours. Continue implementation, verification and
 regular commits/pushes to main. Defer phone installation until the owner returns;
 do not let deployment pause the selected roadmap work.
 
+The owner subsequently requested continuous work through the agreed roadmap,
+without requiring a new "continue" message after each milestone, followed by
+full emulator testing with direct UI interaction. Milestone commits are progress
+points, not stopping points. Complete client and testable backend additions where
+possible, and retain explicit external-configuration or deployment requirements.
+Emulator fixtures verify Android behavior; they do not establish production
+backend support or real Firebase delivery.
+
 The approved [delivery sequence](DELIVERY_SEQUENCE.md) breaks these themes into small implementation slices, with priority order, acceptance outcomes and verification status.
 
 Use these packages to avoid building the same requirement twice. Their order is a suggested dependency sequence, not a fixed schedule. The shell is tracked separately from the feature packages. Some underlying features already exist; Planned does not mean all code is missing.
@@ -286,6 +294,20 @@ For M06, Android's [sharing contract](https://developer.android.com/develop/ui/c
 | 2026-09-12 | Delivered share review with explicit destinations, safe merge into existing drafts, exact pending acknowledgement and Photos/Files selection. | Personal 2.4.0 / 21512 installed and launched; 995 tests passed, four opt-in skips; analyzer clean. [Sharing notes](SHARING_AND_CAPTURE.md) retain Camera/intake interruption limits. D15's reported loading bug remains active. |
 
 ## Active owner feedback
+
+Current verified release, 2026-09-12: Personal 2.28.0 / 21812 adds the Firebase
+client integration and coordinated backend patch. The owner's Firebase project
+configuration, sender deployment and real background delivery tests remain
+open. The full suite passed 1,237 tests with four opt-in skips; analyzer clean;
+21 final notification checks passed after cleanup review. The signed APK passed
+native compilation and release identity checks. Native emulator checks cover
+notification permission/display, share review and interruption, camera, photo
+and file selection, and draft/attachment recovery. The three larger chat
+scenarios completed with a separate Flutter runner failure still tracked. See
+[verification](EMULATOR_ROADMAP_VERIFICATION.md) and
+[background setup](BACKGROUND_NOTIFICATIONS.md). Phone installation remains
+deferred while the owner is away. Pending-request recovery, synchronized answer
+versions, side-task recovery and remote TUI restart remain in the global plan.
 
 - 2026-09-12, D16/F03-F05: owner screenshot reports Outputs failing on a large chat with "Use the paginated conversation view," an unexplained instruction and a Retry that repeats the failure. Integrated into the existing Outputs milestone and installed in 2.24.0: recent outputs first, **Load older outputs**, preserved results after page failures, and clear recovery actions. The exact error was reproduced through the actual chat menu with 10,000 saved messages; the regression now reaches the oldest output and recovers from a failed batch. See [fix details](EXECUTION_FIND_AND_OUTPUTS.md). The related Find limit is fixed in 2.24.1, pending phone installation. All other selections and exclusions remain intact.
 

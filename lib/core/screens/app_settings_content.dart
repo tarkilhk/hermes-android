@@ -1,8 +1,10 @@
 import 'package:flutter/material.dart';
+import 'package:flutter/foundation.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
 import '../theme/profile_workspace_theme.dart';
 import '../services/turn_notification_service.dart';
+import '../services/background_push_service.dart';
 import '../widgets/text_size_settings_card.dart';
 import '../widgets/installed_app_version_card.dart';
 
@@ -13,11 +15,13 @@ class AppSettingsContent extends StatefulWidget {
     required this.preferences,
     required this.onChanged,
     this.enableNotifications,
+    this.backgroundPushState,
   });
 
   final SharedPreferences preferences;
   final VoidCallback onChanged;
   final Future<void> Function()? enableNotifications;
+  final ValueListenable<BackgroundPushState>? backgroundPushState;
 
   @override
   State<AppSettingsContent> createState() => _AppSettingsContentState();
@@ -185,12 +189,44 @@ class _AppSettingsContentState extends State<AppSettingsContent> {
                       false,
                   onChanged: (value) => _save(notificationTitlesKey, value),
                 ),
-                const Padding(
-                  padding: EdgeInsets.fromLTRB(16, 0, 16, 16),
-                  child: Text(
-                    'Alerts currently require an active connection to Hermes. Background push is planned.',
-                  ),
+                Padding(
+                  padding: const EdgeInsets.fromLTRB(16, 0, 16, 16),
+                  child: widget.backgroundPushState == null
+                      ? const SizedBox.shrink()
+                      : ValueListenableBuilder<BackgroundPushState>(
+                          valueListenable: widget.backgroundPushState!,
+                          builder: (_, state, _) => Text(switch (state) {
+                            BackgroundPushState.configured =>
+                              'Background alerts are configured for supported Hermes profiles.',
+                            BackgroundPushState.disabled =>
+                              'Background alerts are off on this device.',
+                            BackgroundPushState.noConnections =>
+                              'Add a connection to configure background alerts.',
+                            BackgroundPushState.permissionRequired =>
+                              'Enable Android notifications to receive background alerts.',
+                            BackgroundPushState.syncing =>
+                              'Checking background alert delivery…',
+                            BackgroundPushState.unavailableBuild =>
+                              'This build has no background-alert setup. Local alerts still work while connected.',
+                            BackgroundPushState.unavailableServer =>
+                              'One or more connections could not configure background alerts. Check the connection and retry.',
+                          }),
+                        ),
                 ),
+                if (widget.backgroundPushState != null)
+                  ValueListenableBuilder<BackgroundPushState>(
+                    valueListenable: widget.backgroundPushState!,
+                    builder: (_, state, _) =>
+                        state == BackgroundPushState.unavailableServer
+                        ? Align(
+                            alignment: Alignment.centerRight,
+                            child: TextButton(
+                              onPressed: widget.onChanged,
+                              child: const Text('Retry'),
+                            ),
+                          )
+                        : const SizedBox.shrink(),
+                  ),
               ],
             ),
           ),

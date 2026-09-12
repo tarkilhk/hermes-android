@@ -8,6 +8,33 @@ Feature releases increment the minor version, fixes increment the patch version,
 and breaking changes increment the major version. The Android build number after
 `+` always increases. Update this changelog for every release milestone.
 
+## [2.28.0+2181] - 2026-09-12
+
+### Added
+
+- Firebase background notification integration with explicit permission setup,
+  per-profile registration, token refresh, current device preferences and
+  original-connection validation. App settings reports setup status and offers
+  Retry. Local notifications remain available without Firebase configuration.
+- A coordinated backend patch supplies authenticated registration and a bounded
+  sender for completion/input events, including work whose client disconnected.
+  WebSocket and Firebase messages share event IDs to avoid ordinary duplicates.
+- Optional Firebase build configuration in the signed Personal build script.
+  No Firebase project or sender credential is included in the app or repository.
+- Emulator scenarios for chat workflows and a native test entry point for
+  sharing, camera, file selection and draft interruption checks.
+
+### Verification
+
+- Full suite: 1,237 passed, four opt-in skips; static analyzer clean.
+- Three emulator scenarios completed, with a separate Flutter runner/DDS
+  failure still tracked. Direct native permission, draft/share interruption,
+  camera capture/cancellation and file-picker checks passed. See
+  [the detailed verification record](docs/EMULATOR_ROADMAP_VERIFICATION.md).
+- Real background delivery still requires Firebase project configuration,
+  backend patch deployment and locked/background/terminated-app tests.
+  Phone installation remains deferred while the owner is away.
+
 ## [2.27.2+2180] - 2026-09-12
 
 ### Fixed

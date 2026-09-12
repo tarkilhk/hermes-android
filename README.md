@@ -37,7 +37,7 @@ The shell cleanup removed the unreachable legacy screens and navigation widgets,
 
 A command appearing in the gateway catalog does not prove correct support for every client or session. Terminal-only, messaging-only and host-microphone commands have platform restrictions. `/yolo` now uses the session's reported state and the session-scoped configuration RPC, including during a running turn. See the [delivery sequence](docs/DELIVERY_SEQUENCE.md) for verification limits.
 
-Remote work and phone notification delivery are separate. The app reloads server history and available execution/pending-input state when a chat is reopened. Local notifications require an active connection; reliable background push remains roadmap work. Pending sensitive requests cannot currently be recovered after process death because the inspected resume contract does not expose them. See the [delivery contract checks](docs/research/MOBILE_DELIVERY_CONTRACTS_2026-09-11.md) for source evidence and live-verification limits.
+Remote work and phone notification delivery are separate. The app reloads server history and available execution/pending-input state when a chat is reopened. Local notifications require an active connection. Version 2.28.0 adds the Firebase receiver and a coordinated backend sender patch; real background delivery requires the owner's Firebase configuration and backend deployment. See [background notification setup](docs/BACKGROUND_NOTIFICATIONS.md). Pending sensitive requests still require the upcoming recovery contract. [Emulator verification](docs/EMULATOR_ROADMAP_VERIFICATION.md) records actual Android checks separately from synthetic server tests and remaining live acceptance checks.
 
 ## Connect to Hermes
 

@@ -250,6 +250,12 @@ class ProfileGateway {
     );
   }
 
+  Future<void> deleteResource(String endpoint) {
+    final send = _delete;
+    if (send == null) throw StateError('Dashboard writes are unavailable');
+    return send(endpoint, {'profile': scope.profileName});
+  }
+
   static const sessionPageSize = 50;
   static const projectSessionScanLimit = 5000;
 

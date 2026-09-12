@@ -4,7 +4,7 @@ Selected scope: D26-D27, M01, R16, R17, S12 and M09. Updated 2026-09-12.
 Hermes owns work and pending input. A notification points back to that work;
 opening it must refresh the original authenticated server session.
 
-## Current implementation and next delivery
+## Current implementation
 
 The app has local completion/input notifications, independent switches and an
 optional chat-title preview. Its native notification callback already handles
@@ -23,7 +23,11 @@ certificate/package checks. Phone verification remains deferred.
 Firebase configuration is not present in this repository, and the Firebase and
 FlutterFire command-line tools were not found on the current PATH. The owner has
 been asked whether to use an existing Firebase project or prepare a new one.
-No project, billing setup, SDK dependency or sender credential has been created.
+No project, billing setup or sender credential has been created. Version 2.28.0
+adds the Firebase SDK and [the backend sender patch](../server-patches/0003-mobile-push.patch).
+The client and patch are implemented; real delivery is not configured or
+verified yet. App settings shows this distinction and provides Retry when a
+configured build cannot register with a connection.
 
 ## Firebase setup needed
 
@@ -41,6 +45,31 @@ No project, billing setup, SDK dependency or sender credential has been created.
 4. Configure the trusted Hermes-side sender with access to that Firebase project.
    Keep its credentials on the backend. Do not put a service-account key in Dart,
    an APK, repository files or client configuration.
+
+### Release build configuration
+
+The Personal build script accepts `-FirebaseOptionsFile` pointing to a JSON file
+with the public Android app identifiers:
+
+```json
+{
+  "HERMES_FIREBASE_API_KEY": "",
+  "HERMES_FIREBASE_APP_ID": "",
+  "HERMES_FIREBASE_MESSAGING_SENDER_ID": "",
+  "HERMES_FIREBASE_PROJECT_ID": ""
+}
+```
+
+Fill these fields from the actual Firebase Android app registration. Empty
+values leave background push unconfigured. `HERMES_FIREBASE_STORAGE_BUCKET`
+is optional; this feature does not store files in Firebase. The script forwards
+the file through Flutter's `--dart-define-from-file` argument. Keep the file
+outside the checkout to avoid accidental project-specific commits. Never put
+sender credentials in this file.
+
+Without this argument, a Personal APK still builds and its existing local
+notifications remain usable. The debug application needs its own matching
+Firebase registration before testing real delivery on the emulator.
 
 Firebase documents the project/app registration and generated Flutter options in
 [Flutter setup](https://firebase.google.com/docs/flutter/setup). Its
@@ -65,12 +94,35 @@ at lines 196-213. An unrelated always-connected client is therefore not an
 established global event feed. Do not claim a simple WebSocket relay would cover
 all profiles and detached work without verifying that contract.
 
-The backend delivery increment must provide authenticated installation
-registration/removal and send completion/input notices for its authorized
-profiles. It needs a stable event identity, the original saved session target,
-and the installation's notification preferences. These are requirements for a
-backend implementation, not names of existing endpoints. Android must not call
-invented registration routes while that implementation is absent.
+Patch 0003 adds authenticated `GET /api/mobile/push/status`,
+`POST /api/mobile/push/installations` and
+`DELETE /api/mobile/push/installations/{registration_id}`. Every request has an
+explicit `profile` query and uses existing dashboard authentication. These
+routes require deploying the patch; they are absent from the inspected stock
+backend. Unconfigured builds do not make registration calls.
+
+The sender configuration is host-wide while registrations are stored in each
+profile's private `mobile_push.db`. The host configuration is:
+
+```yaml
+mobile_push:
+  enabled: true
+  firebase_project_id: YOUR_REAL_PROJECT_ID
+  allowed_application_ids:
+    - com.tarkilhk.hermes.android
+  registration_max_age_days: 90
+```
+
+The backend uses Google Application Default Credentials with permission to send
+FCM messages for that project. It sends through the HTTP v1 API from a bounded
+worker queue. No database migration of Hermes work is involved. Unconfigured
+senders do nothing. Retries are bounded; this is not a durable delivery outbox.
+
+Eligible events receive one `mobile_push_event_id` on the existing WebSocket
+payload. FCM reuses it as `event_id`. Sending does not depend on whether Desktop,
+Android or no client currently owns the session transport. The worker reads
+current registration/category/title preferences before sending and guards
+invalid-token deletion against concurrent token rotation.
 
 ## Reuse on Android
 
@@ -79,11 +131,27 @@ authenticated opening path in `HermesAppState`. Keep routing separate from the
 message body. A title, arbitrary URL or current visible profile cannot identify
 the destination.
 
-Firebase's Flutter API has separate entry points for an initial message and a
-tap that brings an existing process forward. Both must reach the same chat-open
-path. Foreground delivery should use the existing local display behavior. The
-background path must avoid a second alert if Android has already displayed the
-notification. See [receiving messages](https://firebase.google.com/docs/cloud-messaging/flutter/receive-messages).
+Hermes sends high-priority data-only messages. Foreground and background Dart
+handlers both use the existing local notification sink; Android does not also
+auto-render a notification payload. The receiver rechecks current local
+categories, preview preferences and secure connection ownership before showing
+an alert. Notification taps use the existing authenticated chat-open path.
+See [receiving messages](https://firebase.google.com/docs/cloud-messaging/flutter/receive-messages).
+
+A bounded list of 64 delivery IDs prevents ordinary WebSocket/FCM duplicates.
+Calls are serialized within each isolate and reload preferences before claiming
+an ID. SharedPreferences is not a cross-isolate transaction, so simultaneous
+claims during a foreground/background transition can still race. Both paths
+use the same native notification ID to replace the same event. This does not
+promise exactly-once notification sounds or delivery.
+
+Firebase Messaging auto-init is disabled in the Android manifest. The app
+requires the explicit Enable and test notifications action before token setup;
+including the SDK or adding build configuration alone does not request a token.
+Token and preference changes are serialized so a later change is not lost while
+registration is in flight. Connection edits/removal attempt cleanup with the
+previous credentials. Offline cleanup can fail; stale owners are rejected
+locally and the server expires inactive registrations.
 
 Registration must handle token changes, removed connections and changed access.
 The sender should remove invalid registrations and avoid sending stale alerts.
