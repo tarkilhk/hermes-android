@@ -8,6 +8,28 @@ Feature releases increment the minor version, fixes increment the patch version,
 and breaking changes increment the major version. The Android build number after
 `+` always increases. Update this changelog for every release milestone.
 
+## [2.22.0+2171] - 2026-09-12
+
+### Added
+
+- Play downloaded audio/video inside Hermes from chat Outputs using Android's
+  built-in play/pause and seek controls. Playback starts only when requested,
+  releases on backgrounding, and returns to the original file options with Back.
+  Existing external-open and save/share actions remain available for formats
+  the phone cannot decode.
+- Reuse authenticated file downloads and the 32 MiB cap. Temporary media files
+  are private and removed when the player closes; no background playback,
+  persistent media library or new player dependency.
+
+### Verification
+
+- Full suite: 1,166 passed, four opt-in skips. After consolidating the shared
+  file-action helper, all 19 focused media/file/Outputs checks passed again and
+  the analyzer remained clean.
+- Signed Personal 2.22.0 / 21712 passed native compilation and certificate/package
+  checks, installed in place through wireless debugging, and launched. Phone
+  verification covers version/process metadata; live playback/gesture QA remains.
+
 ## [2.21.0+2170] - 2026-09-12
 
 ### Added

@@ -7,12 +7,15 @@ import 'package:share_plus/share_plus.dart';
 import '../models/chat_output.dart';
 import '../services/connection_manager.dart';
 import '../services/android_file_delivery_service.dart';
+import '../services/media_preview_service.dart';
 import '../services/remote_files_client.dart';
 import '../services/web_preview.dart';
 import '../widgets/chat_image_preview.dart';
 import '../widgets/markdown_code_block.dart';
 import '../widgets/markdown_message_content.dart';
 import 'pdf_preview_screen.dart';
+
+enum _FileAction { share, open, play }
 
 class ChatOutputsScreen extends StatefulWidget {
   final String chatTitle;
@@ -21,6 +24,7 @@ class ChatOutputsScreen extends StatefulWidget {
   final Future<RemoteTextPreview> Function(String path) readText;
   final Future<void> Function(RemoteFileDownload)? deliver;
   final AndroidFileDeliveryService fileDelivery;
+  final MediaPreviewService mediaPreview;
 
   const ChatOutputsScreen({
     super.key,
@@ -30,6 +34,7 @@ class ChatOutputsScreen extends StatefulWidget {
     required this.readText,
     this.deliver,
     this.fileDelivery = const AndroidFileDeliveryService(),
+    this.mediaPreview = const MediaPreviewService(),
   });
 
   @override
@@ -145,6 +150,10 @@ class _ChatOutputsScreenState extends State<ChatOutputsScreen> {
       output.label,
       mimeType: preview.mimeType,
     );
+    final canPlay = widget.mediaPreview.supportsType(
+      output.label,
+      mimeType: preview.mimeType,
+    );
     final isPdf =
         preview.mimeType.split(';').first.trim().toLowerCase() ==
             'application/pdf' ||
@@ -156,31 +165,59 @@ class _ChatOutputsScreenState extends State<ChatOutputsScreen> {
       MaterialPageRoute<void>(
         builder: (_) => StatefulBuilder(
           builder: (previewContext, setPreviewState) {
-            Future<void> deliverFile({required bool open}) async {
+            Future<void> deliverFile(_FileAction action) async {
               if (!mounted || delivering) return;
               setPreviewState(() => delivering = true);
               try {
                 final file = await widget.download(path);
                 if (!mounted || !previewContext.mounted) return;
-                if (open) {
-                  final opened = await widget.fileDelivery.openInApp(
-                    file,
-                    mimeType: preview.mimeType,
-                  );
-                  if (!opened && previewContext.mounted) {
+                switch (action) {
+                  case _FileAction.share:
+                    await _share(file);
+                  case _FileAction.open:
+                    final opened = await widget.fileDelivery.openInApp(
+                      file,
+                      mimeType: preview.mimeType,
+                    );
+                    if (!opened && previewContext.mounted) {
+                      ScaffoldMessenger.of(previewContext).showSnackBar(
+                        const SnackBar(
+                          content: Text(
+                            'No compatible app was found. Use Save or share instead.',
+                          ),
+                        ),
+                      );
+                    }
+                  case _FileAction.play:
+                    final opened = await widget.mediaPreview.open(
+                      file,
+                      title: output.label,
+                      mimeType: preview.mimeType,
+                    );
+                    if (!opened && previewContext.mounted) {
+                      ScaffoldMessenger.of(previewContext).showSnackBar(
+                        const SnackBar(
+                          content: Text(
+                            'Media playback is unavailable on this device. Try Open in app or Save or share.',
+                          ),
+                        ),
+                      );
+                    }
+                }
+              } catch (error) {
+                if (previewContext.mounted) {
+                  if (action == _FileAction.play) {
                     ScaffoldMessenger.of(previewContext).showSnackBar(
                       const SnackBar(
                         content: Text(
-                          'No compatible app was found. Use Save or share instead.',
+                          'This media could not be played on this device.',
                         ),
                       ),
                     );
+                  } else {
+                    _error(previewContext, error);
                   }
-                } else {
-                  await _share(file);
                 }
-              } catch (error) {
-                if (previewContext.mounted) _error(previewContext, error);
               } finally {
                 if (previewContext.mounted) {
                   setPreviewState(() => delivering = false);
@@ -259,20 +296,28 @@ class _ChatOutputsScreenState extends State<ChatOutputsScreen> {
                               }
                             },
                     ),
+                  if (canPlay)
+                    FilledButton.icon(
+                      icon: const Icon(Icons.play_arrow),
+                      label: const Text('Play media'),
+                      onPressed: delivering
+                          ? null
+                          : () => deliverFile(_FileAction.play),
+                    ),
                   if (canOpen)
                     FilledButton.icon(
                       icon: const Icon(Icons.open_in_new),
                       label: const Text('Open in app'),
                       onPressed: delivering
                           ? null
-                          : () => deliverFile(open: true),
+                          : () => deliverFile(_FileAction.open),
                     ),
                   FilledButton.icon(
                     icon: const Icon(Icons.ios_share),
                     label: const Text('Save or share'),
                     onPressed: delivering
                         ? null
-                        : () => deliverFile(open: false),
+                        : () => deliverFile(_FileAction.share),
                   ),
                 ],
               ),

@@ -38,6 +38,7 @@ class MainActivity : FlutterActivity() {
     private var launchChannel: MethodChannel? = null
     private var fileDeliveryChannel: MethodChannel? = null
     private var pdfPreviewChannel: PdfPreviewChannel? = null
+    private var mediaPreviewChannel: MediaPreviewChannel? = null
     private var initialShareIntent: Intent? = null
     private var initialLaunchAction: String? = null
     @Volatile private var activityResumed = false
@@ -54,6 +55,10 @@ class MainActivity : FlutterActivity() {
             flutterEngine.dartExecutor.binaryMessenger,
             cacheDir,
         )
+        mediaPreviewChannel = MediaPreviewChannel(
+            flutterEngine.dartExecutor.binaryMessenger,
+            this,
+        ) { activityResumed }
         flutterEngine.platformViewsController.registry.registerViewFactory(
             "com.hermesagent.hermes_android/mermaid_diagram",
             MermaidDiagramViewFactory(),
@@ -217,6 +222,8 @@ class MainActivity : FlutterActivity() {
     }
 
     override fun onDestroy() {
+        mediaPreviewChannel?.closeAll()
+        mediaPreviewChannel = null
         pdfPreviewChannel?.closeAll()
         pdfPreviewChannel = null
         super.onDestroy()

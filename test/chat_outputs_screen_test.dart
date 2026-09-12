@@ -8,6 +8,7 @@ import 'package:hermes_android/core/screens/chat_outputs_screen.dart';
 import 'package:hermes_android/core/services/connection_manager.dart';
 import 'package:hermes_android/core/services/remote_files_client.dart';
 import 'package:hermes_android/core/services/android_file_delivery_service.dart';
+import 'package:hermes_android/core/services/media_preview_service.dart';
 import 'package:hermes_android/core/services/pdf_preview_service.dart';
 import 'package:hermes_android/core/widgets/markdown_code_block.dart';
 import 'package:hermes_android/core/widgets/markdown_message_content.dart';
@@ -21,12 +22,34 @@ class _FileDelivery extends AndroidFileDeliveryService {
       open(file, mimeType);
 }
 
+class _MediaPreview extends MediaPreviewService {
+  final Future<bool> Function(
+    RemoteFileDownload file,
+    String title,
+    String? mimeType,
+  )
+  play;
+
+  const _MediaPreview(this.play);
+
+  @override
+  bool supportsType(String filename, {String? mimeType}) => true;
+
+  @override
+  Future<bool> open(
+    RemoteFileDownload file, {
+    required String title,
+    String? mimeType,
+  }) => play(file, title, mimeType);
+}
+
 Widget _screen({
   required Future<List<Map<String, dynamic>>> Function() loadHistory,
   required Future<RemoteFileDownload> Function(String path) download,
   required Future<RemoteTextPreview> Function(String path) readText,
   Future<void> Function(RemoteFileDownload)? deliver,
   AndroidFileDeliveryService fileDelivery = const AndroidFileDeliveryService(),
+  MediaPreviewService mediaPreview = const MediaPreviewService(),
 }) => MaterialApp(
   home: ChatOutputsScreen(
     chatTitle: 'Only this chat',
@@ -35,6 +58,7 @@ Widget _screen({
     readText: readText,
     deliver: deliver,
     fileDelivery: fileDelivery,
+    mediaPreview: mediaPreview,
   ),
 );
 
@@ -215,6 +239,111 @@ void main() {
     await tester.pumpAndSettle();
     expect(opened, isFalse);
     expect(tester.takeException(), isNull);
+  });
+
+  testWidgets('media playback downloads the original path and exact bytes', (
+    tester,
+  ) async {
+    String? downloadedPath;
+    RemoteFileDownload? played;
+    String? title;
+    String? mimeType;
+    await tester.pumpWidget(
+      _screen(
+        loadHistory: () async => [
+          {'role': 'assistant', 'content': 'Saved /srv/current/clip.mp4'},
+        ],
+        readText: (path) async => RemoteTextPreview(
+          path: path,
+          text: '',
+          language: '',
+          mimeType: 'video/mp4',
+          byteSize: 3,
+          binary: true,
+          truncated: false,
+        ),
+        download: (path) async {
+          downloadedPath = path;
+          return RemoteFileDownload(filename: 'server-clip.mp4', bytes: [1, 2, 3]);
+        },
+        mediaPreview: _MediaPreview((file, value, type) async {
+          played = file;
+          title = value;
+          mimeType = type;
+          return true;
+        }),
+      ),
+    );
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('clip.mp4'));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('Play media'));
+    await tester.pumpAndSettle();
+
+    expect(downloadedPath, '/srv/current/clip.mp4');
+    expect(played?.filename, 'server-clip.mp4');
+    expect(played?.bytes, orderedEquals([1, 2, 3]));
+    expect(title, 'clip.mp4');
+    expect(mimeType, 'video/mp4');
+    expect(find.text('Save or share'), findsOneWidget);
+  });
+
+  testWidgets('media playback guard blocks duplicates and closed previews', (
+    tester,
+  ) async {
+    var downloads = 0;
+    var plays = 0;
+    var pending = Completer<RemoteFileDownload>();
+    await tester.pumpWidget(
+      _screen(
+        loadHistory: () async => [
+          {'role': 'assistant', 'content': 'Saved /srv/current/clip.mp4'},
+        ],
+        readText: (path) async => RemoteTextPreview(
+          path: path,
+          text: '',
+          language: '',
+          mimeType: 'video/mp4',
+          byteSize: 3,
+          binary: true,
+          truncated: false,
+        ),
+        download: (_) {
+          downloads++;
+          return pending.future;
+        },
+        mediaPreview: _MediaPreview((_, _, _) async {
+          plays++;
+          return true;
+        }),
+      ),
+    );
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('clip.mp4'));
+    await tester.pumpAndSettle();
+    final play = tester
+        .widget<FilledButton>(find.widgetWithText(FilledButton, 'Play media'))
+        .onPressed!;
+    play();
+    play();
+    await tester.pump();
+    expect(downloads, 1);
+    expect(
+      tester
+          .widget<FilledButton>(
+            find.widgetWithText(FilledButton, 'Play media'),
+          )
+          .onPressed,
+      isNull,
+    );
+
+    await tester.pageBack();
+    await tester.pumpAndSettle();
+    pending.complete(
+      RemoteFileDownload(filename: 'server-clip.mp4', bytes: [1, 2, 3]),
+    );
+    await tester.pumpAndSettle();
+    expect(plays, 0);
   });
 
   testWidgets('shows supplied chat outputs and previews the original path', (

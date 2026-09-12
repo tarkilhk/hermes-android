@@ -13,11 +13,11 @@ class AndroidFileDeliveryService {
     : _channel = channel ?? const MethodChannel(channelName);
 
   bool supportsType(String filename, {String? mimeType}) =>
-      _resolvedMimeType(filename, mimeType) != null;
+      resolveFileMimeType(filename, mimeType: mimeType) != null;
 
   /// Returns false when this file is unsupported or Android has no viewer.
   Future<bool> openInApp(RemoteFileDownload file, {String? mimeType}) async {
-    final resolved = _resolvedMimeType(file.filename, mimeType);
+    final resolved = resolveFileMimeType(file.filename, mimeType: mimeType);
     if (resolved == null) {
       return false;
     }
@@ -39,8 +39,8 @@ class AndroidFileDeliveryService {
   }
 }
 
-String? _resolvedMimeType(String filename, String? supplied) {
-  final normalized = supplied?.split(';').first.trim().toLowerCase();
+String? resolveFileMimeType(String filename, {String? mimeType}) {
+  final normalized = mimeType?.split(';').first.trim().toLowerCase();
   if (normalized != null && _supportedMimeTypes.contains(normalized)) {
     return normalized;
   }
