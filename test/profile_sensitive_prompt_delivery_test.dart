@@ -16,6 +16,7 @@ class SensitivePromptHost extends Host {
   Object? responseError;
   String? resumedRuntime;
   Object? pendingSensitive;
+  bool includePendingSensitive = true;
 
   @override
   ProfileGateway gateway(WorkspaceScope scope) {
@@ -44,11 +45,14 @@ class SensitivePromptHost extends Host {
           return {
             ...result,
             'session_id': resumedRuntime,
-            'pending_sensitive': pendingSensitive,
+            if (includePendingSensitive) 'pending_sensitive': pendingSensitive,
           };
         }
         if (method == 'session.resume') {
-          return {...result, 'pending_sensitive': pendingSensitive};
+          return {
+            ...result,
+            if (includePendingSensitive) 'pending_sensitive': pendingSensitive,
+          };
         }
         return result;
       },
@@ -312,13 +316,37 @@ void main() {
     expect(chat.status, ProfileTurnStatus.reconnecting);
   });
 
+  test('resume authoritatively clears a request with explicit null', () async {
+    host.event('a', 'sudo.request', {'request_id': 'same-runtime'});
+
+    await controller.reconnect(chat.key.workspace);
+    expect(chat.sensitivePrompt, isNull);
+  });
+
   test(
-    'resume authoritatively clears a request absent from the server',
+    'same-runtime resume preserves a request when the field is absent',
     () async {
+      host.includePendingSensitive = false;
       host.event('a', 'sudo.request', {'request_id': 'same-runtime'});
 
       await controller.reconnect(chat.key.workspace);
+
+      expect(chat.sensitivePrompt?.requestId, 'same-runtime');
+      expect(chat.status, ProfileTurnStatus.attention);
+    },
+  );
+
+  test(
+    'changed-runtime resume clears a request when the field is absent',
+    () async {
+      host.includePendingSensitive = false;
+      host.resumedRuntime = 'replacement-runtime';
+      host.event('a', 'sudo.request', {'request_id': 'old-runtime'});
+
+      await controller.reconnect(chat.key.workspace);
+
       expect(chat.sensitivePrompt, isNull);
+      expect(chat.sensitivePromptResponding, isFalse);
     },
   );
 

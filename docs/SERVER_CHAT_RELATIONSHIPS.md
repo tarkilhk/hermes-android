@@ -1,5 +1,11 @@
 # Server chat relationships
 
+Owner correction, 2026-09-12: no Hermes backend modifications. Patch 0005 was an
+unapproved experiment and was never deployed. Its invented version API and UI
+were removed from Android in 2.30.1. Existing parent metadata and normal
+Branch/Regenerate remain; explicit synchronized versions are deferred. Any
+patch-specific contracts below describe the rejected experiment only.
+
 Regenerate and Branch create durable Hermes sessions using the existing saved-row
 boundary checks. Edit and the one-shot Fork action keep their existing server
 operations and draft protection. A rejected regeneration returns to its source;

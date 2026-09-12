@@ -15,32 +15,25 @@ class RoadmapEmulatorFixture extends ProfileHistoryFixture {
   final configWrites = <Map<String, dynamic>>[];
   final approvalResponses = <Map<String, dynamic>>[];
   final commandDispatches = <Map<String, dynamic>>[];
-  final resumeSnapshots = <String, Map<String, dynamic>>{};
-  final answerVersionResponses = <String, Map<String, dynamic>>{};
-  final versionHistories = <String, List<Map<String, dynamic>>>{};
 
   @override
-  List<Map<String, dynamic>> historyRows(String profile, String id) {
-    final version = versionHistories['$profile/$id'];
-    if (version != null) return version;
-    return [
-      for (var i = 1; i <= messageCount; i++)
-        {
-          'id': i,
-          'role': i.isEven ? 'assistant' : 'user',
-          'content': i == 618
-              ? 'Roadmap needle: the emulator found this saved answer.'
-              : i == 616
-              ? 'Saved /tmp/roadmap-notes.md for the emulator review.'
-              : '$profile message $i',
-          'display_content': i == 618
-              ? 'Roadmap needle: the emulator found this saved answer.'
-              : i == 616
-              ? 'Saved /tmp/roadmap-notes.md for the emulator review.'
-              : '$profile message $i',
-        },
-    ];
-  }
+  List<Map<String, dynamic>> historyRows(String profile, String id) => [
+    for (var i = 1; i <= messageCount; i++)
+      {
+        'id': i,
+        'role': i.isEven ? 'assistant' : 'user',
+        'content': i == 618
+            ? 'Roadmap needle: the emulator found this saved answer.'
+            : i == 616
+            ? 'Saved /tmp/roadmap-notes.md for the emulator review.'
+            : '$profile message $i',
+        'display_content': i == 618
+            ? 'Roadmap needle: the emulator found this saved answer.'
+            : i == 616
+            ? 'Saved /tmp/roadmap-notes.md for the emulator review.'
+            : '$profile message $i',
+      },
+  ];
 
   @override
   ProfileGateway gateway(WorkspaceScope scope) {
@@ -107,32 +100,11 @@ class RoadmapEmulatorFixture extends ProfileHistoryFixture {
           case 'approval.respond':
             approvalResponses.add(Map<String, dynamic>.from(params));
             return {'status': 'ok'};
-          case 'session.answer_versions':
-            calls.add((scope.profileName, method, params));
-            final sessionId = params['session_id'];
-            final answerRowId = params['answer_row_id'];
-            return answerVersionResponses['${scope.profileName}/$sessionId/$answerRowId'] ??
-                {
-                  'source': null,
-                  'versions': [
-                    {
-                      'session_id': sessionId,
-                      'answer_row_id': answerRowId,
-                      'position': 0,
-                    },
-                  ],
-                };
           case 'session.resume':
           case 'session.create':
             final response = await base.call(method, params);
-            final durableId = params['session_id'];
-            final snapshot = method == 'session.resume'
-                ? resumeSnapshots['${scope.profileName}/$durableId']
-                : null;
             return {
               ...response,
-              if (durableId is String) 'session_id': 'runtime-$durableId',
-              ...?snapshot,
               'info': {
                 'profile_name': scope.profileName,
                 'model': 'gpt-6-astra',
@@ -159,16 +131,6 @@ class RoadmapEmulatorFixture extends ProfileHistoryFixture {
           'command': 'echo isolated-roadmap-check',
           'choices': ['once', 'session', 'deny'],
         },
-      ),
-    );
-  }
-
-  void expireVaultCode(String profile, String runtimeId, String requestId) {
-    gateways[profile]!.onEvent!(
-      StreamEvent(
-        type: 'vault.code.expire',
-        sessionId: runtimeId,
-        data: {'request_id': requestId},
       ),
     );
   }

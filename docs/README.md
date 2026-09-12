@@ -60,8 +60,8 @@ The inventories describe their inspection dates and source commits. Do not silen
 - [Selected-profile editing](PROFILE_EDITING.md), central description/SOUL changes, partial-save handling and client-local profile selection.
 
 - [Slash commands](SLASH_COMMAND_SUPPORT.md).
-- [Answer actions and versions](ANSWER_VERSIONS.md), server-owned alternative answers and navigation to their saved rows; [server chat relationships](SERVER_CHAT_RELATIONSHIPS.md) distinguishes ordinary parent links.
-- [Side-task recovery](SIDE_TASK_RECOVERY.md), server snapshots for background work and Activity discovery.
+- [Answer actions and versions](ANSWER_VERSIONS.md), existing Branch/Regenerate and the rejected version-API experiment; [server chat relationships](SERVER_CHAT_RELATIONSHIPS.md) distinguishes ordinary parent links.
+- [Side-task recovery](SIDE_TASK_RECOVERY.md), the rejected snapshot experiment and limits of unmodified Hermes.
 - [Session visibility](SESSION_VISIBILITY.md).
 - [Profile switching design](PROFILE_SWITCHING_DESIGN.md) and [implementation specification](PROFILE_SWITCHING_IMPLEMENTATION_SPEC.md), read with their original baselines.
 - [Request-scoped profiles ADR](adr/0001-request-scoped-hermes-profiles.md) and [background continuity ADR](adr/0002-background-session-continuity.md). These preserve ownership rules and do not authorize a separate local task database. The current product plan separately commits to a later background-notification milestone under M01/W07.

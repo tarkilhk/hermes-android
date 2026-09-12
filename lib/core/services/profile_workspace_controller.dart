@@ -2188,114 +2188,6 @@ class ProfileWorkspaceController extends ChangeNotifier {
     await openSession(ProfileSessionKey(resource.scope, parent));
   }
 
-  Future<AnswerVersions?> answerVersions(
-    ProfileChat chat,
-    int answerRowId,
-  ) async {
-    final resource = _owned(chat);
-    final navigation = _navigationGeneration;
-    final profileGeneration = _generation;
-    final historyGeneration = chat.historyGeneration;
-    final runtimeId = chat.runtimeId;
-    try {
-      final result = await resource.gateway.answerVersions(
-        chat.key.sessionId,
-        answerRowId,
-      );
-      if (!_answerVersionReadIsCurrent(
-        resource,
-        chat,
-        runtimeId,
-        navigation,
-        profileGeneration,
-        historyGeneration,
-      )) {
-        return null;
-      }
-      return result.versions.length >= 2 &&
-              result.indexOf(chat.key.sessionId, answerRowId) >= 0
-          ? result
-          : null;
-    } catch (_) {
-      return null;
-    }
-  }
-
-  Future<ProfileHistoryPage?> openAnswerVersion(
-    ProfileChat chat,
-    int answerRowId,
-    AnswerVersionRef target,
-  ) async {
-    final resource = _owned(chat);
-    final navigation = _navigationGeneration;
-    final profileGeneration = _generation;
-    final historyGeneration = chat.historyGeneration;
-    final runtimeId = chat.runtimeId;
-    final currentVersions = await resource.gateway.answerVersions(
-      chat.key.sessionId,
-      answerRowId,
-    );
-    if (!_answerVersionReadIsCurrent(
-      resource,
-      chat,
-      runtimeId,
-      navigation,
-      profileGeneration,
-      historyGeneration,
-    )) {
-      return null;
-    }
-    if (currentVersions.indexOf(target.sessionId, target.answerRowId) < 0) {
-      throw StateError('Answer versions changed. Reload this conversation.');
-    }
-    await openSession(ProfileSessionKey(resource.scope, target.sessionId));
-    final targetChat = resource.chat;
-    if (targetChat == null || targetChat.key.sessionId != target.sessionId) {
-      return null;
-    }
-    final targetNavigation = _navigationGeneration;
-    if (targetNavigation != navigation + 1) return null;
-    final targetHistoryGeneration = targetChat.historyGeneration;
-    var offset = 0;
-    while (true) {
-      final page = await savedHistoryPage(targetChat, offset: offset);
-      if (_closed ||
-          targetNavigation != _navigationGeneration ||
-          profileGeneration != _generation ||
-          !identical(current, resource) ||
-          !identical(resource.chat, targetChat) ||
-          targetChat.historyGeneration != targetHistoryGeneration) {
-        return null;
-      }
-      if (page.rows.any((row) => row['id'] == target.answerRowId)) {
-        return page;
-      }
-      final next = page.nextOffset;
-      if (next == null || next <= offset) {
-        throw StateError('This answer version is no longer saved.');
-      }
-      offset = next;
-    }
-  }
-
-  bool _answerVersionReadIsCurrent(
-    ProfileWorkspaceData resource,
-    ProfileChat chat,
-    String runtimeId,
-    int navigation,
-    int profileGeneration,
-    int historyGeneration,
-  ) =>
-      !_closed &&
-      owns(chat.key) &&
-      identical(_resources[chat.key.workspace], resource) &&
-      identical(current, resource) &&
-      identical(resource.chat, chat) &&
-      chat.runtimeId == runtimeId &&
-      chat.historyGeneration == historyGeneration &&
-      navigation == _navigationGeneration &&
-      profileGeneration == _generation;
-
   /// Fork before regenerating so no operation rewrites the source transcript.
   Future<ProfileChat?> branchAnswer(
     ProfileChat source,
@@ -2346,11 +2238,7 @@ class ProfileWorkspaceController extends ChangeNotifier {
         source.key.sessionId,
         selectedId,
       );
-      final result = await resource.gateway.branch(
-        source.runtimeId,
-        count,
-        answerVersionSourceRowId: regenerate ? selectedId : null,
-      );
+      final result = await resource.gateway.branch(source.runtimeId, count);
       final id = result['stored_session_id'];
       if (id is! String ||
           id.isEmpty ||
@@ -4117,6 +4005,7 @@ class ProfileWorkspaceController extends ChangeNotifier {
       chat._sessionControlReadAttempted = false;
       chat.sensitivePrompt = null;
       chat.sensitivePromptResponding = false;
+      chat.sideQuestionDeliveries.clear();
     }
     chat.runtimeId = runtime;
     _hydrateIntelligence(chat, result);
@@ -4129,8 +4018,12 @@ class ProfileWorkspaceController extends ChangeNotifier {
     chat.clarification = result['pending_clarify'] is Map
         ? Map<String, dynamic>.from(result['pending_clarify'])
         : null;
-    _hydrateSensitivePrompt(chat, result['pending_sensitive']);
-    _hydrateSideTasks(chat, result['side_tasks']);
+    if (result.containsKey('pending_sensitive')) {
+      _hydrateSensitivePrompt(chat, result['pending_sensitive']);
+    }
+    if (result.containsKey('side_tasks')) {
+      _hydrateSideTasks(chat, result['side_tasks']);
+    }
     final failed = inflight?['status'] == 'error';
     chat.status = failed
         ? ProfileTurnStatus.failed

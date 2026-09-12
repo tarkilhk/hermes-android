@@ -1,5 +1,11 @@
 # Recovering pending sensitive requests
 
+Owner correction, 2026-09-12: **No Hermes backend modifications.** Any patch
+contracts or deployment instructions described below are rejected experiments,
+retained only as research. They were never deployed. Use existing Hermes APIs;
+features requiring those invented contracts are deferred, not delivered. Do not
+configure a new Hermes sender or deploy patches based on this document.
+
 D07, R08, R09 and the existing R02/S14 server-refresh boundary. Updated
 2026-09-12. This extends the existing password, secret and verification forms.
 

@@ -1,5 +1,11 @@
 # Connection diagnostics and versions
 
+Owner correction, 2026-09-12: **No Hermes backend modifications.** Any patch
+contracts or deployment instructions described below are rejected experiments,
+retained only as research. They were never deployed. Use existing Hermes APIs;
+features requiring those invented contracts are deferred, not delivered. Do not
+configure a new Hermes sender or deploy patches based on this document.
+
 This is the initial D28 diagnostics and D30 version-visibility slice. It extends the existing App settings and Hermes administration screens. Selected-profile editing is documented separately. One-host backend updates are implemented below; provider billing/credit usage and remote TUI restart remain separate work.
 
 ## Diagnostics

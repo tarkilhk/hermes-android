@@ -48,6 +48,7 @@ class _BackgroundHost extends Host {
   bool listFails = false;
   int controlRevision = 0;
   Object? sideTasks = const {'retention': 'live_session', 'tasks': <Object>[]};
+  bool includeSideTasks = true;
 
   @override
   ProfileGateway gateway(WorkspaceScope scope) {
@@ -77,7 +78,7 @@ class _BackgroundHost extends Host {
         }
         final result = await base.call(method, params);
         if (method == 'session.resume') {
-          return {...result, 'side_tasks': sideTasks};
+          return {...result, if (includeSideTasks) 'side_tasks': sideTasks};
         }
         return result;
       },
@@ -202,11 +203,54 @@ void main() {
     expect(chat.busy, isTrue);
     expect(chat.status, ProfileTurnStatus.running);
 
+    host.sideTasks = const {'retention': 'live_session', 'tasks': <Object>[]};
+    await controller.reconnect(chat.key.workspace);
+    expect(chat.sideQuestionDeliveries, isEmpty);
+
     host.event('a', 'session.info', {
       'side_tasks': {'retention': 'wrong', 'tasks': <Object>[]},
     });
     expect(chat.sideQuestionDeliveries, isEmpty);
   });
+
+  test(
+    'same-runtime resume preserves side-task cards when the field is absent',
+    () async {
+      host.event('a', 'background.complete', {
+        'task_id': 'live-task',
+        'question': 'Check deployment',
+        'text': 'Deployment complete.',
+      });
+      host.includeSideTasks = false;
+
+      await controller.reconnect(chat.key.workspace);
+
+      expect(chat.sideQuestionDeliveries.single.taskId, 'live-task');
+      expect(
+        chat.sideQuestionDeliveries.single.state,
+        SideQuestionDeliveryState.completed,
+      );
+    },
+  );
+
+  test(
+    'changed-runtime resume clears side-task cards when the field is absent',
+    () async {
+      host.event('a', 'background.complete', {
+        'task_id': 'old-task',
+        'question': 'Check deployment',
+        'text': 'Deployment complete.',
+      });
+      host.includeSideTasks = false;
+      host.running = false;
+      chat.runtimeId = 'old-runtime';
+
+      await controller.reconnect(chat.key.workspace);
+
+      expect(chat.runtimeId, 'a-runtime');
+      expect(chat.sideQuestionDeliveries, isEmpty);
+    },
+  );
 
   test(
     'stop validates the acknowledgement and refreshes the exited row',

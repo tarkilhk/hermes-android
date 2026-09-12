@@ -1,5 +1,11 @@
 # Recovering side and background tasks
 
+Owner correction, 2026-09-12: **No Hermes backend modifications.** Any patch
+contracts or deployment instructions described below are rejected experiments,
+retained only as research. They were never deployed. Use existing Hermes APIs;
+features requiring those invented contracts are deferred, not delivered. Do not
+configure a new Hermes sender or deploy patches based on this document.
+
 Updated for 2.30.0, D11/Q12/T14. The existing `/btw`, `/bg` and `/background`
 cards now recover from the server when a chat resumes or receives session info.
 The composer stays available when only background work is running.

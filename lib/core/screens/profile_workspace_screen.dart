@@ -425,6 +425,7 @@ class _ProfileWorkspaceScreenState extends State<ProfileWorkspaceScreen>
         isAnswerPrompt(message) &&
         answerMessageId(message) != null;
     final savedAnswer =
+        allowSavedActions &&
         message['role'] == 'assistant' &&
         answerMessageId(message) != null &&
         isBranchMessage(message);
@@ -466,44 +467,29 @@ class _ProfileWorkspaceScreenState extends State<ProfileWorkspaceScreen>
         else
           ProfileMessage(message: message),
         if (savedAnswer)
-          _AnswerActionsWithVersions(
+          AnswerActions(
             key: ValueKey('answer-actions-${answerMessageId(message)}'),
-            controller: controller,
-            chat: chat,
-            answerRowId: answerMessageId(message)!,
-            historyGeneration: chat.historyGeneration,
-            enabled: enabled,
-            allowMutations: allowSavedActions,
-            run: _run,
-            openVersion: _openAnswerVersion,
+            busy: chat.changingAnswer,
+            onBranch: enabled
+                ? () => _run(() async {
+                    await controller.branchAnswer(
+                      chat,
+                      chat.messages.indexOf(message),
+                    );
+                  })
+                : null,
+            onRegenerate: enabled
+                ? () => _run(() async {
+                    await controller.branchAnswer(
+                      chat,
+                      chat.messages.indexOf(message),
+                      regenerate: true,
+                    );
+                  })
+                : null,
           ),
       ],
     );
-  }
-
-  Future<void> _openAnswerVersion(
-    ProfileChat source,
-    int sourceAnswerRowId,
-    AnswerVersionRef target,
-  ) async {
-    final page = await controller.openAnswerVersion(
-      source,
-      sourceAnswerRowId,
-      target,
-    );
-    final chat = controller.current?.chat;
-    if (!mounted ||
-        page == null ||
-        chat == null ||
-        chat.key.sessionId != target.sessionId ||
-        !page.rows.any((row) => row['id'] == target.answerRowId)) {
-      return;
-    }
-    setState(() {
-      _findResult = ChatFindResult(page: page, rowId: target.answerRowId);
-      _findOwner = chat.key;
-      _findHistoryGeneration = chat.historyGeneration;
-    });
   }
 
   Future<void> _editSavedMessage(
@@ -1524,139 +1510,5 @@ class _ProfileWorkspaceScreenState extends State<ProfileWorkspaceScreen>
     );
     if (path == null || path.isEmpty) return;
     await controller.createProject(name, path);
-  }
-}
-
-class _AnswerActionsWithVersions extends StatefulWidget {
-  final ProfileWorkspaceController controller;
-  final ProfileChat chat;
-  final int answerRowId;
-  final int historyGeneration;
-  final bool enabled;
-  final bool allowMutations;
-  final Future<void> Function(Future<void> Function()) run;
-  final Future<void> Function(
-    ProfileChat source,
-    int sourceAnswerRowId,
-    AnswerVersionRef target,
-  )
-  openVersion;
-
-  const _AnswerActionsWithVersions({
-    super.key,
-    required this.controller,
-    required this.chat,
-    required this.answerRowId,
-    required this.historyGeneration,
-    required this.enabled,
-    required this.allowMutations,
-    required this.run,
-    required this.openVersion,
-  });
-
-  @override
-  State<_AnswerActionsWithVersions> createState() =>
-      _AnswerActionsWithVersionsState();
-}
-
-class _AnswerActionsWithVersionsState
-    extends State<_AnswerActionsWithVersions> {
-  AnswerVersions? _versions;
-  int _requestGeneration = 0;
-
-  @override
-  void initState() {
-    super.initState();
-    unawaited(_load());
-  }
-
-  @override
-  void didUpdateWidget(covariant _AnswerActionsWithVersions oldWidget) {
-    super.didUpdateWidget(oldWidget);
-    if (oldWidget.chat != widget.chat ||
-        oldWidget.answerRowId != widget.answerRowId ||
-        oldWidget.historyGeneration != widget.historyGeneration) {
-      unawaited(_load());
-    }
-  }
-
-  Future<void> _load() async {
-    final request = ++_requestGeneration;
-    final versions = await widget.controller.answerVersions(
-      widget.chat,
-      widget.answerRowId,
-    );
-    if (!mounted || request != _requestGeneration) return;
-    setState(() => _versions = versions);
-  }
-
-  int get _messageIndex => widget.chat.messages.indexWhere(
-    (message) => answerMessageId(message) == widget.answerRowId,
-  );
-
-  void _changeVersion(int offset) {
-    final versions = _versions;
-    if (versions == null) return;
-    final current = versions.indexOf(
-      widget.chat.key.sessionId,
-      widget.answerRowId,
-    );
-    final next = current + offset;
-    if (current < 0 || next < 0 || next >= versions.versions.length) return;
-    unawaited(
-      widget.run(
-        () => widget.openVersion(
-          widget.chat,
-          widget.answerRowId,
-          versions.versions[next],
-        ),
-      ),
-    );
-  }
-
-  @override
-  Widget build(BuildContext context) {
-    final versions = _versions;
-    final current = versions?.indexOf(
-      widget.chat.key.sessionId,
-      widget.answerRowId,
-    );
-    final index = current != null && current >= 0 ? current : null;
-    final messageIndex = _messageIndex;
-    final mutationEnabled =
-        widget.enabled && widget.allowMutations && messageIndex >= 0;
-    return AnswerActions(
-      busy: widget.chat.changingAnswer,
-      currentVersion: index,
-      versionCount: versions?.versions.length,
-      onPreviousVersion: widget.enabled && index != null && index > 0
-          ? () => _changeVersion(-1)
-          : null,
-      onNextVersion:
-          widget.enabled &&
-              index != null &&
-              versions != null &&
-              index + 1 < versions.versions.length
-          ? () => _changeVersion(1)
-          : null,
-      onBranch: mutationEnabled
-          ? () => unawaited(
-              widget.run(() async {
-                await widget.controller.branchAnswer(widget.chat, messageIndex);
-              }),
-            )
-          : null,
-      onRegenerate: mutationEnabled
-          ? () => unawaited(
-              widget.run(() async {
-                await widget.controller.branchAnswer(
-                  widget.chat,
-                  messageIndex,
-                  regenerate: true,
-                );
-              }),
-            )
-          : null,
-    );
   }
 }

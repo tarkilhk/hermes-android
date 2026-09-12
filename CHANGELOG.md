@@ -8,6 +8,35 @@ Feature releases increment the minor version, fixes increment the patch version,
 and breaking changes increment the major version. The Android build number after
 `+` always increases. Update this changelog for every release milestone.
 
+## [2.30.1+2184] - 2026-09-12
+
+### Fixed
+
+- Reconnecting to an unchanged server runtime retains live sensitive prompts and
+  side-task cards when optional snapshot fields are absent. A new runtime clears
+  those transient views; explicit server snapshots remain authoritative.
+- Removed invented answer-version RPCs, version controls and branch metadata.
+  Ordinary Branch and Regenerate use the existing Hermes API.
+
+### Corrected scope
+
+- Hermes backend modifications are prohibited. The proposed server patches were
+  an agent scope error and were never deployed. Their deployment plan is withdrawn.
+  Features tested against those invented APIs are not verified on unmodified
+  Hermes. The product plan now defers unsupported capabilities and retains the
+  experiments only as historical research.
+
+### Verification
+
+- Reproduced both reconnect regressions before the fix: 25 focused tests passed
+  and two failed. After correction, all 53 reconnect/answer/release checks pass.
+- Full client suite: 1,257 passed, four opt-in skips; static analysis clean.
+- Signed Personal 21842 passed certificate/package verification and installed
+  in place on the owner's phone as 2.30.1. No Hermes backend was modified.
+- Removed the emulator scenario that depended on invented server contracts.
+  Earlier fixture results remain recorded as experiment results only.
+- All three remaining emulator scenarios pass with a clean driver exit.
+
 ## [2.30.0+2183] - 2026-09-12
 
 ### Added

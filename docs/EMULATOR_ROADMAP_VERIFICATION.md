@@ -4,6 +4,15 @@ The owner requested direct emulator testing after the selected implementation
 work. This record separates native Android checks, synthetic server scenarios
 and checks that still need a configured Hermes server or Firebase project.
 
+Scope correction for 2.30.1: the owner prohibits Hermes backend modifications.
+The fourth 2.30.0 scenario relied on invented patch contracts and has been removed
+from the active suite. Its historical pass below is not evidence of support in
+unmodified Hermes. The remaining three scenarios exercise existing client flows.
+Unit regressions separately verify reconnect with absent optional server fields.
+All three remaining scenarios passed on 2.30.1 and the driver exited 0. Evidence:
+`build/2.30.1-emulator-direct-driver.log`. This rerun uses the existing-contract
+fixtures and no answer-version, sensitive-snapshot or side-task-snapshot RPCs.
+
 ## Test environment
 
 - Date: 2026-09-12.

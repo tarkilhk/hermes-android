@@ -16,6 +16,14 @@ Supporting evidence is indexed in [docs/README.md](README.md), including all thr
 
 ## Product decisions
 
+Owner correction, 2026-09-12: **No Hermes backend modifications.** This project
+builds the Android client against existing Hermes APIs. Do not develop or deploy
+Hermes patches, add a server sender, or build a restart supervisor to complete
+a client feature. Earlier backend-patch deployment plans were an agent scope
+error and are withdrawn. Missing capabilities remain deferred unless the
+unmodified backend already supplies a usable contract. Test fixtures and rejected
+patch experiments are not evidence of support in the installed backend.
+
 1. Build a productive general Hermes client. Pure coding workflows are not the primary optimization target. Useful command/tool output still belongs in scope.
 2. Hermes owns conversations, projects, status, configuration, appearance metadata where supported, and execution. Read current state from the server and write changes back there. Do not introduce a competing phone database of tasks or organization.
 3. Persist unsent text and staged attachments on the phone so they survive interruption. The owner subsequently approved Desktop-style client-owned queues: queued follow-ups are unsent client work until submitted to Hermes. Reuse draft storage and the send path. Other temporary render/network state must remain disposable and refreshed. Connection credentials and device settings are separate from Hermes work state; see the storage boundary below.
@@ -60,8 +68,8 @@ do not let deployment pause the selected roadmap work.
 The owner subsequently requested continuous work through the agreed roadmap,
 without requiring a new "continue" message after each milestone, followed by
 full emulator testing with direct UI interaction. Milestone commits are progress
-points, not stopping points. Complete client and testable backend additions where
-possible, and retain explicit external-configuration or deployment requirements.
+points, not stopping points. Complete client work using the unmodified backend;
+record unavailable capabilities without adding backend work to the roadmap.
 Emulator fixtures verify Android behavior; they do not establish production
 backend support or real Firebase delivery.
 
@@ -243,11 +251,11 @@ Server work can finish while Android is closed. Refresh on reopening retrieves t
 ### W07 delivery phases and feasibility
 
 1. Initial delivery. Preserve local notices, simple completion/input controls and permission handling. Tapping opens the correct host/profile/session and loads current server state. Refresh remains available even when notifications are disabled.
-2. Background delivery, later milestone. Have a trusted backend component send completion/input events through Firebase Cloud Messaging. Register each app installation against its authorized Hermes targets, keep registrations current, avoid duplicate or stale alerts, and route taps through an authenticated server refresh. Use minimal notification content; the push payload is not a transcript or an authoritative task record.
+2. Background delivery, later milestone. Use an existing trusted sender for completion/input events through Firebase Cloud Messaging only if available without Hermes modifications; otherwise defer. Register each app installation against its authorized Hermes targets, keep registrations current, avoid duplicate or stale alerts, and route taps through an authenticated server refresh. Use minimal notification content; the push payload is not a transcript or an authoritative task record.
 
-This is moderate work across Android and the backend. The owner selected Firebase Cloud Messaging for this later milestone after reviewing its pricing. FCM is available at no cost, including on the Spark plan, according to [Firebase pricing](https://firebase.google.com/pricing), checked on 2026-09-11. Plan to send from the existing Hermes backend; paid Firebase hosting, databases and Cloud Functions are not required by this design. Creating the Firebase project and configuring credentials belong to the later implementation work.
+Background delivery is deferred until a suitable existing sender is available. The owner selected Firebase Cloud Messaging for this later milestone after reviewing its pricing. FCM is available at no cost, including on the Spark plan, according to [Firebase pricing](https://firebase.google.com/pricing), checked on 2026-09-11. Do not modify Hermes to supply a sender. The earlier proposed Firebase/server setup is withdrawn; client SDK configuration alone cannot enable delivery.
 
-The [FCM server environment documentation](https://firebase.google.com/docs/cloud-messaging/server-environment) describes the trusted sender and app-instance targeting. Its [Flutter receive documentation](https://firebase.google.com/docs/cloud-messaging/flutter/receive-messages) covers permission, background delivery and opening from a notification. The current Android source uses local notifications; deployed Hermes push/event support has not been verified. First inspect existing backend delivery hooks before estimating or adding a relay.
+The [FCM server environment documentation](https://firebase.google.com/docs/cloud-messaging/server-environment) describes the trusted sender and app-instance targeting. Its [Flutter receive documentation](https://firebase.google.com/docs/cloud-messaging/flutter/receive-messages) covers permission, background delivery and opening from a notification. The current Android source uses local notifications; deployed Hermes push/event support has not been verified. Inspect existing delivery support without modifying Hermes or adding a relay to its process.
 
 The proposed boundary keeps all Hermes work on the server. The phone retains only installation/delivery configuration needed for notifications alongside existing device settings. A private Hermes gateway should remain private; assess whether a backend sender can use outbound push delivery and let the phone fetch details over its existing authenticated connection.
 
@@ -295,12 +303,21 @@ For M06, Android's [sharing contract](https://developer.android.com/develop/ui/c
 
 ## Active owner feedback
 
-Current milestone, 2026-09-12: Personal 2.30.0 implements synchronized answer
-versions, live-session side/background task recovery and app release links.
+Current correction, 2026-09-12: Personal 2.30.1 removes the invented answer-version
+API and restores the existing Branch/Regenerate path. Same-runtime reconnects
+retain live prompts and side-task cards when the server omits optional snapshots.
+No backend modifications are permitted. Live cross-client recovery beyond the
+existing APIs, synchronized answer versions and a new notification sender are
+not completed roadmap items. Verification is recorded in the changelog.
+
+Earlier milestone, 2026-09-12: Personal 2.30.0 added experimental synchronized
+answer versions and side-task recovery, plus app release links.
 The Android suite passes 1,256 tests with four opt-in skips; analysis is clean.
-The coordinated server patch series passes 106 tests against a fresh pinned
-Hermes checkout. Deployment of those patches, Firebase configuration/delivery
-and an external supervisor for remote TUI restart remain explicit dependencies.
+The experimental server patch series passed 106 tests against a fresh pinned
+checkout, but was outside the owner's scope and was never deployed. Those tests
+do not establish support in unmodified Hermes. Patch deployment and a new restart
+supervisor are excluded. Recovery/version features requiring those experiments
+and background push without an existing sender remain deferred.
 Signed Personal 2.30.0 / 21832 is installed in place on the owner's phone and
 launches successfully. This verifies package/process metadata; live-server chat
 acceptance remains open. Full release and native QA results are recorded in

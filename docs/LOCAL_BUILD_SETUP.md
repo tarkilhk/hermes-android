@@ -37,8 +37,9 @@ is `Hermes_API_36`, visible to ADB as `emulator-5554`.
 
 The profile-aware milestone still needs full emulator end-to-end verification,
 including background completion across profile switches and notification routing.
-Use the unmodified installed Hermes gateway. Do not patch Hermes or add legacy
-compatibility without the owner's explicit approval.
+Use the unmodified installed Hermes gateway. The owner explicitly prohibits
+Hermes backend modifications. Do not prepare or deploy backend patches, add
+legacy compatibility, or make server changes a prerequisite for this client.
 
 ## Historical Linux setup
 

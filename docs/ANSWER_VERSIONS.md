@@ -1,6 +1,16 @@
 # Answer actions and versions
 
-Updated for 2.30.0. Answer relationships belong to Hermes. Android keeps only
+Owner correction, 2026-09-12: **No Hermes backend modifications.** Any patch
+contracts or deployment instructions described below are rejected experiments,
+retained only as research. They were never deployed. Use existing Hermes APIs;
+features requiring those invented contracts are deferred, not delivered. Do not
+configure a new Hermes sender or deploy patches based on this document.
+
+The invented version API and controls were removed in 2.30.1. Ordinary Branch,
+Regenerate and parent navigation remain. The rest of this document records the
+rejected 2.30.0 experiment.
+
+In that experiment, answer relationships belonged to Hermes. Android kept only
 the displayed server response in memory.
 
 Branch copies the conversation through a saved answer into a new server chat.

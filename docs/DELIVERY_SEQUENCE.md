@@ -6,6 +6,19 @@ W00, the shell, is deployed. The W packages remain feature themes and coverage r
 
 ## How we deliver
 
+Owner correction, 2026-09-12: **No Hermes backend modifications.** Earlier
+instructions to deploy `server-patches` or add a sender/supervisor are withdrawn.
+The experiments were never deployed. Use existing Hermes APIs; defer unsupported
+capabilities. Earlier patch test results below are historical experiment results,
+not completed product acceptance or authorization for server work.
+
+The 2.30.1 correction is installed on the owner's phone as Personal 21842.
+It removes invented answer-version requests and branch metadata, and fixes
+same-runtime reconnects clearing live prompts/cards when optional fields are
+absent. All 53 focused checks and 1,257 full-suite tests pass, with four opt-in
+skips; analysis is clean. The prior patch-dependent version/recovery claims are
+withdrawn. No server deployment is requested or planned.
+
 Start a slice by checking its existing behavior and the relevant deployed backend contract. Preserve working implementations and define the specific remaining change. Keep this check inside the slice; do not make a complete backend audit a prerequisite for all development.
 
 Implement one useful outcome at a time. Prefer one focused commit and a short set of acceptance checks. If a slice becomes too large, split it at a usable intermediate outcome, such as displaying server project appearance before adding its editor. Do not bundle unrelated work to fill a release.
@@ -38,7 +51,7 @@ This makes the phone useful for work started on Desktop or another profile. It a
 | D07 Answer sensitive requests | R08, R09 | Supported password, sudo, environment-secret and login/verification requests have dedicated responses and accurate completion/error handling. Implement each request family separately if the contracts differ. |
 | D08 Make current notifications useful | R16, R17, S12, M09; local portion of M01 | Local completion/input notices, simple controls and notification taps work together. Tapping loads the right server session. The app accurately describes the limits before D27 adds background push. |
 
-The first backend discovery check belongs at the start of D05. If the server cannot enumerate live sessions and pending requests across profiles, capture the missing contract as backend work. The current controller-only Activity list cannot satisfy this slice.
+The first backend discovery check belongs at the start of D05. If the server cannot enumerate live sessions and pending requests across profiles, record the client capability as unavailable; do not add backend work. The current controller-only Activity list cannot satisfy this slice.
 
 ## 3. Direct a conversation while Hermes works
 
@@ -91,11 +104,11 @@ These screens depend on the same server status and interaction contracts used by
 
 ## 7. Add reliable background notifications
 
-FCM remains committed later work. The two halves below form one deliverable; backend integration alone is not completion. It can move ahead of stage 6 once Activity, request handling and notification routing are sound.
+Background notifications remain a desired later outcome, subject to the no-backend-modifications constraint. They are deferred because an existing registration/sender integration has not been verified. Client SDK code alone does not complete delivery.
 
 | Slice | Scope | Observable completion |
 | --- | --- | --- |
-| D26 Connect backend events to FCM | M01, R16, W07 | Verify existing event hooks, then supply authenticated device registration and a trusted sender for completion/input events. Use the existing backend where practical; no paid Firebase services are planned. |
+| D26 Connect backend events to FCM | M01, R16, W07 | Use an existing authenticated registration and delivery integration if Hermes supplies one. Otherwise defer; do not implement a Hermes sender or registration API. |
 | D27 Receive and open background alerts | M01, R16, R17, S12, M09, W07 | Complete Android delivery, registration lifecycle, duplicate handling and taps that refresh the authoritative session. Verify phone-locked and normally terminated-app cases. Respect Android permission, offline and force-stop limits. |
 
 Push carries minimal notification/routing information. Conversations, pending requests and execution remain on Hermes. Do not turn this into a Firebase database migration.
@@ -135,9 +148,10 @@ Deliver and verify each before adding the next layer.
    and uploads, preserve separate composer work and pause after uncertainty.
    Steer remains text-only.
 
-The later 2.29.0 and 2.30.0 milestones implement sensitive/side-task recovery and
-answer versions with coordinated server patches. Firebase setup, deployment of
-those patches and supervised remote TUI restart remain tracked dependencies.
+The 2.29.0 and 2.30.0 recovery/version additions used invented server contracts.
+That was outside scope. Deployment is withdrawn and these additions are not
+complete against unmodified Hermes. Existing live-event handling and ordinary
+answer actions remain in scope; unsupported recovery/version features are deferred.
 Other selections and exclusions stay as recorded in PRODUCT_PLAN.md.
 
 ### Work after the current continuation queue
@@ -149,11 +163,11 @@ their live verification or authorize broader administration features.
 | Selected work | Next required step |
 | --- | --- |
 | Phone and live-server QA across delivered slices | Signed Personal 2.30.0 / 21832 is installed in place and launches. Check existing-chat context fullness, the reported large-chat Outputs flow, older Find navigation, cross-client read state, and attachment queues. These require real device/server behavior beyond fixtures and package checks. |
-| D26-D27 / M01, R16, R17, S12, M09 | Client integration and backend patch 0003 are implemented in 2.28.0. Configure the owner's Firebase project/app and deploy the trusted sender, then run locked/background/terminated-app tests. [Setup and limits](BACKGROUND_NOTIFICATIONS.md) keep real delivery separate from local notification and synthetic tests. |
-| D10 / Q09 synchronized answer versions | Client and backend patch 0005 implemented in 2.30.0. Deploy and verify grouping/navigation across clients. [Contract](ANSWER_VERSIONS.md). |
-| D07 sensitive request recovery | Implemented in 2.29.0 with backend patch 0004. Deploy the patch and verify live reconnect/expiry behavior. [Contract and limits](SENSITIVE_REQUEST_RECOVERY.md). |
-| D11 side/background task recovery | Client and backend patch 0006 implemented in 2.30.0. Deploy and verify live-session recovery and Activity counts. Server restart does not preserve this in-memory list. [Contract](SIDE_TASK_RECOVERY.md). |
-| D30 / B11 remote TUI restart | Backend dependency verified against official Desktop `d15ed4445207dda418b984e8bda0f68f48b8c6f3`: there is no authenticated remote API for restarting the connected `hermes serve` process. Desktop can recycle only children it owns locally or through its privileged SSH ownership record; an Android HTTP connection supplies no equivalent authority. Add an explicit external-supervisor contract with accepted restart/process IDs and a verifiable replacement instance, then reconnect and resume. Report unsupported when no supervisor is configured; do not reuse the messaging-gateway restart route or add process scanning/self-exec. |
+| D26-D27 / M01, R16, R17, S12, M09 | Background push stays deferred. Reassess only an existing delivery integration that requires no Hermes changes. The invented sender/registration patch is rejected; do not request deployment or Firebase setup for that design. Existing local alerts remain supported. |
+| D10 / Q09 synchronized answer versions | Deferred: no existing explicit version-group API was verified. Keep normal Branch/Regenerate and parent navigation. Do not deploy patch 0005 or claim its tests prove installed-server support. |
+| D07 sensitive request recovery | Live sensitive forms remain supported. Reconnect recovery through the invented pending_sensitive field is unverified on unmodified Hermes and deferred. Do not deploy patch 0004. |
+| D11 side/background task recovery | Existing live side/background events remain supported. Snapshot recovery and unopened-chat background counts from patch 0006 are deferred; use only fields supplied by the unmodified server. |
+| D30 / B11 remote TUI restart | Deferred: no existing authenticated remote TUI restart API was verified. Do not build a supervisor or modify Hermes. Existing backend update APIs remain a separate approved client flow. |
 
 Phone unavailability does not block implementation, tests or milestone pushes.
 It does leave device-dependent acceptance checks open. Do not fill that gap with
@@ -169,8 +183,9 @@ on fresh pinned source. Native emulator checks cover interruption, camera/share
 intake, PDF/media/web reading and warm/cold notification taps. See the
 [verification record](EMULATOR_ROADMAP_VERIFICATION.md). The table retains
 earlier per-slice test evidence; the latest release includes those slices.
-Live-server acceptance, patch deployment, Firebase delivery and a remote TUI
-supervisor remain open. No backend was changed during these tests.
+Live-server acceptance remains open. Patch deployment and a new remote TUI
+supervisor are excluded. Push remains deferred until an existing sender can
+support it without Hermes modifications. No backend was changed during these tests.
 
 | Slice | Status | Delivered change | Verification and phone build | Remaining dependency |
 | --- | --- | --- | --- | --- |
@@ -178,11 +193,11 @@ supervisor remain open. No backend was changed during these tests.
 | D01-D04 | Implemented; live QA pending | Durable drafts, server refresh on cached reopen, technical-provider groups, session YOLO; removed local model overrides. See [delivery notes](CONVERSATION_FOUNDATIONS.md) | Analyzer clean; full suite 890 passed / 4 opt-in skipped; signed Personal 2.1.3 / 21462 built and installed wirelessly on owner's phone | Live gateway/phone behavior verification pending; local Desktop gateway is not running |
 | D05 | Implemented; live QA pending | Per-profile `session.active_list` discovery, original session ownership and partial-profile errors | Source contract checked against pinned Desktop; controller and navigation tests | Deployed gateway enumeration still needs live verification |
 | D06 | Implemented; live QA pending | Existing clarification handling retained; server-advertised approval scopes and request targeting | Included in foundation test run, 890 passed | Live gateway verification pending |
-| D07 | Client and backend recovery implemented; deployment/live QA pending | Dedicated sudo/secret/vault forms now reconcile the server's pending request on resume and session-info; expired requests close, replaced forms clear input, credentials remain unsaved | 2.29.0: 28 focused checks and 1,245 full-suite tests passed/four skips; analyzer clean | Deploy patch 0004 and verify live reconnect/expiry. Compute-host isolation does not mirror these requests; see [limits](SENSITIVE_REQUEST_RECOVERY.md) |
+| D07 | Live handling implemented; invented recovery contract deferred | Dedicated sudo/secret/vault forms now reconcile the server's pending request on resume and session-info; expired requests close, replaced forms clear input, credentials remain unsaved | 2.29.0: 28 focused checks and 1,245 full-suite tests passed/four skips; analyzer clean | Do not deploy patch 0004; verify only existing server recovery capabilities. Compute-host isolation does not mirror these requests; see [limits](SENSITIVE_REQUEST_RECOVERY.md) |
 | D08 | Implemented; live QA pending | Independent completion/attention switches, optional chat titles, permission/test alert and existing notification routing; 2.27.1 adds startup retry and stable chat alert IDs | 24 focused checks; 1,216 full-suite passes/four skips; analyzer clean; signed Personal 21792 verified | Phone permission/tap checks remain; locked/terminated-app push remains D26/D27 |
 | D09 | Attachment queues implemented; phone installed; live QA pending | Desktop-style text/file queues with filenames, review/removal, preserved composer work and one-shot text-only Steer. See [queue notes](SUPERVISION_AND_QUEUES.md) | 2.27.0: 108 focused checks and 1,209 full-suite tests passed/four skips; analyzer clean; signed Personal 21782 verified | Phone must be connected to drain. Phone/live upload and interruption QA remains |
-| D10 | Client and backend versions implemented; deployment/live QA pending | Server-owned version groups and current answer rows, navigation to older answers, unchanged ordinary Branch/Fork. See [answer versions](ANSWER_VERSIONS.md) | 2.30.0 verification recorded in the changelog | Deploy patch 0005 and verify cross-client behavior |
-| D11 | Client and backend recovery implemented; deployment/live QA pending | Server snapshots restore side/background cards; authoritative counts include idle chats with background work in Activity. See [recovery](SIDE_TASK_RECOVERY.md) | 2.30.0 verification recorded in the changelog | Deploy patch 0006 and verify reconnect; server restart loses the live-session list |
+| D10 | Ordinary answer actions implemented; synchronized versions deferred | Server-owned version groups and current answer rows, navigation to older answers, unchanged ordinary Branch/Fork. See [answer versions](ANSWER_VERSIONS.md) | 2.30.0 verification recorded in the changelog | Patch 0005 rejected; explicit synchronized versions are not verified on unmodified Hermes |
+| D11 | Live handling implemented; invented recovery contract deferred | Server snapshots restore side/background cards; authoritative counts include idle chats with background work in Activity. See [recovery](SIDE_TASK_RECOVERY.md) | 2.30.0 verification recorded in the changelog | Patch 0006 rejected; recovery is not verified on unmodified Hermes |
 | D12 | Common content, Mermaid and SVG implemented; live QA pending | Wide tables, selectable streamed/nested fenced code and copy/wrap controls; on-demand Mermaid/SVG previews with zoom and source access. See [diagram notes](DIAGRAM_PREVIEWS.md) | 2.23.0: 1,169 tests passed, four opt-in skips; analyzer clean; browser fixtures passed; signed Personal 21722 installed and launched | Other diagram formats retain source fallback; live device preview/zoom QA remains |
 | D13 | Common media implemented; live QA pending | Zoomable images, hosted web page previews and downloaded audio/video playback with native controls; see [opening files](OPENING_OUTPUT_FILES.md) | 2.22.0: 1,166 full-suite passes/four skips before helper consolidation; 19 focused checks afterward; analyzer clean; signed Personal 21712 installed and launched | Native emulator playback and browser return passed; Samsung codec/playback QA remains; unsupported files keep external-open/save-share fallback |
 | D14 | Implemented; live QA pending | Expandable live tools with args/results/server duration, revisioned server todos, live/historical reasoning | Event and widget tests; existing stored-tool display retained | Only server-exposed reasoning/timing can be shown |
@@ -197,10 +212,10 @@ supervisor remain open. No backend was changed during these tests.
 | D23 | Implemented; live QA pending | Scoped subagent roster, live details and acknowledged Steer/Interrupt. See [subagent notes](SUBAGENT_SUPERVISION.md) | 1,029 tests passed, four opt-in skips; clean analyzer; signed Personal 2.7.0 / 21562 installed and launched | Active-only roster and transient tails; live-server/phone controls QA remains |
 | D24 | Goal controls and criteria editing implemented; live QA pending | Server goal/verification details, Pause/Resume/Unwait/Clear and criteria Add/Remove/Clear. See [session controls](SESSION_CONTROLS.md) | 2.14.0: 1,109 tests passed, four opt-in skips; clean analyzer | Goal contracts and gates remain read-only; live-server controls QA remains |
 | D25 | Implemented; live QA pending | Session heartbeat/loop state, supported controls and targeted process Stop/Dismiss | 1,057 tests passed, four opt-in skips; clean analyzer; signed Personal 2.9.0 / 21582 built and verified | Included in installed 2.12.0. No full process-output RPC; Dismiss is transient client view state; live controls QA remains |
-| D26-D27 | Client and backend patch implemented; real delivery setup pending | Firebase registration/receiver, shared event IDs, token/preference updates, stale-owner rejection and Settings status/Retry; authenticated backend sender in patch 0003 | 2.28.0: 1,237 full-suite tests/four skips, analyzer clean; 21 final focused notification checks pass. See [setup and limits](BACKGROUND_NOTIFICATIONS.md) | Owner's Firebase project/app configuration, backend deployment and locked/background/terminated-app delivery tests remain. Existing local alerts stay available |
+| D26-D27 | Local alerts implemented; background push deferred | Firebase registration/receiver, shared event IDs, token/preference updates, stale-owner rejection and Settings status/Retry; authenticated backend sender in patch 0003 | 2.28.0: 1,237 full-suite tests/four skips, analyzer clean; 21 final focused notification checks pass. See [setup and limits](BACKGROUND_NOTIFICATIONS.md) | Invented sender deployment is rejected; no setup is requested for that design. Existing local alerts stay available |
 | D28 | Diagnostics, session usage and custom headers implemented; live QA pending | Dashboard/provider checks, connection repair, server-recorded profile usage and secure proxy headers | 2.15.0: 1,124 tests passed, four opt-in skips; clean analyzer | Live proxy/provider QA remains; no local usage ledger |
 | D29 | Initial editor implemented; live QA pending | Selected-profile description/SOUL editor with acknowledged and partial-save handling | 1,080 tests passed, four opt-in skips; clean analyzer | Included in installed 2.12.0. No global profile activation or broad admin |
-| D30 | Versions, release links, one-host and selected-host updates implemented | Installed Android identity, this fork's changelog and release page; backend update eligibility, confirmation, progress and correlated per-host outcomes | 2.16.0: 1,132 tests passed, four opt-in skips; clean analyzer. S08 link checks included in 2.30.0 | TUI restart needs an external supervisor contract; live update and release-link QA remain |
+| D30 | Versions, release links, one-host and selected-host updates implemented | Installed Android identity, this fork's changelog and release page; backend update eligibility, confirmation, progress and correlated per-host outcomes | 2.16.0: 1,132 tests passed, four opt-in skips; clean analyzer. S08 link checks included in 2.30.0 | TUI restart is deferred without an existing remote API; do not add a supervisor. Live update and release-link QA remain |
 
 D05/D07/D08/D09 delivery on 2026-09-12: analyzer clean, full suite 921 passed and four opt-in skips. Signed Personal 2.1.4 / 21472 passed package/certificate checks, installed in place on the owner's phone at the requested wireless endpoint, and launched successfully. See [supervision and queue notes](SUPERVISION_AND_QUEUES.md). Phone evidence is installed version/process metadata; live gateway feature checks remain as listed above.
 

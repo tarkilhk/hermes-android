@@ -1,4 +1,9 @@
-# Coordinated Hermes backend patches
+# Rejected backend experiments
+
+**Do not apply these patches.** The owner explicitly prohibits Hermes backend
+modifications. Preparing these experiments and proposing deployment was an agent
+scope error. They were not applied to the owner's backend. They are retained only
+as historical research, not as product requirements or a deployment procedure.
 
 These changes run on Hermes, separately from the Android APK. They target
 `NousResearch/hermes-agent` commit
@@ -13,11 +18,9 @@ These changes run on Hermes, separately from the Android APK. They target
 | 0005 | Persist explicit answer-version relationships and resolve current rows |
 | 0006 | Recover live-session side tasks and expose running counts to Activity |
 
-Apply these files in numerical order to a matching, reviewed backend checkout.
-Check each patch immediately before applying it, since later patches use the
-earlier contracts. An APK upgrade does not apply any of them. If upstream already
-includes a change or the checkout differs, review that difference before applying.
-Keep the existing process ownership and deployment method when restarting Hermes.
+Their original tests applied the files in numerical order to an isolated source
+copy. An APK upgrade does not apply any of them. Future client work must use
+existing APIs in the unmodified Hermes backend.
 
 The exact six repository artifacts applied sequentially to a fresh copy of the
 pinned source and passed 106 combined tests on 2026-09-12. That verifies the patch

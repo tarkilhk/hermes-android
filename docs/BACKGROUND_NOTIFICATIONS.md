@@ -1,5 +1,11 @@
 # Background notification delivery
 
+Owner correction, 2026-09-12: **No Hermes backend modifications.** Any patch
+contracts or deployment instructions described below are rejected experiments,
+retained only as research. They were never deployed. Use existing Hermes APIs;
+features requiring those invented contracts are deferred, not delivered. Do not
+configure a new Hermes sender or deploy patches based on this document.
+
 Selected scope: D26-D27, M01, R16, R17, S12 and M09. Updated 2026-09-12.
 Hermes owns work and pending input. A notification points back to that work;
 opening it must refresh the original authenticated server session.
