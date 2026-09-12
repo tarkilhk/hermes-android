@@ -19,6 +19,7 @@ import '../widgets/context_fuse.dart';
 import '../widgets/profile_execution_activity.dart';
 import '../widgets/profile_subagent_panel.dart';
 import '../widgets/profile_goal_panel.dart';
+import '../widgets/profile_background_work_panel.dart';
 import '../widgets/slash_command_suggestions.dart';
 import '../widgets/side_question_delivery_card.dart';
 import 'profile_workspace_browser.dart';
@@ -233,12 +234,26 @@ class _ProfileWorkspaceScreenState extends State<ProfileWorkspaceScreen>
                         ),
                       ),
                     );
+                  } else if (action == 'background') {
+                    unawaited(
+                      _openWorkDetails(
+                        ProfileBackgroundWorkPanel(
+                          controller: controller,
+                          chat: chat,
+                          initiallyExpanded: true,
+                        ),
+                      ),
+                    );
                   }
                 },
                 itemBuilder: (_) => const [
                   PopupMenuItem(value: 'outputs', child: Text('Outputs')),
                   PopupMenuItem(value: 'subagents', child: Text('Subagents')),
                   PopupMenuItem(value: 'goal', child: Text('Goal')),
+                  PopupMenuItem(
+                    value: 'background',
+                    child: Text('Background work'),
+                  ),
                   PopupMenuItem(value: 'find', child: Text('Find in chat')),
                   PopupMenuItem(
                     value: 'refresh',
@@ -575,6 +590,14 @@ class _ProfileWorkspaceScreenState extends State<ProfileWorkspaceScreen>
             if (chat.subagents.isNotEmpty)
               ProfileSubagentPanel(
                 key: ValueKey(('subagents', chat.key)),
+                controller: controller,
+                chat: chat,
+              ),
+            if (chat.sessionControl?.loop != null ||
+                chat.sessionControl?.heartbeat != null ||
+                chat.processes.isNotEmpty)
+              ProfileBackgroundWorkPanel(
+                key: ValueKey(('background', chat.key)),
                 controller: controller,
                 chat: chat,
               ),

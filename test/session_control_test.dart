@@ -67,6 +67,82 @@ void main() {
     expect(snapshot!.goal, isNull);
   });
 
+  test('parses loop and heartbeat snapshots with nullable controls', () {
+    final snapshot = SessionControlSnapshot.parse({
+      'control': {
+        'goal': null,
+        'revision': 'background-r',
+        'updated_at': 10,
+        'loop': {
+          'prompt': 'Check status',
+          'status': 'paused',
+          'mode': 'self_paced',
+          'interval_seconds': 60,
+          'current_delay': 90.5,
+          'times': 3,
+          'until': 'done',
+          'max_ticks': 10,
+          'ticks_fired': 3,
+          'created_at': 1,
+          'last_fired_at': 8,
+          'next_due_at': 100,
+          'awaiting_response': false,
+          'deferred_by_goal': true,
+          'paused_reason': 'User paused',
+          'last_stop_reason': 'manual',
+        },
+        'heartbeat': {
+          'prompt': 'Ping',
+          'status': 'active',
+          'interval_seconds': 30,
+          'created_at': 2,
+          'last_fired_at': 9,
+          'fire_count': 4,
+        },
+      },
+    });
+    expect(snapshot!.loop!.mode, SessionLoopMode.selfPaced);
+    expect(snapshot.loop!.deferredByGoal, isTrue);
+    expect(snapshot.loop!.currentDelay, 90.5);
+    expect(snapshot.heartbeat!.status, SessionHeartbeatStatus.active);
+    expect(snapshot.heartbeat!.fireCount, 4);
+  });
+
+  test(
+    'accepts absent or null background controls but rejects malformed ones',
+    () {
+      expect(
+        SessionControlSnapshot.parse({
+          'control': {'goal': null, 'revision': 'r', 'updated_at': 0},
+        }),
+        isNotNull,
+      );
+      expect(
+        SessionControlSnapshot.parse({
+          'control': {
+            'goal': null,
+            'revision': 'r',
+            'updated_at': 0,
+            'loop': null,
+            'heartbeat': null,
+          },
+        }),
+        isNotNull,
+      );
+      expect(
+        SessionControlSnapshot.parse({
+          'control': {
+            'goal': null,
+            'revision': 'r',
+            'updated_at': 0,
+            'loop': {'status': 'active'},
+          },
+        }),
+        isNull,
+      );
+    },
+  );
+
   test('keeps additive server fields instead of hiding the goal', () {
     final value = goal()..['future_field'] = {'new': true};
     (value['contract'] as Map<String, dynamic>)['future_contract_field'] = 1;

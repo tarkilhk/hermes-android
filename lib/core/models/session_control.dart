@@ -8,7 +8,13 @@ enum SessionControlAction {
   goalPause('goal.pause'),
   goalResume('goal.resume'),
   goalClear('goal.clear'),
-  goalUnwait('goal.unwait');
+  goalUnwait('goal.unwait'),
+  loopPause('loop.pause'),
+  loopResume('loop.resume'),
+  loopStop('loop.stop'),
+  heartbeatPause('heartbeat.pause'),
+  heartbeatResume('heartbeat.resume'),
+  heartbeatClear('heartbeat.clear');
 
   final String wireValue;
 
@@ -122,13 +128,79 @@ class SessionGoal {
   });
 }
 
+enum SessionLoopStatus { active, paused, done }
+
+enum SessionLoopMode { interval, selfPaced }
+
+enum SessionHeartbeatStatus { active, paused }
+
+class SessionLoop {
+  final String prompt;
+  final SessionLoopStatus status;
+  final SessionLoopMode mode;
+  final num intervalSeconds;
+  final num currentDelay;
+  final int times;
+  final String until;
+  final int maxTicks;
+  final int ticksFired;
+  final num createdAt;
+  final num lastFiredAt;
+  final num nextDueAt;
+  final bool awaitingResponse;
+  final bool deferredByGoal;
+  final String? pausedReason;
+  final String? lastStopReason;
+
+  const SessionLoop({
+    required this.prompt,
+    required this.status,
+    required this.mode,
+    required this.intervalSeconds,
+    required this.currentDelay,
+    required this.times,
+    required this.until,
+    required this.maxTicks,
+    required this.ticksFired,
+    required this.createdAt,
+    required this.lastFiredAt,
+    required this.nextDueAt,
+    required this.awaitingResponse,
+    required this.deferredByGoal,
+    this.pausedReason,
+    this.lastStopReason,
+  });
+}
+
+class SessionHeartbeat {
+  final String prompt;
+  final SessionHeartbeatStatus status;
+  final num intervalSeconds;
+  final num createdAt;
+  final num lastFiredAt;
+  final int fireCount;
+
+  const SessionHeartbeat({
+    required this.prompt,
+    required this.status,
+    required this.intervalSeconds,
+    required this.createdAt,
+    required this.lastFiredAt,
+    required this.fireCount,
+  });
+}
+
 class SessionControlSnapshot {
   final SessionGoal? goal;
+  final SessionLoop? loop;
+  final SessionHeartbeat? heartbeat;
   final String revision;
   final num updatedAt;
 
   const SessionControlSnapshot({
     required this.goal,
+    this.loop,
+    this.heartbeat,
     required this.revision,
     required this.updatedAt,
   });
@@ -150,8 +222,26 @@ class SessionControlSnapshot {
     final rawGoal = control['goal'];
     final goal = rawGoal == null ? null : _parseGoal(rawGoal);
     if (rawGoal != null && goal == null) return null;
+    final loop = control.containsKey('loop')
+        ? _parseLoop(control['loop'])
+        : null;
+    if (control.containsKey('loop') &&
+        control['loop'] != null &&
+        loop == null) {
+      return null;
+    }
+    final heartbeat = control.containsKey('heartbeat')
+        ? _parseHeartbeat(control['heartbeat'])
+        : null;
+    if (control.containsKey('heartbeat') &&
+        control['heartbeat'] != null &&
+        heartbeat == null) {
+      return null;
+    }
     return SessionControlSnapshot(
       goal: goal,
+      loop: loop,
+      heartbeat: heartbeat,
       revision: control['revision'] as String,
       updatedAt: control['updated_at'] as num,
     );
@@ -214,6 +304,120 @@ class SessionControlSnapshot {
       lastVerdict: verdict,
       lastReason: map['last_reason'] as String?,
       waitBarrier: barrier,
+    );
+  }
+
+  static SessionLoop? _parseLoop(dynamic value) {
+    final map = _record(value);
+    const required = [
+      'prompt',
+      'status',
+      'mode',
+      'interval_seconds',
+      'current_delay',
+      'times',
+      'until',
+      'max_ticks',
+      'ticks_fired',
+      'created_at',
+      'last_fired_at',
+      'next_due_at',
+      'awaiting_response',
+      'deferred_by_goal',
+    ];
+    if (map == null || required.any((key) => !map.containsKey(key))) {
+      return null;
+    }
+    final status = switch (map['status']) {
+      'active' => SessionLoopStatus.active,
+      'paused' => SessionLoopStatus.paused,
+      'done' => SessionLoopStatus.done,
+      _ => null,
+    };
+    final mode = switch (map['mode']) {
+      'interval' => SessionLoopMode.interval,
+      'self_paced' => SessionLoopMode.selfPaced,
+      _ => null,
+    };
+    if (status == null ||
+        mode == null ||
+        map['prompt'] is! String ||
+        map['until'] is! String ||
+        map['interval_seconds'] is! num ||
+        !(map['interval_seconds'] as num).isFinite ||
+        map['current_delay'] is! num ||
+        !(map['current_delay'] as num).isFinite ||
+        map['times'] is! int ||
+        map['max_ticks'] is! int ||
+        map['ticks_fired'] is! int ||
+        map['created_at'] is! num ||
+        !(map['created_at'] as num).isFinite ||
+        map['last_fired_at'] is! num ||
+        !(map['last_fired_at'] as num).isFinite ||
+        map['next_due_at'] is! num ||
+        !(map['next_due_at'] as num).isFinite ||
+        map['awaiting_response'] is! bool ||
+        map['deferred_by_goal'] is! bool ||
+        !_optionalString(map, 'paused_reason') ||
+        !_optionalString(map, 'last_stop_reason')) {
+      return null;
+    }
+    return SessionLoop(
+      prompt: map['prompt'] as String,
+      status: status,
+      mode: mode,
+      intervalSeconds: map['interval_seconds'] as num,
+      currentDelay: map['current_delay'] as num,
+      times: map['times'] as int,
+      until: map['until'] as String,
+      maxTicks: map['max_ticks'] as int,
+      ticksFired: map['ticks_fired'] as int,
+      createdAt: map['created_at'] as num,
+      lastFiredAt: map['last_fired_at'] as num,
+      nextDueAt: map['next_due_at'] as num,
+      awaitingResponse: map['awaiting_response'] as bool,
+      deferredByGoal: map['deferred_by_goal'] as bool,
+      pausedReason: map['paused_reason'] as String?,
+      lastStopReason: map['last_stop_reason'] as String?,
+    );
+  }
+
+  static SessionHeartbeat? _parseHeartbeat(dynamic value) {
+    final map = _record(value);
+    const required = [
+      'prompt',
+      'status',
+      'interval_seconds',
+      'created_at',
+      'last_fired_at',
+      'fire_count',
+    ];
+    if (map == null || required.any((key) => !map.containsKey(key))) {
+      return null;
+    }
+    final status = switch (map['status']) {
+      'active' => SessionHeartbeatStatus.active,
+      'paused' => SessionHeartbeatStatus.paused,
+      _ => null,
+    };
+    if (status == null ||
+        map['prompt'] is! String ||
+        map['interval_seconds'] is! num ||
+        !(map['interval_seconds'] as num).isFinite ||
+        map['created_at'] is! num ||
+        !(map['created_at'] as num).isFinite ||
+        map['last_fired_at'] is! num ||
+        !(map['last_fired_at'] as num).isFinite ||
+        map['fire_count'] is! int) {
+      return null;
+    }
+    return SessionHeartbeat(
+      prompt: map['prompt'] as String,
+      status: status,
+      intervalSeconds: map['interval_seconds'] as num,
+      createdAt: map['created_at'] as num,
+      lastFiredAt: map['last_fired_at'] as num,
+      fireCount: map['fire_count'] as int,
     );
   }
 

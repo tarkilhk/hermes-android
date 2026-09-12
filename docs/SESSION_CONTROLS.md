@@ -1,6 +1,6 @@
 # Session goals and background work
 
-D24's initial goal view and controls are implemented in 2.8.0. Open **Goal** from a chat's three-dot menu. Existing server goals also appear in the conversation. D25 heartbeat, loop and process controls are in progress. These controls use server-owned session state; they do not create a second goal scheduler on the phone.
+D24's initial goal view and controls are implemented in 2.8.0. Open **Goal** from a chat's three-dot menu. Existing server goals also appear in the conversation. D25 adds **Background work** in 2.9.0 for heartbeat, loop and process controls. These controls use server-owned session state; they do not create a second goal scheduler on the phone.
 
 Pause, Resume, Resume now and confirmed Clear wait for the server's reply. Resume continuations reuse prompt submission while preserving unsent composer text, attachments and queued messages. A newer, different server update prevents an outdated continuation from being submitted. Uncertain actions are not retried automatically. The initial R13 view shows criteria and verification details; criteria editing remains planned.
 
@@ -19,7 +19,11 @@ Loop snapshots include prompt/status, interval or self-paced mode, delay, count/
 
 Desktop's typed implementation is in `apps/desktop/src/store/session-control.ts` and `apps/desktop/src/app/chat/composer/status-stack/session-control-goal.tsx` at revision `d15ed4445207dda418b984e8bda0f68f48b8c6f3`. Its older text-only `/goal status` fallback does not replace the structured snapshot or continuation contract.
 
-## Separate process controls for D25
+## Background work
+
+Open **Background work** from the chat menu to read the selected session's loops, heartbeat and processes. Known work also appears in the conversation. Refresh retrieves both the recurring-work snapshot and current process rows. Recurring-work updates arrive through the existing server event stream; process output is a snapshot refreshed on request.
+
+Loops expose Pause, Resume and Stop; heartbeats expose Pause, Resume and confirmed Clear. Running process rows expose targeted Stop. Finished rows retain their output and can be dismissed for this app session. Dismiss does not delete server history. Reads and stop acknowledgements are guarded against profile/runtime changes, duplicate taps and late responses.
 
 The installed gateway reads `process.list {session_id:<parent runtime>}` through a live session. It filters the process registry by that session's server-owned `session_key`. Rows use `session_id` as the process ID and include command, working directory, PID, owner task, server-reported uptime, `running` or `exited` status, and a 4,000-character output tail. Exit code, detached state and completion notification are optional. There is no separate process-output RPC.
 
@@ -33,4 +37,6 @@ This work does not reopen the deferred Cron, bots, messaging or webhook administ
 
 ## Verification
 
-The 2.8.0 goal snapshot passed 1,042 tests with four opt-in skips and a clean analyzer. Checks cover reopened/ready-event hydration, late reads, event/action races, exact action routing, preserved composer state, continuation failures, malformed responses, the chat-menu entry and large-text layout. The signed phone build is validated separately; no live goal was changed during fixture checks.
+The 2.8.0 goal snapshot passed 1,042 tests with four opt-in skips and a clean analyzer. Checks cover reopened/ready-event hydration, late reads, event/action races, exact action routing, preserved composer state, continuation failures, malformed responses, the chat-menu entry and large-text layout. Signed Personal 2.8.0 / 21572 passed package/certificate checks, installed in place wirelessly and launched on the owner's phone. Phone evidence is package/process metadata; no live goal was changed during fixture checks.
+
+The 2.9.0 D25 snapshot passed 1,057 tests with four opt-in skips and a clean analyzer. Checks cover exact session/process routing, kill acknowledgement variants, duplicate actions, late reads, transient dismissal, partial refresh failure, chat-menu navigation and large-text controls. Signed phone validation is in progress. No live loop, heartbeat or process has been stopped during development checks.

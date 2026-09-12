@@ -8,6 +8,16 @@ Feature releases increment the minor version, fixes increment the patch version,
 and breaking changes increment the major version. The Android build number after
 `+` always increases. Update this changelog for every release milestone.
 
+## [2.9.0+2158] - 2026-09-12
+
+### Added
+
+- Background work in the chat menu shows server loop and heartbeat status,
+  cadence and supported Pause, Resume, Stop and Clear controls.
+- Session-scoped background process rows show recent output and exit status,
+  with targeted Stop and transient Dismiss for finished processes. Refresh
+  retrieves the server state; uncertain stops are not retried automatically.
+
 ## [2.8.0+2157] - 2026-09-12
 
 ### Added

@@ -19,6 +19,7 @@ The current connection flow opens `ProfileWorkspaceScreen`, which owns the drawe
 - Saved connections in the shared app style, password setup, modern dashboard/gateway validation, profile discovery and client-local profile switching.
 - Drawer navigation, Activity discovery across profiles, reachable theme/accent/text-size and notification controls, and a read-only administration entry showing discovered connection/profile information. Activity reports profiles it could not reach.
 - Separate profile-owned conversations and running work, with reconnect and server-history refresh.
+- Chat-menu supervision of subagents, goal details and background work. Supported controls include targeted subagent Steer/Interrupt, goal Pause/Resume/Clear, loop/heartbeat controls and background-process Stop. Actions wait for server acknowledgement; goal criteria editing remains planned.
 - Projects with rename, server appearance and delete controls; recent and pinned chats, paginated unread filtering, Running/Needs input Activity filters, full-text conversation search, Find within the current chat, and an option to include automated chats.
 - Rename, pin/unpin, explicit read/unread, archive/unarchive, delete and move-to-project actions with server-side constraints.
 - Streaming conversations, horizontally scrollable tables, selectable fenced code with copy/wrap controls, expandable tool activity, server todo snapshots, collapsed reasoning and Stop. Tapped web images open in a zoomable preview with a browser fallback.
@@ -29,7 +30,7 @@ The current connection flow opens `ProfileWorkspaceScreen`, which owns the drawe
 - Dynamic slash-command discovery, aliases, argument completion, skill dispatch, and dedicated current-session actions including steering and identifiable side-question deliveries.
 - Saved-message Edit/resend with history-replacement confirmation, one-shot idle Fork, regeneration and answer-version navigation. Version grouping is currently stored locally and is a known mismatch with the planned server-owned behavior.
 - Per-chat Outputs finds file/link references in server history. Authenticated file retrieval preserves host/profile/chat ownership, supports text/image previews and shares actual bytes through Android; downloads are capped at 32 MiB.
-- Photos/Files attachment choices and reviewed Android sharing into a chosen connection/profile/chat. Incoming shares survive restart before destination selection, preserve existing drafts and never send automatically. Launcher quick chat, server-advertised approvals and structured clarification remain. Sudo, secret and vault forms keep credentials out of drafts/history.
+- Camera/Photos/Files attachment choices and reviewed Android sharing into a chosen connection/profile/chat. Camera returns to the originating draft's review when that destination is still valid. Incoming shares survive restart before destination selection, preserve existing drafts and never send automatically. Launcher quick chat, server-advertised approvals and structured clarification remain. Sudo, secret and vault forms keep credentials out of drafts/history.
 - Local completion/input notifications with independent device controls, optional chat titles, a test alert and original host/profile/chat routing, plus configuration restore from the connections screen.
 
 The shell cleanup removed the unreachable legacy screens and navigation widgets, including the old chat UI, Spaces, Cron, Memory, Files and Skills screens. Shared service and contract code remains available where useful for later work; no stored user data was deleted. The [Android source inventory](docs/research/HERMES_ANDROID_FEATURE_INVENTORY_2026-09-11.md) records the earlier baseline. [Shell delivery notes](docs/APP_SHELL.md) describe this change and its limits.
@@ -54,12 +55,12 @@ The app's current slash/profile contracts and any separately maintained backend 
 
 ## Version and application identity
 
-Source version on 2026-09-12 is `2.8.0+2157` in [pubspec.yaml](pubspec.yaml). This is the checked-out version, not a claim that a matching public release has been published. Each release is recorded in the [changelog](CHANGELOG.md), with semantic versions and an increasing Android build number.
+Source version on 2026-09-12 is `2.9.0+2158` in [pubspec.yaml](pubspec.yaml). This is the checked-out version, not a claim that a matching public release has been published. Each release is recorded in the [changelog](CHANGELOG.md), with semantic versions and an increasing Android build number.
 
 - Personal release package: `com.tarkilhk.hermes.android`, labelled Hermes Personal.
 - Development package: `com.hermesagent.hermes_android.dev`.
 - The inherited upstream package is separate and is not this fork's release identity.
-- ABI-split codes derive from the base build number; the current ARM64 split uses `21572`.
+- ABI-split codes derive from the base build number; the current ARM64 split uses `21582`.
 
 The [release plan](docs/ANDROID_RELEASE_PLAN.md) and [build configuration](android/app/build.gradle.kts) document identity, signing and version-code rules. The selected S08 work will expose this client's version/build and update information in the app, separately from the backend version.
 

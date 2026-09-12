@@ -11,6 +11,7 @@ import '../models/answer_versions.dart';
 import '../models/hermes_profile.dart';
 import '../models/gateway_activity.dart';
 import '../models/gateway_insight.dart';
+import '../models/gateway_process.dart';
 import '../models/gateway_todo.dart';
 import '../models/profile_live_activity.dart';
 import '../models/session_control.dart';
@@ -109,6 +110,12 @@ class ProfileChat {
   bool subagentsLoading = false;
   String? subagentsError;
   int _subagentsLoadGeneration = 0;
+  List<GatewayProcessActivity> processes = [];
+  bool processesLoading = false;
+  String? processesError;
+  final Set<String> _dismissedProcessIds = {};
+  final Set<String> _stoppingProcessIds = {};
+  int _processesReadGeneration = 0;
   SessionControlSnapshot? sessionControl;
   bool sessionControlLoading = false;
   bool sessionControlWorking = false;
@@ -894,6 +901,142 @@ class ProfileWorkspaceController extends ChangeNotifier {
     return current != null && (before.isTerminal || !current.isTerminal);
   }
 
+  Future<void> refreshProcesses(ProfileChat chat) async {
+    await _refreshProcesses(chat);
+  }
+
+  Future<bool> _refreshProcesses(ProfileChat chat) async {
+    final resource = _owned(chat);
+    final runtime = chat.runtimeId;
+    final before = chat.processes;
+    final generation = ++chat._processesReadGeneration;
+    chat.processesLoading = true;
+    chat.processesError = null;
+    _changed();
+    try {
+      final response = await resource.gateway.call('process.list', {
+        'session_id': runtime,
+      });
+      if (!_processReadIsCurrent(resource, chat, runtime, before, generation)) {
+        return true;
+      }
+      final raw = response['processes'];
+      if (raw is! List) throw const FormatException('Missing process list');
+      final next = <GatewayProcessActivity>[];
+      final reported = <String>{};
+      for (final value in raw.whereType<Map>()) {
+        final process = GatewayProcessActivity.fromJson(
+          Map<String, dynamic>.from(value),
+        );
+        if (process != null && reported.add(process.id)) next.add(process);
+      }
+      chat._dismissedProcessIds.retainWhere(reported.contains);
+      chat.processes = next
+          .where((process) => !chat._dismissedProcessIds.contains(process.id))
+          .toList();
+      return true;
+    } catch (_) {
+      if (_processReadIsCurrent(resource, chat, runtime, before, generation)) {
+        chat.processesError =
+            'Background processes could not be refreshed. Retry.';
+        return false;
+      }
+      return true;
+    } finally {
+      if (_processOwnerIsCurrent(resource, chat, runtime) &&
+          chat._processesReadGeneration == generation) {
+        chat.processesLoading = false;
+        _changed();
+      }
+    }
+  }
+
+  Future<bool> stopProcess(ProfileChat chat, String id) async {
+    final resource = _owned(chat);
+    final runtime = chat.runtimeId;
+    final process = chat.processes.where((item) => item.id == id).firstOrNull;
+    if (id.isEmpty ||
+        process == null ||
+        !process.isRunning ||
+        !chat._stoppingProcessIds.add(id)) {
+      return false;
+    }
+    chat.processesError = null;
+    _changed();
+    try {
+      final response = await resource.gateway.call('process.kill', {
+        'session_id': runtime,
+        'process_id': id,
+      });
+      if (!_processOwnerIsCurrent(resource, chat, runtime)) return false;
+      final status = response['status'];
+      final responseSessionId = response['session_id'];
+      final responseProcessId = response['process_id'];
+      final hasConflictingId =
+          responseSessionId != null && responseSessionId != id ||
+          responseProcessId != null && responseProcessId != id;
+      final acknowledged = status == 'killed'
+          ? responseSessionId == id && !hasConflictingId
+          : status == 'already_exited' && !hasConflictingId;
+      if (!acknowledged) {
+        chat.processesError =
+            'The server did not confirm that the process stopped.';
+        _changed();
+        return false;
+      }
+      final refreshed = await _refreshProcesses(chat);
+      if (!_processOwnerIsCurrent(resource, chat, runtime)) return false;
+      if (!refreshed) {
+        chat.processesError =
+            'The process stop was acknowledged, but the process list could not be refreshed.';
+        _changed();
+      }
+      return true;
+    } catch (_) {
+      if (_processOwnerIsCurrent(resource, chat, runtime)) {
+        chat.processesError =
+            'Stop could not be confirmed. Refresh before trying again.';
+        _changed();
+      }
+      return false;
+    } finally {
+      chat._stoppingProcessIds.remove(id);
+      if (_processOwnerIsCurrent(resource, chat, runtime)) _changed();
+    }
+  }
+
+  void dismissProcess(ProfileChat chat, String id) {
+    _owned(chat);
+    final process = chat.processes.where((item) => item.id == id).firstOrNull;
+    if (process == null || process.isRunning) return;
+    chat._dismissedProcessIds.add(id);
+    chat.processes = chat.processes.where((item) => item.id != id).toList();
+    chat._processesReadGeneration++;
+    chat.processesLoading = false;
+    _changed();
+  }
+
+  bool _processOwnerIsCurrent(
+    ProfileWorkspaceData resource,
+    ProfileChat chat,
+    String runtime,
+  ) =>
+      !_closed &&
+      identical(_resources[chat.key.workspace], resource) &&
+      identical(resource.chats[chat.key.sessionId], chat) &&
+      chat.runtimeId == runtime;
+
+  bool _processReadIsCurrent(
+    ProfileWorkspaceData resource,
+    ProfileChat chat,
+    String runtime,
+    List<GatewayProcessActivity> source,
+    int generation,
+  ) =>
+      _processOwnerIsCurrent(resource, chat, runtime) &&
+      identical(chat.processes, source) &&
+      chat._processesReadGeneration == generation;
+
   Future<void> refreshSessionControl(ProfileChat chat) async {
     final resource = _owned(chat);
     final runtime = chat.runtimeId;
@@ -921,7 +1064,8 @@ class ProfileWorkspaceController extends ChangeNotifier {
       if (_sessionControlIsCurrent(resource, chat, runtime) &&
           chat._sessionControlGeneration == generation &&
           chat._sessionControlEventRevision == eventRevision) {
-        chat.sessionControlError = 'Goal status could not be refreshed. Retry.';
+        chat.sessionControlError =
+            'Session controls could not be refreshed. Retry.';
       }
     } finally {
       if (_sessionControlIsCurrent(resource, chat, runtime) &&
@@ -961,7 +1105,7 @@ class ProfileWorkspaceController extends ChangeNotifier {
       final eventArrived = chat._sessionControlEventRevision != eventRevision;
       if (eventArrived && chat.sessionControl?.revision != snapshot.revision) {
         chat.sessionControlError =
-            'Goal state changed while this action was being confirmed. Refresh before trying again.';
+            'Session control state changed while this action was being confirmed. Refresh before trying again.';
         return false;
       }
       chat.sessionControl = snapshot;
@@ -970,7 +1114,7 @@ class ProfileWorkspaceController extends ChangeNotifier {
       if (dispatch.type == 'send') {
         final message = dispatch.message?.trim() ?? '';
         if (message.isEmpty) {
-          chat.sessionControlError = _goalContinuationError;
+          chat.sessionControlError = _sessionContinuationError;
           return false;
         }
         final accepted = await _sendPrompt(
@@ -981,7 +1125,7 @@ class ProfileWorkspaceController extends ChangeNotifier {
         );
         if (!accepted) {
           if (_sessionControlIsCurrent(resource, chat, runtime)) {
-            chat.sessionControlError = _goalContinuationError;
+            chat.sessionControlError = _sessionContinuationError;
           }
           return false;
         }
@@ -991,14 +1135,14 @@ class ProfileWorkspaceController extends ChangeNotifier {
           ? dispatch.output ?? dispatch.notice
           : dispatch.notice;
       chat.sessionControlNotice =
-          GatewayNotice.safeLine(feedback, 1000) ?? 'Goal updated.';
+          GatewayNotice.safeLine(feedback, 1000) ?? 'Session controls updated.';
       return true;
     } catch (_) {
       if (_sessionControlIsCurrent(resource, chat, runtime)) {
         chat.sessionControlError =
             chat._sessionControlEventRevision != eventRevision
-            ? 'Goal state changed, but the action was not confirmed. Refresh before trying again.'
-            : 'Goal control failed. Refresh before trying again.';
+            ? 'Session controls changed, but the action was not confirmed. Refresh before trying again.'
+            : 'Session control failed. Refresh before trying again.';
       }
       return false;
     } finally {
@@ -1048,8 +1192,8 @@ class ProfileWorkspaceController extends ChangeNotifier {
     );
   }
 
-  static const _goalContinuationError =
-      'The goal changed, but its continuation was not accepted. Check this chat and refresh goal status before trying again.';
+  static const _sessionContinuationError =
+      'The session changed, but its continuation was not accepted. Check this chat and refresh session controls before trying again.';
 
   void _updateContext(ProfileChat chat, Map usage) {
     if (!usage.keys.any((key) => key.toString().startsWith('context_'))) return;
@@ -3655,6 +3799,12 @@ class ProfileWorkspaceController extends ChangeNotifier {
       chat.subagentsLoading = false;
       chat.subagentsError = null;
       chat._subagentsLoadGeneration++;
+      chat.processes = [];
+      chat.processesLoading = false;
+      chat.processesError = null;
+      chat._dismissedProcessIds.clear();
+      chat._stoppingProcessIds.clear();
+      chat._processesReadGeneration++;
       chat.sessionControl = null;
       chat.sessionControlLoading = false;
       chat.sessionControlWorking = false;
