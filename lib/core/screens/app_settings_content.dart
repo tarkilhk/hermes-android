@@ -4,6 +4,7 @@ import 'package:shared_preferences/shared_preferences.dart';
 import '../theme/profile_workspace_theme.dart';
 import '../services/turn_notification_service.dart';
 import '../widgets/text_size_settings_card.dart';
+import '../widgets/installed_app_version_card.dart';
 
 /// Existing device preferences, shared by connected and disconnected navigation.
 class AppSettingsContent extends StatefulWidget {
@@ -87,6 +88,8 @@ class _AppSettingsContentState extends State<AppSettingsContent> {
           padding: EdgeInsets.fromLTRB(4, 0, 4, 16),
           child: Text('Appearance and notifications for this device.'),
         ),
+        const InstalledAppVersionCard(),
+        const SizedBox(height: 12),
         Card(
           child: Padding(
             padding: const EdgeInsets.all(16),

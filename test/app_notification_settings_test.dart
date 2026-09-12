@@ -1,10 +1,22 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:package_info_plus/package_info_plus.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:hermes_android/core/screens/app_settings_content.dart';
 import 'package:hermes_android/core/services/turn_notification_service.dart';
 
 void main() {
+  setUp(() {
+    PackageInfo.setMockInitialValues(
+      appName: 'Hermes',
+      packageName: 'asia.hollinger.hermes',
+      version: '2.9.0',
+      buildNumber: '2158',
+      buildSignature: '',
+      installerStore: '',
+    );
+  });
+
   testWidgets('notification controls persist independently on this device', (
     tester,
   ) async {
@@ -26,6 +38,8 @@ void main() {
     );
     final completion = find.widgetWithText(SwitchListTile, 'Completed work');
     await tester.scrollUntilVisible(completion, 300);
+    await tester.drag(find.byType(Scrollable).first, const Offset(0, -160));
+    await tester.pumpAndSettle();
     await tester.tap(completion);
     await tester.pumpAndSettle();
     expect(preferences.getBool(completionNotificationsKey), isFalse);

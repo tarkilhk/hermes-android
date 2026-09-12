@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:shared_preferences/shared_preferences.dart';
+import 'package:package_info_plus/package_info_plus.dart';
 import 'package:hermes_android/core/screens/profile_workspace_screen.dart';
 import 'package:hermes_android/core/services/profile_workspace_controller.dart';
 import 'package:hermes_android/core/services/connection_manager.dart';
@@ -14,6 +15,13 @@ void main() {
   late ProfileWorkspaceController controller;
 
   setUp(() async {
+    PackageInfo.setMockInitialValues(
+      appName: 'Hermes Personal',
+      packageName: 'com.tarkilhk.hermes.android',
+      version: '1.0.0',
+      buildNumber: '1',
+      buildSignature: '',
+    );
     SharedPreferences.setMockInitialValues({});
     fixture = ProfileBrowserFixture();
     controller = ProfileWorkspaceController(
@@ -44,7 +52,10 @@ void main() {
           ).copyWith(textScaler: TextScaler.linear(scale)),
           child: child!,
         ),
-        home: ProfileWorkspaceScreen(controller: controller),
+        home: ProfileWorkspaceScreen(
+          controller: controller,
+          onConnections: () {},
+        ),
       ),
     );
     await tester.pumpAndSettle();
@@ -76,6 +87,7 @@ void main() {
       expect(controller.visible, isTrue);
       await navigate(tester, AppDestination.administration);
       expect(find.text('Connection and selected profile'), findsOneWidget);
+      expect(find.text('Diagnostics'), findsOneWidget);
       expect(controller.current!.chat, same(chat));
       await navigate(tester, AppDestination.chats);
       expect(find.text('Keep this unsent'), findsOneWidget);

@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:package_info_plus/package_info_plus.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:hermes_android/core/screens/profile_workspace_screen.dart';
 import 'package:hermes_android/core/services/profile_workspace_controller.dart';
@@ -13,6 +14,14 @@ void main() {
   late ProfileActionsFixture host;
   late ProfileWorkspaceController controller;
   setUp(() async {
+    PackageInfo.setMockInitialValues(
+      appName: 'Hermes',
+      packageName: 'asia.hollinger.hermes',
+      version: '2.9.0',
+      buildNumber: '2158',
+      buildSignature: '',
+      installerStore: '',
+    );
     SharedPreferences.setMockInitialValues({});
     host = ProfileActionsFixture();
     controller = ProfileWorkspaceController(

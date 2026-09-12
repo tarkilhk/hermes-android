@@ -2,6 +2,8 @@ import 'package:flutter/material.dart';
 
 import '../models/profile_live_activity.dart';
 import '../services/profile_workspace_controller.dart';
+import '../widgets/profile_diagnostics_panel.dart';
+import '../widgets/backend_version_card.dart';
 
 enum _ActivityFilter { all, running, needsInput }
 
@@ -202,7 +204,23 @@ class HermesAdministrationContent extends StatelessWidget {
             ],
           ),
         ),
-        if (onConnections != null) ...[
+        if (controller.current != null) ...[
+          const SizedBox(height: 12),
+          BackendVersionCard(
+            key: ValueKey(controller.current!.gateway),
+            gateway: controller.current!.gateway,
+          ),
+        ],
+        if (controller.current != null && onConnections != null) ...[
+          const SizedBox(height: 12),
+          ProfileDiagnosticsPanel(
+            key: ValueKey(controller.current!.scope),
+            workspace: controller.current!,
+            connectionLabel: controller.connection.label,
+            onManageConnections: onConnections!,
+          ),
+        ],
+        if (controller.current == null && onConnections != null) ...[
           const SizedBox(height: 12),
           Card(
             child: ListTile(

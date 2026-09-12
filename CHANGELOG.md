@@ -8,6 +8,16 @@ Feature releases increment the minor version, fixes increment the patch version,
 and breaking changes increment the major version. The Android build number after
 `+` always increases. Update this changelog for every release milestone.
 
+## [2.10.0+2159] - 2026-09-12
+
+### Added
+
+- Manual connection diagnostics in Hermes administration, with separate
+  dashboard/authentication, provider setup and credential-resolution results.
+- Installed Android app version/build in App settings and a manual backend
+  version/update check in Hermes administration. Update status can remain
+  unknown; this release does not apply backend updates.
+
 ## [2.9.0+2158] - 2026-09-12
 
 ### Added
