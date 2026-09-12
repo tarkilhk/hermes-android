@@ -404,6 +404,7 @@ void main() {
   testWidgets('subagents goals and background work keep their chat owner', (
     tester,
   ) async {
+    harness.fixture.supervisionEnabled = true;
     await harness.launch(tester);
     await tester.tap(find.byKey(const ValueKey('chat-chat-0')));
     await _settle(tester);
@@ -415,7 +416,7 @@ void main() {
 
     await tester.tap(find.byTooltip('Chat actions'));
     await _settle(tester);
-    await tester.tap(find.text('Subagents'));
+    await tester.tap(find.widgetWithText(PopupMenuItem<String>, 'Subagents'));
     await _settle(tester);
     await tester.tap(find.text('Inspect the emulator release'));
     await _settle(tester);
@@ -448,7 +449,7 @@ void main() {
 
     await tester.tap(find.byTooltip('Chat actions'));
     await _settle(tester);
-    await tester.tap(find.text('Goal'));
+    await tester.tap(find.widgetWithText(PopupMenuItem<String>, 'Goal'));
     await _settle(tester);
     final goalSheet = find.byType(BottomSheet).last;
     expect(
@@ -482,7 +483,9 @@ void main() {
 
     await tester.tap(find.byTooltip('Chat actions'));
     await _settle(tester);
-    await tester.tap(find.text('Background work'));
+    await tester.tap(
+      find.widgetWithText(PopupMenuItem<String>, 'Background work'),
+    );
     await _settle(tester);
     expect(find.text('Report emulator health'), findsOneWidget);
     await tester.ensureVisible(find.text('Pause loop'));

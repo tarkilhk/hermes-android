@@ -21,6 +21,56 @@ Samsung-specific behavior. Neither fixture results nor phone package checks
 establish an untested live-server contract. Real server writes remain separate
 from the isolated emulator scenarios.
 
+## QA fix candidate, 2.31.2
+
+The full unit/widget suite passes 1,293 tests with four opt-in live checks
+skipped. Analysis is clean. The failure/fix/retest ledger and coverage of every
+implemented delivery slice are in the [QA sweep](QA_SWEEP_2026-09-13.md).
+The signed Personal 2.31.2 / 21872 ARM64 package is built and verified in
+`build/2.31.2-release-build.log`. Phone installation is pending a working wireless
+debugging endpoint; the installed phone baseline below remains 2.31.1.
+
+All seven expanded emulator scenarios pass in
+`build/2.31.2-emulator-seven-isolated-retry.log`, driver exit 0. They cover:
+
+- Drawer/settings/profile navigation and large text.
+- Drafts, model/slash controls, Find, Outputs and context.
+- Activity, approval acknowledgement and queued work ownership/drain.
+- Project discovery/create/rename/delete, review notice and vault submission.
+- Subagent tail/Steer, goal Pause, heartbeat display, loop Pause and process
+  Stop/Dismiss, with exact original targets.
+- Administration Cancel/partial save, usage, diagnostics and update refusal.
+- Edit/Resend, Regenerate, ordinary Branch, one-shot Fork and parent return.
+
+Failed attempts and their fixture/runner corrections remain in the QA ledger.
+These fixtures use the production app and local callbacks; they do not change
+or verify a deployed Hermes server. Other control variants retain their
+unit/widget coverage and separately listed live acceptance.
+
+Fresh native checks use `reading_native_preview.dart` with generated local files:
+
+| Check | Result | Local evidence |
+| --- | --- | --- |
+| Markdown link and export | Linked text opens through Outputs; Android share sheet receives the exact filename. No recipient selected. Real link-tap/system-Back regression verifies return through source Markdown. | `build/2.31.2-native-linked-text.xml`, `build/2.31.2-native-linked-share-ready.xml`, `build/2.31.2-nested-link-gesture.log` |
+| Wide table and code | Horizontal scrolling exposes the last column; wrap/unwrapping changes the long code line's layout. | `build/2.31.2-native-table-scroll.xml`, `build/2.31.2-native-code-wrap.png` |
+| SVG | Initially blank. After allowing local image decoding, the same SVG renders; source switching and return work. Actual network blocking remains enabled. | `build/2.31.2-native-svg-visible.png`, `build/2.31.2-native-svg-fixed-ready.png` |
+| HTML | Embedded data image is visible and the button changes to Interaction passed. | `build/2.31.2-native-html-fixed-ready.png`, `build/2.31.2-native-html-interaction.xml` |
+| Mermaid | Native WebView renders the diagram after the shared image-setting change. | `build/2.31.2-native-mermaid-ready.png` |
+| Execution details | Tool arguments/result and 400 ms duration, completed/in-progress tasks and reasoning expand on the narrow screen. | `build/2.31.2-native-execution-complete.png` |
+| PDF | Next shows page 2; Previous returns to page 1. | `build/2.31.2-native-pdf-page2.png`, `build/2.31.2-native-pdf-previous.xml` |
+| Audio/video | Both prepare with a 12-second duration, advance from zero and pause at 00:01. The MP4 displays its blue frame. | `build/2.31.2-native-audio-started.png`, `build/2.31.2-native-audio-stopped.xml`, `build/2.31.2-native-video-started.png`, `build/2.31.2-native-video-stopped.xml` |
+
+The browser renderer suite also passes, including decoded HTML data images,
+inert SVG scripts and zero unexpected external requests. Evidence is in
+`build/2.31.2-diagram-browser-retest.log`. Native speaker output, device codecs,
+multi-touch zoom and live server behavior remain separate checks.
+
+Android sometimes returns an empty accessibility root during activity/WebView
+transitions. Those captures were rejected and repeated after the view loaded;
+they are not passing evidence. Immediate Back snapshots were also inconclusive,
+so the linked-file regression now uses a rendered link tap and explicit system
+Back events, asserting the intermediate Markdown route.
+
 ## Previous milestone, 2.31.0
 
 The final unit and widget suite passes 1,281 tests with four opt-in skips.

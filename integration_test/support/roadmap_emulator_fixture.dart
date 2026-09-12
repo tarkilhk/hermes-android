@@ -36,6 +36,7 @@ class RoadmapEmulatorFixture extends ProfileHistoryFixture {
   String profileSoul = 'Be exact.';
   int updateCheckCount = 0;
   bool answerActionsEnabled = false;
+  bool supervisionEnabled = false;
   int _nextAnswerChild = 0;
   int _nextAnswerRow = 1000;
 
@@ -488,49 +489,57 @@ class RoadmapEmulatorFixture extends ProfileHistoryFixture {
     );
   }
 
-  Map<String, dynamic> get _sessionControl => {
-    'goal': {
-      'title': 'Verify the emulator roadmap',
-      'status': goalStatus,
-      'turns_used': 2,
-      'max_turns': 8,
-      'contract': const {
-        'outcome': 'Verify the client',
-        'verification': 'Recorded checks pass',
-        'constraints': 'Local fixtures',
-        'boundaries': 'Android client',
-        'stop_when': 'Checks complete',
-      },
-      'subgoals': const ['Run the isolated checks'],
-      'gates': const [],
-    },
-    'loop': {
-      'prompt': 'Check the release queue',
-      'status': loopStatus,
-      'mode': 'interval',
-      'interval_seconds': 300,
-      'current_delay': 300,
-      'times': 4,
-      'until': '',
-      'max_ticks': 0,
-      'ticks_fired': 2,
-      'created_at': 1,
-      'last_fired_at': 2,
-      'next_due_at': 1893456000,
-      'awaiting_response': false,
-      'deferred_by_goal': true,
-    },
-    'heartbeat': const {
-      'prompt': 'Report emulator health',
-      'status': 'active',
-      'interval_seconds': 900,
-      'created_at': 1,
-      'last_fired_at': 2,
-      'fire_count': 3,
-    },
-    'revision': 'roadmap-supervision-revision',
-    'updated_at': 3,
-  };
+  Map<String, dynamic> get _sessionControl => !supervisionEnabled
+      ? {
+          'goal': null,
+          'loop': null,
+          'heartbeat': null,
+          'revision': 'roadmap-empty-control',
+          'updated_at': 1,
+        }
+      : {
+          'goal': {
+            'title': 'Verify the emulator roadmap',
+            'status': goalStatus,
+            'turns_used': 2,
+            'max_turns': 8,
+            'contract': const {
+              'outcome': 'Verify the client',
+              'verification': 'Recorded checks pass',
+              'constraints': 'Local fixtures',
+              'boundaries': 'Android client',
+              'stop_when': 'Checks complete',
+            },
+            'subgoals': const ['Run the isolated checks'],
+            'gates': const [],
+          },
+          'loop': {
+            'prompt': 'Check the release queue',
+            'status': loopStatus,
+            'mode': 'interval',
+            'interval_seconds': 300,
+            'current_delay': 300,
+            'times': 4,
+            'until': '',
+            'max_ticks': 0,
+            'ticks_fired': 2,
+            'created_at': 1,
+            'last_fired_at': 2,
+            'next_due_at': 1893456000,
+            'awaiting_response': false,
+            'deferred_by_goal': true,
+          },
+          'heartbeat': const {
+            'prompt': 'Report emulator health',
+            'status': 'active',
+            'interval_seconds': 900,
+            'created_at': 1,
+            'last_fired_at': 2,
+            'fire_count': 3,
+          },
+          'revision': 'roadmap-supervision-revision',
+          'updated_at': 3,
+        };
 
   void requestApproval(String profile, String runtimeId) {
     gateways[profile]!.onEvent!(

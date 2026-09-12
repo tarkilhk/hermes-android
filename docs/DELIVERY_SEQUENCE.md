@@ -136,7 +136,23 @@ D30 is a milestone with explicit subdeliveries: version visibility, one-host res
 
 ## Tracking and completion
 
-### Current continuation queue, 2026-09-12
+### Current work, 2026-09-13
+
+Implementation is paused for the [implemented-feature QA sweep](QA_SWEEP_2026-09-13.md).
+The 2.31.2 fixes cover downloaded Markdown links, direct-open read state,
+retention of confirmed tasks after invalid refreshes and native SVG/embedded
+HTML images. Its full suite passes 1,293 tests with four opt-in skips and clean
+analysis. All seven expanded emulator scenarios and the browser renderer checks
+also pass. Complete deployment/live acceptance separately before starting new
+feature work.
+
+The next work is acceptance and repair of delivered behavior. The small D28-D30
+administration flow is already implemented; broad K administration remains
+deferred. Unsupported background push, synchronized answer versions, cold
+sensitive/side-task recovery and remote TUI restart also remain deferred. No
+backend changes are authorized by this queue.
+
+### Previous continuation queue, 2026-09-12
 
 These are remaining portions of selected slices, not additional product scope.
 Deliver and verify each before adding the next layer.
