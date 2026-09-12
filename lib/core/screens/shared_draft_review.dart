@@ -7,12 +7,18 @@ import '../services/profile_workspace_controller.dart';
 Future<bool> reviewSharedDraft(
   BuildContext context,
   ProfileWorkspaceController controller,
-  AndroidSharePayload payload,
-) async =>
+  AndroidSharePayload payload, {
+  ProfileChat? initialChat,
+  String? destinationNotice,
+}) async =>
     await Navigator.of(context).push<bool>(
       MaterialPageRoute<bool>(
-        builder: (_) =>
-            _SharedDraftReview(controller: controller, payload: payload),
+        builder: (_) => _SharedDraftReview(
+          controller: controller,
+          payload: payload,
+          initialChat: initialChat,
+          destinationNotice: destinationNotice,
+        ),
       ),
     ) ??
     false;
@@ -20,8 +26,15 @@ Future<bool> reviewSharedDraft(
 class _SharedDraftReview extends StatefulWidget {
   final ProfileWorkspaceController controller;
   final AndroidSharePayload payload;
+  final ProfileChat? initialChat;
+  final String? destinationNotice;
 
-  const _SharedDraftReview({required this.controller, required this.payload});
+  const _SharedDraftReview({
+    required this.controller,
+    required this.payload,
+    this.initialChat,
+    this.destinationNotice,
+  });
 
   @override
   State<_SharedDraftReview> createState() => _SharedDraftReviewState();
@@ -34,6 +47,7 @@ class _SharedDraftReviewState extends State<_SharedDraftReview> {
   late String _profileName;
   String _destination = _newChat;
   ProfileChat? _createdTarget;
+  bool _initialChatValid = false;
   bool _working = false;
   String? _error;
 
@@ -41,6 +55,15 @@ class _SharedDraftReviewState extends State<_SharedDraftReview> {
   void initState() {
     super.initState();
     _profileName = controller.current!.scope.profileName;
+    final initial = widget.initialChat;
+    _initialChatValid =
+        initial != null &&
+        controller.owns(initial.key) &&
+        controller.current?.scope == initial.key.workspace &&
+        identical(controller.current?.chats[initial.key.sessionId], initial);
+    if (_initialChatValid && initial != null) {
+      _destination = initial.key.sessionId;
+    }
     controller.addListener(_controllerChanged);
   }
 
@@ -75,6 +98,7 @@ class _SharedDraftReviewState extends State<_SharedDraftReview> {
       setState(() {
         _profileName = name;
         _destination = _newChat;
+        _initialChatValid = false;
         _createdTarget = null;
       });
     } catch (error) {
@@ -159,6 +183,16 @@ class _SharedDraftReviewState extends State<_SharedDraftReview> {
     final sessions = resource?.scope.profileName == _profileName
         ? resource!.sessions
         : const <Map<String, dynamic>>[];
+    final initial = _initialChatValid ? widget.initialChat : null;
+    final visibleSessions =
+        initial != null &&
+            initial.key.workspace.profileName == _profileName &&
+            !sessions.any((session) => session['id'] == initial.key.sessionId)
+        ? [
+            ...sessions,
+            {'id': initial.key.sessionId, 'title': initial.title},
+          ]
+        : sessions;
     return PopScope(
       canPop: !_working,
       child: Scaffold(
@@ -214,6 +248,10 @@ class _SharedDraftReviewState extends State<_SharedDraftReview> {
                       ),
                     ),
                     const SizedBox(height: 16),
+                    if (widget.destinationNotice case final notice?) ...[
+                      Text(notice),
+                      const SizedBox(height: 12),
+                    ],
                     Text(
                       'Destination',
                       style: Theme.of(context).textTheme.titleMedium,
@@ -265,7 +303,7 @@ class _SharedDraftReviewState extends State<_SharedDraftReview> {
                                   : 'New chat (ready)',
                             ),
                           ),
-                          for (final session in sessions)
+                          for (final session in visibleSessions)
                             RadioListTile<String>(
                               key: ValueKey(
                                 'share-destination-${session['id']}',

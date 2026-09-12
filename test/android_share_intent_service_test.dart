@@ -19,6 +19,12 @@ void main() {
         {
           'id': 'share-2',
           'text': 'Second',
+          'target': {
+            'connection': 'connection-a',
+            'connection_identity': 'identity-a',
+            'profile': 'work',
+            'session': 'session-a',
+          },
           'files': [
             {
               'path': '/cache/shared/photo.jpg',
@@ -53,6 +59,7 @@ void main() {
       final second = replayedService.pendingShare.value!;
       expect(second.id, 'share-2');
       expect(second.files.single.name, 'photo.jpg');
+      expect(second.target?['session'], 'session-a');
       expect(await replayedService.acknowledgeShare(second), isTrue);
       expect(replayedService.pendingShare.value, isNull);
       replayedService.dispose();
@@ -161,6 +168,62 @@ void main() {
       service.intakeError.value,
       'The shared file is no longer available.',
     );
+    service.dispose();
+  });
+
+  test('camera launch validates ownership and reports safe failures', () async {
+    MethodCall? captured;
+    TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger
+        .setMockMethodCallHandler(channel, (call) async {
+          captured = call;
+          return null;
+        });
+    final service = AndroidShareIntentService();
+    const target = {
+      'connection': 'connection-a',
+      'connection_identity': 'identity-a',
+      'profile': 'work',
+      'session': 'session-a',
+    };
+
+    await service.capturePhoto(target);
+    expect(captured?.method, 'capturePhoto');
+    expect(captured?.arguments, {'target': target});
+    await expectLater(
+      service.capturePhoto({...target, 'session': ''}),
+      throwsA(
+        isA<StateError>().having(
+          (error) => error.message,
+          'message',
+          'Camera destination is unavailable.',
+        ),
+      ),
+    );
+
+    TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger
+        .setMockMethodCallHandler(
+          channel,
+          (_) => throw PlatformException(code: 'camera_busy'),
+        );
+    await expectLater(
+      service.capturePhoto(target),
+      throwsA(
+        isA<StateError>().having(
+          (error) => error.message,
+          'message',
+          'Camera could not be opened.',
+        ),
+      ),
+    );
+
+    final untargeted = AndroidSharePayload.fromPlatform({
+      'id': 'share-3',
+      'text': 'Keep this content',
+      'files': const [],
+      'target': {'connection': 'connection-a'},
+    });
+    expect(untargeted?.text, 'Keep this content');
+    expect(untargeted?.target, isNull);
     service.dispose();
   });
 }

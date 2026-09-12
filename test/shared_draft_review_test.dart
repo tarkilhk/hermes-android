@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:hermes_android/core/models/attachment_draft.dart';
+import 'package:hermes_android/core/models/hermes_profile.dart';
 import 'package:hermes_android/core/screens/shared_draft_review.dart';
 import 'package:hermes_android/core/services/android_share_intent_service.dart';
 import 'package:hermes_android/core/services/attachment_draft_service.dart';
@@ -54,6 +55,7 @@ Future<Future<bool>> _openReview(
   ProfileWorkspaceController controller,
   AndroidSharePayload payload, {
   double textScale = 1,
+  ProfileChat? initialChat,
 }) async {
   Future<bool>? result;
   await tester.pumpWidget(
@@ -68,7 +70,12 @@ Future<Future<bool>> _openReview(
         builder: (context) => FilledButton(
           key: const Key('open-review'),
           onPressed: () {
-            result = reviewSharedDraft(context, controller, payload);
+            result = reviewSharedDraft(
+              context,
+              controller,
+              payload,
+              initialChat: initialChat,
+            );
           },
           child: const Text('Review share'),
         ),
@@ -258,6 +265,75 @@ void main() {
       hasLength(2),
     );
 
+    await tester.pageBack();
+    await tester.pumpAndSettle();
+    expect(await result, isFalse);
+  });
+
+  testWidgets('preselects the supplied saved chat outside the first page', (
+    tester,
+  ) async {
+    final fixture = ProfilePagingFixture()..count = 75;
+    final controller = await _controller(fixture);
+    addTearDown(controller.dispose);
+    await controller.openSession(
+      ProfileSessionKey(controller.current!.scope, 'chat-60'),
+    );
+    final initialChat = controller.current!.chat!;
+    final result = await _openReview(
+      tester,
+      controller,
+      const AndroidSharePayload(text: 'Append to the older chat'),
+      initialChat: initialChat,
+    );
+
+    expect(
+      find.byKey(const ValueKey('share-destination-chat-60')),
+      findsOneWidget,
+    );
+    expect(
+      tester
+          .widget<RadioGroup<String>>(find.byType(RadioGroup<String>))
+          .groupValue,
+      'chat-60',
+    );
+    await tester.tap(find.byKey(const Key('share-add-to-draft')));
+    await tester.pumpAndSettle();
+
+    expect(await result, isTrue);
+    expect(initialChat.draft, 'Append to the older chat');
+    expect(fixture.calls.where((call) => call.$2 == 'session.create'), isEmpty);
+  });
+
+  testWidgets('does not expose an unowned initial chat as a destination', (
+    tester,
+  ) async {
+    final controller = await _controller(ProfileBrowserFixture());
+    addTearDown(controller.dispose);
+    final wrongOwner = ProfileChat(
+      key: ProfileSessionKey(
+        WorkspaceScope(
+          connectionId: 'other-connection',
+          connectionIdentity: 'other-identity',
+          profileName: 'personal',
+        ),
+        'chat-60',
+      ),
+      runtimeId: 'other-runtime',
+      title: 'Unowned chat',
+    );
+    final result = await _openReview(
+      tester,
+      controller,
+      const AndroidSharePayload(text: 'Choose safely'),
+      initialChat: wrongOwner,
+    );
+
+    expect(
+      find.byKey(const ValueKey('share-destination-chat-60')),
+      findsNothing,
+    );
+    expect(find.byKey(const ValueKey('share-destination-new')), findsOneWidget);
     await tester.pageBack();
     await tester.pumpAndSettle();
     expect(await result, isFalse);

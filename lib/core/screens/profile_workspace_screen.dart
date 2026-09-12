@@ -26,6 +26,8 @@ import '../widgets/app_drawer.dart';
 import 'app_settings_content.dart';
 import 'workspace_overview_content.dart';
 
+enum _AttachmentChoice { camera, photos, files }
+
 /// Phone workspace with profile selection outside the conversation.
 /// Network work and drafts belong to the application controller.
 class ProfileWorkspaceScreen extends StatefulWidget {
@@ -34,6 +36,7 @@ class ProfileWorkspaceScreen extends StatefulWidget {
   final Future<void> Function()? enableNotifications;
   final VoidCallback? onConnections;
   final VoidCallback? onPreferencesChanged;
+  final Future<void> Function(ProfileSessionKey)? onCapturePhoto;
   final AppDestination initialDestination;
   const ProfileWorkspaceScreen({
     super.key,
@@ -42,6 +45,7 @@ class ProfileWorkspaceScreen extends StatefulWidget {
     this.enableNotifications,
     this.onConnections,
     this.onPreferencesChanged,
+    this.onCapturePhoto,
     this.initialDestination = AppDestination.chats,
   });
   @override
@@ -55,6 +59,7 @@ class _ProfileWorkspaceScreenState extends State<ProfileWorkspaceScreen>
   final _scaffoldKey = GlobalKey<ScaffoldState>();
   ProfileSessionKey? _composerKey;
   ProfileSessionKey? _loadingIntelligence;
+  bool _launchingCamera = false;
   late AppDestination _destination;
 
   @override
@@ -769,11 +774,15 @@ class _ProfileWorkspaceScreenState extends State<ProfileWorkspaceScreen>
                                 chat.busy ||
                                     chat.changingAnswer ||
                                     chat.commandRunning ||
-                                    controller.switching
+                                    controller.switching ||
+                                    _launchingCamera
                                 ? null
                                 : () => _run(() async {
-                                    final type =
-                                        await showModalBottomSheet<FileType>(
+                                    final target = chat.key;
+                                    final choice =
+                                        await showModalBottomSheet<
+                                          _AttachmentChoice
+                                        >(
                                           context: context,
                                           showDragHandle: true,
                                           builder: (context) => SafeArea(
@@ -782,13 +791,31 @@ class _ProfileWorkspaceScreenState extends State<ProfileWorkspaceScreen>
                                               children: [
                                                 ListTile(
                                                   leading: const Icon(
+                                                    Icons.camera_alt_outlined,
+                                                  ),
+                                                  title: const Text('Camera'),
+                                                  enabled:
+                                                      widget.onCapturePhoto !=
+                                                      null,
+                                                  onTap:
+                                                      widget.onCapturePhoto ==
+                                                          null
+                                                      ? null
+                                                      : () => Navigator.pop(
+                                                          context,
+                                                          _AttachmentChoice
+                                                              .camera,
+                                                        ),
+                                                ),
+                                                ListTile(
+                                                  leading: const Icon(
                                                     Icons
                                                         .photo_library_outlined,
                                                   ),
                                                   title: const Text('Photos'),
                                                   onTap: () => Navigator.pop(
                                                     context,
-                                                    FileType.image,
+                                                    _AttachmentChoice.photos,
                                                   ),
                                                 ),
                                                 ListTile(
@@ -799,14 +826,36 @@ class _ProfileWorkspaceScreenState extends State<ProfileWorkspaceScreen>
                                                   title: const Text('Files'),
                                                   onTap: () => Navigator.pop(
                                                     context,
-                                                    FileType.any,
+                                                    _AttachmentChoice.files,
                                                   ),
                                                 ),
                                               ],
                                             ),
                                           ),
                                         );
-                                    if (type == null) return;
+                                    if (choice == null) {
+                                      return;
+                                    }
+                                    if (choice == _AttachmentChoice.camera) {
+                                      if (_launchingCamera) {
+                                        return;
+                                      }
+                                      setState(() => _launchingCamera = true);
+                                      try {
+                                        await widget.onCapturePhoto!(target);
+                                      } finally {
+                                        if (mounted) {
+                                          setState(
+                                            () => _launchingCamera = false,
+                                          );
+                                        }
+                                      }
+                                      return;
+                                    }
+                                    final type =
+                                        choice == _AttachmentChoice.photos
+                                        ? FileType.image
+                                        : FileType.any;
                                     final result = await FilePicker.platform
                                         .pickFiles(type: type);
                                     final file = result?.files.single;

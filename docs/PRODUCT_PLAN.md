@@ -282,7 +282,7 @@ For M06, Android's [sharing contract](https://developer.android.com/develop/ui/c
 
 ## Active owner feedback
 
-Latest delivery, 2026-09-12: Personal 2.5.0 / 21522 adds durable incoming-share recovery and the reproduced D15 reopen fix. It is installed and running on the owner's phone; 1,000 tests passed with four opt-in skips and a clean analyzer. Camera and all remaining selected milestones stay in the plan.
+Latest delivery, 2026-09-12: Personal 2.6.0 / 21552 adds Camera to the existing attachment/draft flow and preserves the D15 reopen and recent chat-deletion fixes. It is installed and launched on the owner's phone. Camera routing/review tests and analyzer pass; live capture/cancellation/interruption QA remains. See [capture notes](SHARING_AND_CAPTURE.md). D23 subagent supervision is in progress; all other selected milestones and exclusions remain in the plan.
 
 - 2026-09-12, D15/T10: the integrated fuse design is accepted. Opening an existing chat must load authoritative context fullness without requiring a new message. The owner reiterated that this must be fixed, so it moved ahead of Camera. The missing deferred-agent ready-event refresh was reproduced and fixed for 2.5.0; see [cause and regression evidence](CONTEXT_REOPEN_FIX.md). Final live-server phone verification remains outstanding. All other planned milestones and exclusions remain unchanged.
 

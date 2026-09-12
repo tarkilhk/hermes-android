@@ -1,9 +1,14 @@
 package com.hermesagent.hermes_android
 
+import android.app.Activity
+import android.content.ActivityNotFoundException
+import android.content.ClipData
 import android.content.Intent
 import android.net.Uri
 import android.os.Bundle
+import android.provider.MediaStore
 import android.provider.OpenableColumns
+import androidx.core.content.FileProvider
 import io.flutter.embedding.android.FlutterActivity
 import io.flutter.embedding.engine.FlutterEngine
 import io.flutter.plugin.common.MethodChannel
@@ -21,6 +26,8 @@ class MainActivity : FlutterActivity() {
     private val quickChatAction = "com.hermesagent.hermes_android.action.QUICK_CHAT"
     private val intakePreferencesName = "pending_share_intake"
     private val intakeQueueKey = "queue"
+    private val pendingCameraKey = "pending_camera"
+    private val cameraRequestCode = 9301
     private val maxSharedItems = 10
     private val maxSharedBytes = 64L * 1024L * 1024L
     private val maxPendingRecords = 10
@@ -30,6 +37,7 @@ class MainActivity : FlutterActivity() {
     private var launchChannel: MethodChannel? = null
     private var initialShareIntent: Intent? = null
     private var initialLaunchAction: String? = null
+    @Volatile private var activityResumed = false
 
     override fun onCreate(savedInstanceState: Bundle?) {
         initialShareIntent = intent.takeIf(::isShareIntent)
@@ -47,6 +55,7 @@ class MainActivity : FlutterActivity() {
                         initialShareIntent = null
                         intakeExecutor.execute {
                             try {
+                                recoverPendingCamera()
                                 if (pendingIntent != null) importShareIntent(pendingIntent)
                                 postResult(result, oldestPendingPayload())
                             } catch (error: Exception) {
@@ -64,6 +73,19 @@ class MainActivity : FlutterActivity() {
                                 postResult(result, acknowledgeShare(id))
                             } catch (_: Exception) {
                                 postError(result, "share_ack_failed", genericAcknowledgeError)
+                            }
+                        }
+                    }
+                    "capturePhoto" -> {
+                        val target = call.argument<Map<*, *>>("target")
+                        intakeExecutor.execute {
+                            try {
+                                val descriptor = prepareCameraCapture(target)
+                                runOnUiThread { launchCamera(descriptor, result) }
+                            } catch (error: CameraCaptureException) {
+                                postError(result, error.code, error.safeMessage)
+                            } catch (_: Exception) {
+                                postError(result, "camera_unavailable", genericCameraError)
                             }
                         }
                     }
@@ -85,6 +107,35 @@ class MainActivity : FlutterActivity() {
         }
     }
 
+    override fun onActivityResult(requestCode: Int, resultCode: Int, data: Intent?) {
+        super.onActivityResult(requestCode, resultCode, data)
+        if (requestCode != cameraRequestCode) return
+        intakeExecutor.execute {
+            try {
+                finishCameraCapture(resultCode == Activity.RESULT_OK)
+            } catch (error: Exception) {
+                postShareError(safeCameraMessage(error))
+            }
+        }
+    }
+
+    override fun onResume() {
+        super.onResume()
+        activityResumed = true
+        intakeExecutor.execute {
+            try {
+                reconcilePendingCameraOnResume()
+            } catch (error: Exception) {
+                postShareError(safeCameraMessage(error))
+            }
+        }
+    }
+
+    override fun onPause() {
+        activityResumed = false
+        super.onPause()
+    }
+
     override fun onNewIntent(intent: Intent) {
         super.onNewIntent(intent)
         setIntent(intent)
@@ -95,6 +146,7 @@ class MainActivity : FlutterActivity() {
         if (!isShareIntent(intent)) return
         intakeExecutor.execute {
             try {
+                recoverPendingCamera()
                 importShareIntent(intent)
                 postSharePayload(oldestPendingPayload())
             } catch (error: Exception) {
@@ -111,6 +163,211 @@ class MainActivity : FlutterActivity() {
     private fun isShareIntent(intent: Intent?): Boolean =
         intent?.action == Intent.ACTION_SEND || intent?.action == Intent.ACTION_SEND_MULTIPLE
 
+    private fun prepareCameraCapture(rawTarget: Map<*, *>?): CameraDescriptor {
+        if (readCameraDescriptor() != null) {
+            throw CameraCaptureException("camera_busy", cameraBusyError)
+        }
+        val target = validatedCameraTarget(rawTarget)
+        val queue = readQueue()
+        pruneOrphanedIntake(queue)
+        if (queue.length() >= maxPendingRecords ||
+            queueBytes(queue) > maxPendingBytes - maxSharedBytes
+        ) {
+            throw CameraCaptureException("camera_intake_full", queueFullError)
+        }
+
+        val id = UUID.randomUUID().toString()
+        val directory = File(intakeDirectory(), id)
+        val output = File(directory, "camera.jpg")
+        try {
+            if (!directory.mkdirs() || !output.createNewFile()) {
+                throw CameraCaptureException("camera_unavailable", genericCameraError)
+            }
+            val descriptor = CameraDescriptor(id, output.absolutePath, target)
+            if (!writeCameraDescriptor(descriptor)) {
+                throw CameraCaptureException("camera_unavailable", genericCameraError)
+            }
+            return descriptor
+        } catch (error: CameraCaptureException) {
+            directory.deleteRecursively()
+            throw error
+        } catch (_: Exception) {
+            directory.deleteRecursively()
+            throw CameraCaptureException("camera_unavailable", genericCameraError)
+        }
+    }
+
+    private fun launchCamera(descriptor: CameraDescriptor, result: MethodChannel.Result) {
+        var outputUri: Uri? = null
+        try {
+            val uri = FileProvider.getUriForFile(
+                this,
+                "$packageName.fileprovider",
+                File(descriptor.path),
+            )
+            outputUri = uri
+            val capture = Intent(MediaStore.ACTION_IMAGE_CAPTURE).apply {
+                putExtra(MediaStore.EXTRA_OUTPUT, uri)
+                clipData = ClipData.newRawUri("camera-output", uri)
+                addFlags(Intent.FLAG_GRANT_WRITE_URI_PERMISSION or Intent.FLAG_GRANT_READ_URI_PERMISSION)
+            }
+            startActivityForResult(capture, cameraRequestCode)
+            result.success(null)
+        } catch (_: ActivityNotFoundException) {
+            abandonCameraLaunch(descriptor, outputUri, result)
+        } catch (_: Exception) {
+            abandonCameraLaunch(descriptor, outputUri, result)
+        }
+    }
+
+    private fun abandonCameraLaunch(
+        descriptor: CameraDescriptor,
+        outputUri: Uri?,
+        result: MethodChannel.Result,
+    ) {
+        if (outputUri != null) revokeCameraGrant(outputUri)
+        intakeExecutor.execute {
+            writeCameraDescriptor(null)
+            deleteIntakeDirectory(descriptor.id)
+            postError(result, "camera_unavailable", genericCameraError)
+        }
+    }
+
+    private fun finishCameraCapture(succeeded: Boolean) {
+        val descriptor = readCameraDescriptor() ?: return
+        cameraOutputUri(descriptor)?.let(::revokeCameraGrant)
+        if (!succeeded) {
+            val cleared = writeCameraDescriptor(null)
+            deleteIntakeDirectory(descriptor.id)
+            if (!cleared) {
+                throw CameraCaptureException("camera_unavailable", cameraCleanupError)
+            }
+            return
+        }
+        val queue = readQueue()
+        enqueueCameraIfReady(descriptor, queue)
+        postSharePayload(oldestPayload(queue))
+    }
+
+    private fun recoverPendingCamera() {
+        val descriptor = readCameraDescriptor() ?: return
+        val queue = readQueue()
+        if (queueContains(queue, descriptor.id)) {
+            cameraOutputUri(descriptor)?.let(::revokeCameraGrant)
+            writeCameraDescriptor(null)
+            return
+        }
+        if (!activityResumed) return
+        val output = File(descriptor.path)
+        if (!output.exists()) {
+            if (!writeCameraDescriptor(null)) {
+                throw CameraCaptureException("camera_unavailable", cameraCleanupError)
+            }
+            deleteIntakeDirectory(descriptor.id)
+            return
+        }
+        if (!output.isFile || output.length() == 0L) return
+        try {
+            enqueueCameraIfReady(descriptor, queue)
+        } finally {
+            cameraOutputUri(descriptor)?.let(::revokeCameraGrant)
+        }
+    }
+
+    private fun reconcilePendingCameraOnResume() {
+        val descriptor = readCameraDescriptor() ?: return
+        val queue = readQueue()
+        if (queueContains(queue, descriptor.id)) {
+            cameraOutputUri(descriptor)?.let(::revokeCameraGrant)
+            writeCameraDescriptor(null)
+            return
+        }
+        val output = File(descriptor.path)
+        if (!output.isFile || output.length() == 0L) {
+            cameraOutputUri(descriptor)?.let(::revokeCameraGrant)
+            val cleared = writeCameraDescriptor(null)
+            deleteIntakeDirectory(descriptor.id)
+            if (!cleared) {
+                throw CameraCaptureException("camera_unavailable", cameraCleanupError)
+            }
+            return
+        }
+        try {
+            enqueueCameraIfReady(descriptor, queue)
+            postSharePayload(oldestPayload(queue))
+        } finally {
+            cameraOutputUri(descriptor)?.let(::revokeCameraGrant)
+        }
+    }
+
+    private fun enqueueCameraIfReady(descriptor: CameraDescriptor, queue: JSONArray) {
+        if (queueContains(queue, descriptor.id)) {
+            writeCameraDescriptor(null)
+            return
+        }
+        val output = File(descriptor.path)
+        val length = if (output.isFile) output.length() else 0L
+        if (length <= 0L || length > maxSharedBytes) {
+            writeCameraDescriptor(null)
+            deleteIntakeDirectory(descriptor.id)
+            throw CameraCaptureException("camera_invalid_output", invalidCameraOutputError)
+        }
+        if (queue.length() >= maxPendingRecords || queueBytes(queue) + length > maxPendingBytes) {
+            throw CameraCaptureException("camera_intake_full", queueFullError)
+        }
+        val file = JSONObject()
+            .put("path", output.absolutePath)
+            .put("name", "Camera photo.jpg")
+            .put("mediaType", "image/jpeg")
+            .put("byteLength", length)
+        queue.put(
+            JSONObject()
+                .put("id", descriptor.id)
+                .put("fingerprint", "camera:${descriptor.id}")
+                .put("text", JSONObject.NULL)
+                .put("files", JSONArray().put(file))
+                .put("target", JSONObject(descriptor.target)),
+        )
+        if (!writeQueue(queue)) {
+            queue.remove(queue.length() - 1)
+            throw CameraCaptureException("camera_unavailable", cameraStorageError)
+        }
+        // A crash between these commits leaves both markers. Recovery matches the
+        // record ID and clears the descriptor without enqueueing a duplicate.
+        writeCameraDescriptor(null)
+    }
+
+    private fun validatedCameraTarget(raw: Map<*, *>?): Map<String, String> {
+        val keys = listOf("connection", "connection_identity", "profile", "session")
+        if (raw == null || raw.keys.any { it !in keys }) {
+            throw CameraCaptureException("camera_invalid_target", invalidCameraTargetError)
+        }
+        return keys.associateWith { key ->
+            (raw[key] as? String)?.trim()?.takeIf { it.isNotEmpty() }
+                ?: throw CameraCaptureException("camera_invalid_target", invalidCameraTargetError)
+        }
+    }
+
+    private fun cameraOutputUri(descriptor: CameraDescriptor): Uri? = try {
+        FileProvider.getUriForFile(this, "$packageName.fileprovider", File(descriptor.path))
+    } catch (_: Exception) {
+        null
+    }
+
+    private fun revokeCameraGrant(uri: Uri) {
+        try {
+            revokeUriPermission(
+                uri,
+                Intent.FLAG_GRANT_WRITE_URI_PERMISSION or Intent.FLAG_GRANT_READ_URI_PERMISSION,
+            )
+        } catch (_: Exception) {
+            // The camera app may already have released its temporary grant.
+        }
+    }
+
+    private fun queueContains(queue: JSONArray, id: String): Boolean =
+        (0 until queue.length()).any { queue.getJSONObject(it).optString("id") == id }
+
     private fun importShareIntent(intent: Intent) {
         val queue = readQueue()
         pruneOrphanedIntake(queue)
@@ -119,7 +376,8 @@ class MainActivity : FlutterActivity() {
             queue.getJSONObject(it).optString("fingerprint") == fingerprint
         }
         if (alreadyPending) return
-        if (queue.length() >= maxPendingRecords) {
+        val cameraPending = readCameraDescriptor() != null
+        if (queue.length() + (if (cameraPending) 1 else 0) >= maxPendingRecords) {
             throw ShareImportException(queueFullError)
         }
 
@@ -142,7 +400,9 @@ class MainActivity : FlutterActivity() {
         try {
             uris.forEachIndexed { index, uri ->
                 val remainingIncoming = maxSharedBytes - copiedBytes
-                val remainingQueue = maxPendingBytes - queueBytes(queue) - copiedBytes
+                val cameraReservation = if (cameraPending) maxSharedBytes else 0L
+                val remainingQueue =
+                    maxPendingBytes - cameraReservation - queueBytes(queue) - copiedBytes
                 if (remainingIncoming <= 0L) throw ShareImportException(incomingTooLargeError)
                 if (remainingQueue <= 0L) throw ShareImportException(queueFullError)
                 val file = copySharedUri(
@@ -276,6 +536,63 @@ class MainActivity : FlutterActivity() {
                 throw ShareImportException(genericImportError)
             }
         }
+        if (record.has("target")) validateTargetObject(record.optJSONObject("target"))
+    }
+
+    private fun readCameraDescriptor(): CameraDescriptor? {
+        val raw = intakePreferences().getString(pendingCameraKey, null) ?: return null
+        try {
+            val value = JSONObject(raw)
+            val id = value.getString("record_id")
+            if (!uuidPattern.matches(id)) {
+                throw CameraCaptureException("camera_unavailable", genericCameraError)
+            }
+            val expected = File(File(intakeDirectory(), id), "camera.jpg").canonicalFile
+            val stored = File(value.getString("path")).canonicalFile
+            if (stored != expected) {
+                throw CameraCaptureException("camera_unavailable", genericCameraError)
+            }
+            val target = validateTargetObject(value.optJSONObject("target"))
+            return CameraDescriptor(id, expected.absolutePath, target)
+        } catch (error: CameraCaptureException) {
+            throw error
+        } catch (_: Exception) {
+            throw CameraCaptureException("camera_unavailable", genericCameraError)
+        }
+    }
+
+    private fun validateTargetObject(value: JSONObject?): Map<String, String> {
+        if (value == null) {
+            throw CameraCaptureException("camera_invalid_target", invalidCameraTargetError)
+        }
+        val raw = mutableMapOf<String, Any?>()
+        value.keys().forEach { key -> raw[key] = value.opt(key) }
+        return validatedCameraTarget(raw)
+    }
+
+    private fun writeCameraDescriptor(descriptor: CameraDescriptor?): Boolean {
+        val preferences = intakePreferences()
+        val previous = preferences.getString(pendingCameraKey, null)
+        val editor = preferences.edit()
+        if (descriptor == null) {
+            editor.remove(pendingCameraKey)
+        } else {
+            editor.putString(
+                pendingCameraKey,
+                JSONObject()
+                    .put("record_id", descriptor.id)
+                    .put("path", descriptor.path)
+                    .put("target", JSONObject(descriptor.target))
+                    .toString(),
+            )
+        }
+        if (editor.commit()) return true
+
+        val rollback = preferences.edit()
+        if (previous == null) rollback.remove(pendingCameraKey)
+        else rollback.putString(pendingCameraKey, previous)
+        rollback.commit()
+        return false
     }
 
     private fun writeQueue(queue: JSONArray): Boolean {
@@ -308,7 +625,7 @@ class MainActivity : FlutterActivity() {
 
     private fun payloadMap(record: JSONObject): Map<String, Any?> {
         val files = record.getJSONArray("files")
-        return mapOf(
+        val payload = mutableMapOf<String, Any?>(
             "id" to record.getString("id"),
             "text" to if (record.isNull("text")) null else record.getString("text"),
             "files" to List(files.length()) { index ->
@@ -321,6 +638,10 @@ class MainActivity : FlutterActivity() {
                 )
             },
         )
+        record.optJSONObject("target")?.let { target ->
+            payload["target"] = validateTargetObject(target)
+        }
+        return payload
     }
 
     private fun queueBytes(queue: JSONArray): Long {
@@ -337,6 +658,7 @@ class MainActivity : FlutterActivity() {
     private fun pruneOrphanedIntake(queue: JSONArray) {
         val retained = mutableSetOf<String>()
         for (index in 0 until queue.length()) retained += queue.getJSONObject(index).getString("id")
+        readCameraDescriptor()?.let { retained += it.id }
         intakeDirectory().listFiles()?.forEach { file ->
             if (file.isDirectory && file.name !in retained) file.deleteRecursively()
         }
@@ -421,7 +743,14 @@ class MainActivity : FlutterActivity() {
     }
 
     private fun safeImportMessage(error: Exception): String =
-        (error as? ShareImportException)?.safeMessage ?: genericImportError
+        when (error) {
+            is ShareImportException -> error.safeMessage
+            is CameraCaptureException -> error.safeMessage
+            else -> genericImportError
+        }
+
+    private fun safeCameraMessage(error: Exception): String =
+        (error as? CameraCaptureException)?.safeMessage ?: genericCameraError
 
     private fun clearConsumedShareIntent(consumed: Intent) {
         runOnUiThread {
@@ -441,6 +770,17 @@ class MainActivity : FlutterActivity() {
 
     private class ShareImportException(val safeMessage: String) : Exception()
 
+    private class CameraCaptureException(
+        val code: String,
+        val safeMessage: String,
+    ) : Exception()
+
+    private data class CameraDescriptor(
+        val id: String,
+        val path: String,
+        val target: Map<String, String>,
+    )
+
     companion object {
         private val intakeExecutor = Executors.newSingleThreadExecutor()
         private val uuidPattern = Regex(
@@ -455,5 +795,16 @@ class MainActivity : FlutterActivity() {
             "Shared content could not be imported. Try sharing it again."
         private const val genericAcknowledgeError =
             "The pending share could not be cleared. Try again."
+        private const val cameraBusyError = "A camera capture is already in progress."
+        private const val invalidCameraTargetError =
+            "The destination chat is no longer available for this photo."
+        private const val invalidCameraOutputError =
+            "The camera did not return a usable photo."
+        private const val cameraCleanupError =
+            "The canceled photo could not be cleared. Try again."
+        private const val cameraStorageError =
+            "The photo could not be saved for review. Try again."
+        private const val genericCameraError =
+            "The camera could not be opened. Try again."
     }
 }

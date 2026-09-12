@@ -444,27 +444,34 @@ class HomeScreenState extends State<HomeScreen> {
     if (payload == null || _reviewingShare) return;
     _reviewingShare = true;
     try {
-      final connection = _connections.length == 1
-          ? _connections.single
-          : await showModalBottomSheet<SavedConnection>(
-              context: context,
-              showDragHandle: true,
-              builder: (context) => SafeArea(
-                child: ListView(
-                  shrinkWrap: true,
-                  children: [
-                    const ListTile(
-                      title: Text('Choose a connection for this shared draft'),
+      final originalConnection = _connections
+          .where((connection) => connection.id == payload.target?['connection'])
+          .firstOrNull;
+      final connection =
+          originalConnection ??
+          (_connections.length == 1
+              ? _connections.single
+              : await showModalBottomSheet<SavedConnection>(
+                  context: context,
+                  showDragHandle: true,
+                  builder: (context) => SafeArea(
+                    child: ListView(
+                      shrinkWrap: true,
+                      children: [
+                        const ListTile(
+                          title: Text(
+                            'Choose a connection for this shared draft',
+                          ),
+                        ),
+                        for (final connection in _connections)
+                          ListTile(
+                            title: Text(connection.label),
+                            onTap: () => Navigator.pop(context, connection),
+                          ),
+                      ],
                     ),
-                    for (final connection in _connections)
-                      ListTile(
-                        title: Text(connection.label),
-                        onTap: () => Navigator.pop(context, connection),
-                      ),
-                  ],
-                ),
-              ),
-            );
+                  ),
+                ));
       if (connection != null && mounted) {
         await _navigateToWorkspace(connection, sharedPayload: payload);
       }
@@ -559,16 +566,37 @@ class HomeScreenState extends State<HomeScreen> {
     widget.connManager.prefs.setString(_lastConnectionKey, conn.id);
     if (sharedPayload != null) {
       if (controller.discovery == null) await controller.initialize();
+      ProfileChat? initialChat;
+      final target = sharedPayload.target;
+      if (target != null) {
+        try {
+          final key = ProfileSessionKey.fromJson(target);
+          if (controller.owns(key) &&
+              controller.discovery?.named(key.workspace.profileName) != null) {
+            await controller.navigateProfile(key.workspace.profileName);
+            await controller.openSession(key);
+            if (controller.current?.chat?.key == key) {
+              initialChat = controller.current!.chat;
+            }
+          }
+        } catch (_) {
+          // Keep the photo available for explicit destination selection.
+        }
+      }
       final profile = controller.current?.scope.profileName;
       if (profile == null) {
         throw StateError('No profile is available for this shared draft.');
       }
-      await controller.navigateProfile(profile);
+      if (initialChat == null) await controller.navigateProfile(profile);
       if (!mounted) return;
       final applied = await reviewSharedDraft(
         context,
         controller,
         sharedPayload,
+        initialChat: initialChat,
+        destinationNotice: target != null && initialChat == null
+            ? 'The original chat could not be reopened. Choose a destination below.'
+            : null,
       );
       if (!mounted || !applied) return;
       final acknowledged = await widget.shareIntents!.acknowledgeShare(
@@ -588,11 +616,17 @@ class HomeScreenState extends State<HomeScreen> {
     final initialQuickChat =
         widget.launchIntents?.takePendingQuickChat() == true &&
         sharedPayload == null;
+    if (sharedPayload?.target != null) {
+      Navigator.of(context).popUntil((route) => route.isFirst);
+    }
     Navigator.push(
       context,
       MaterialPageRoute(
         builder: (_) => ProfileWorkspaceScreen(
           controller: controller,
+          onCapturePhoto: widget.shareIntents == null
+              ? null
+              : (key) => widget.shareIntents!.capturePhoto(key.toJson()),
           enableNotifications: widget.enableProfileNotifications,
           initialDestination: sharedPayload != null || initialQuickChat
               ? AppDestination.chats

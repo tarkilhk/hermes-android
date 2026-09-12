@@ -1,6 +1,6 @@
 # Sharing into a draft
 
-D21 adds review and destination choice to the existing Android share bridge. The Photos part of D22 uses the existing file picker; Camera remains a separate step.
+D21 adds review and destination choice to the existing Android share bridge. D22 adds Camera beside Photos and Files in the composer attachment menu.
 
 Incoming text, links, images and files open a review. With multiple connections, choose the destination server first. The review displays its connection, lets the user choose a discovered profile and either a new or existing conversation, and exposes pagination for older chats. Add to draft is the only write action; Send remains a separate action in the composer.
 
@@ -12,11 +12,17 @@ From 2.5.0, native intake keeps unsent text and attachment copies in private app
 
 If clearing an incoming share fails after its conversation draft was saved, the app opens the saved draft and explains that the pending share can be discarded from Home. A failed Discard leaves the review controls available. These are unsent drafts only; no conversation history or execution state is stored in the intake queue.
 
-Photos and Files feed the same attachment path. Images receive the existing sanitization and file limits. No camera bridge or new picker dependency is added here.
+Photos and Files feed the same attachment path. Images receive the existing sanitization and file limits.
+
+Camera opens the phone's camera application through Android's capture intent. It writes to a single granted URI in private pending-intake storage and adds no camera permission or Flutter dependency. The originating connection identity, profile and chat are captured before launch. On return, the same review opens with that chat selected, including when it is outside the first history page. If ownership changed or the chat cannot be reopened, the photo remains available and review asks for a destination. Adding the photo preserves the existing draft; Send is still separate.
+
+The capture descriptor is saved before launch. Successful nonempty output, up to 64 MiB, enters the existing durable intake queue. Cancellation removes only that capture. Recovery checks the descriptor when Hermes resumes, retains completed output and deduplicates by intake ID. URI grants are revoked on return. An active camera reserves queue capacity so another incoming share cannot consume its space.
 
 ## Remaining limits
 
 An interruption after saving the conversation draft but before acknowledging the incoming share can offer the share again. Review is mandatory and nothing sends automatically. No separate deduplication ledger is added to conversation drafts. A file copy interrupted before native intake commits may need to be shared again; only successfully imported content is retained. Native process-death behavior still needs an end-to-end device check.
+
+Camera recovery also needs live cancellation and Android process-recreation QA. Empty abandoned output is cleared when Android returns to Hermes; while the camera remains foreground, it stays pending to avoid treating a file being written as complete.
 
 The D15 existing-session context-loading report was reproduced using the
 installed backend's deferred-agent sequence. The small ready-event refresh is
@@ -28,3 +34,5 @@ phone verification remains outstanding.
 The 2.4.0 review/Photos release passed 995 tests with four opt-in skips and a clean analyzer. Tests cover reviewed routing, exact acknowledgement, merge/preservation, preparation failure, concurrent draft changes, pagination retry and 320-pixel/200% text layout.
 
 The 2.5.0 intake recovery release adds bridge replay/acknowledgement and UI failure checks. The full suite passed 1,000 tests with four opt-in skips; analyzer clean. The signed Personal APK passed package/certificate checks and was installed in place and launched on the owner's phone as 2.5.0 / 21522. Bridge fixtures verify service replay, not Android process-death behavior itself.
+
+The 2.6.0 camera checks cover launch targeting, duplicate taps, original-chat preselection outside the first page, changed connection identity, and rejection of an unowned target. The full run passed 1,020 tests and found one obsolete assertion in a new test; all seven tests in the affected review/camera files passed after correcting that assertion. Four opt-in tests remain skipped. The release snapshot has a clean analyzer. The signed APK passed package/certificate checks and was installed in place and launched on the owner's phone as Personal 2.6.0 / 21552. Native camera capture and interruption QA remain outstanding.

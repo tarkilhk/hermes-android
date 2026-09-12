@@ -36,8 +36,14 @@ class AndroidSharePayload {
   final String? id;
   final String? text;
   final List<AndroidSharedFile> files;
+  final Map<String, String>? target;
 
-  const AndroidSharePayload({this.id, this.text, this.files = const []});
+  const AndroidSharePayload({
+    this.id,
+    this.text,
+    this.files = const [],
+    this.target,
+  });
 
   bool get isEmpty => (text == null || text!.isEmpty) && files.isEmpty;
 
@@ -76,6 +82,7 @@ class AndroidSharePayload {
       id: id,
       text: textValue == null || textValue.isEmpty ? null : textValue,
       files: files,
+      target: _validatedTarget(raw['target']),
     );
     return payload.isEmpty ? null : payload;
   }
@@ -141,6 +148,22 @@ class AndroidShareIntentService {
     }
   }
 
+  Future<void> capturePhoto(Map<String, String> target) async {
+    final validatedTarget = _validatedTarget(target);
+    if (validatedTarget == null) {
+      throw StateError('Camera destination is unavailable.');
+    }
+    try {
+      await _channel.invokeMethod<void>('capturePhoto', {
+        'target': validatedTarget,
+      });
+    } on MissingPluginException {
+      throw StateError('Camera is unavailable on this device.');
+    } on PlatformException {
+      throw StateError('Camera could not be opened.');
+    }
+  }
+
   Future<void> _handleMethodCall(MethodCall call) async {
     switch (call.method) {
       case 'sharePayload':
@@ -176,4 +199,20 @@ class AndroidShareIntentService {
     pendingShare.dispose();
     intakeError.dispose();
   }
+}
+
+Map<String, String>? _validatedTarget(Object? raw) {
+  if (raw is! Map) {
+    return null;
+  }
+  const keys = ['connection', 'connection_identity', 'profile', 'session'];
+  final target = <String, String>{};
+  for (final key in keys) {
+    final value = raw[key];
+    if (value is! String || value.trim().isEmpty) {
+      return null;
+    }
+    target[key] = value.trim();
+  }
+  return Map.unmodifiable(target);
 }

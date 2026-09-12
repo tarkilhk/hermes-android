@@ -56,10 +56,16 @@ ProfileWorkspaceController _controller(
         'limit': int.parse(query['limit']!),
         'total': 0,
       },
-      rpc: (method, _) async => method == 'session.create'
+      rpc: (method, params) async =>
+          method == 'session.create' || method == 'session.resume'
           ? {
               'session_id': 'runtime-${connection.id}',
-              'stored_session_id': 'stored-${connection.id}',
+              'stored_session_id': method == 'session.resume'
+                  ? params['session_id']
+                  : 'stored-${connection.id}',
+              'session_key': method == 'session.resume'
+                  ? params['session_id']
+                  : 'stored-${connection.id}',
               'info': {'profile_name': 'default'},
             }
           : {'projects': <Map<String, dynamic>>[]},
@@ -266,4 +272,83 @@ void main() {
     expect(find.text('Discard'), findsOneWidget);
     expect(find.textContaining('could not be discarded'), findsOneWidget);
   });
+
+  testWidgets('camera review restores its original connection and saved chat', (
+    tester,
+  ) async {
+    final manager = await _manager();
+    await manager.saveConnection('Work', 'work.local', 8642, 'work-key');
+    await manager.saveConnection('Home', 'home.local', 8642, 'home-key');
+    final work = manager.getConnections().firstWhere(
+      (connection) => connection.label == 'Work',
+    );
+    final shares = AndroidShareIntentService();
+    addTearDown(shares.dispose);
+    final payload = AndroidSharePayload(
+      id: 'camera-original',
+      text: 'Captured content',
+      target: {
+        'connection': work.id,
+        'connection_identity': 'home-share-${work.id}',
+        'profile': 'default',
+        'session': 'original-chat',
+      },
+    );
+    await _pumpHome(tester, manager, shares);
+    shares.pendingShare.value = payload;
+    await tester.pumpAndSettle();
+    expect(
+      find.text('Choose a connection for this shared draft'),
+      findsNothing,
+    );
+    expect(find.text('Connection: Work'), findsOneWidget);
+    expect(
+      tester
+          .widget<RadioGroup<String>>(find.byType(RadioGroup<String>))
+          .groupValue,
+      'original-chat',
+    );
+    await tester.tap(find.byKey(const Key('share-add-to-draft')));
+    await tester.pumpAndSettle();
+    final workspace = tester.widget<ProfileWorkspaceScreen>(
+      find.byType(ProfileWorkspaceScreen),
+    );
+    expect(workspace.controller.current!.chat!.key.sessionId, 'original-chat');
+    expect(workspace.controller.current!.chat!.draft, payload.text);
+    expect(shares.pendingShare.value, isNull);
+  });
+
+  testWidgets(
+    'changed camera connection requires explicit destination review',
+    (tester) async {
+      final manager = await _manager();
+      await manager.saveConnection('Work', 'work.local', 8642, 'work-key');
+      final work = manager.getConnections().single;
+      final shares = AndroidShareIntentService();
+      addTearDown(shares.dispose);
+      final payload = AndroidSharePayload(
+        id: 'camera-changed',
+        text: 'Keep captured content',
+        target: {
+          'connection': work.id,
+          'connection_identity': 'previous-server-settings',
+          'profile': 'default',
+          'session': 'original-chat',
+        },
+      );
+      await _pumpHome(tester, manager, shares);
+      shares.pendingShare.value = payload;
+      await tester.pumpAndSettle();
+      expect(
+        find.textContaining('original chat could not be reopened'),
+        findsOneWidget,
+      );
+      expect(
+        find.byKey(const Key('share-destination-original-chat')),
+        findsNothing,
+      );
+      expect(shares.pendingShare.value, same(payload));
+      expect(find.byType(ProfileWorkspaceScreen), findsNothing);
+    },
+  );
 }

@@ -8,6 +8,17 @@ Feature releases increment the minor version, fixes increment the patch version,
 and breaking changes increment the major version. The Android build number after
 `+` always increases. Update this changelog for every release milestone.
 
+## [2.6.0+2155] - 2026-09-12
+
+### Added
+
+- Camera in the attachment menu opens Android's camera and returns a photo to
+  draft review with the originating chat selected. If that chat cannot be
+  reopened, the photo stays available while a destination is chosen.
+- Captured photos use the existing private pending-intake queue and draft
+  preparation. Cancellation leaves the conversation draft intact; nothing
+  sends automatically.
+
 ## [2.5.2+2154] - 2026-09-12
 
 ### Fixed
