@@ -22,3 +22,5 @@ Source evidence is recorded in
 [mobile delivery contracts](research/MOBILE_DELIVERY_CONTRACTS_2026-09-11.md).
 
 Verification for 2.13.0: 1,103 tests passed, four opt-in skips, clean analyzer. Six focused widget checks cover profile scoping/manual reads, cost labels and unknown values, malformed responses/manual retry, replaced/disposed owners and 320-pixel layout at 200% text.
+
+Deployment: included in signed Personal 2.14.0 / 21632, installed and launched on the owner's phone on 2026-09-12.
