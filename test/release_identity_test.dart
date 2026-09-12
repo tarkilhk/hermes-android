@@ -58,4 +58,28 @@ void main() {
     expect(qualityWorkflow, contains("MINIMUM_INSTALLED_VERSION_CODE: '2127'"));
     expect(qualityWorkflow, contains("REQUIRED_BASE_VERSION_CODE: '2182'"));
   });
+
+  test('release identity variables belong to the verification step env', () {
+    final workflowFiles = <String>[
+      '.github/workflows/pr-quality.yml',
+      '.github/workflows/release.yml',
+    ];
+    final verificationStep = RegExp(
+      r"^      - name: Verify release identity and upgrade versionCode\r?\n"
+      r"        env:\r?\n"
+      r"          MINIMUM_INSTALLED_VERSION_CODE: '2127'\r?\n"
+      r"          REQUIRED_BASE_VERSION_CODE: '2182'\r?\n"
+      r"        run: \|$",
+      multiLine: true,
+    );
+
+    for (final workflowFile in workflowFiles) {
+      expect(
+        File(workflowFile).readAsStringSync(),
+        matches(verificationStep),
+        reason: '$workflowFile must keep both release identity values in the '
+            'verification step env block',
+      );
+    }
+  });
 }

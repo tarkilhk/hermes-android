@@ -21,6 +21,7 @@ and breaking changes increment the major version. The Android build number after
 
 ### Fixed
 
+- Restored the required release version code to both CI verification step environments.
 - Rebased the older TCP/SSE and profile-command backend patches onto the pinned
   Hermes source. Corrected push registration/status to use the host's Firebase
   configuration while keeping installation records scoped to their profile.
