@@ -38,3 +38,7 @@ with 1,143 passed and four opt-in skips; analysis is clean. Checks cover saved-r
 original-profile navigation, drafts, obsolete-key cleanup, rejected/uncertain
 regeneration, restart lineage, omitted versus explicit-null metadata, and the
 Parent chat menu. Live server/phone relationship behavior remains a manual check.
+
+Signed Personal 2.18.0 / 21672 passed certificate/package checks, installed in
+place through wireless debugging, and launched successfully. Phone verification
+covers installed version and process metadata, not private conversation behavior.
