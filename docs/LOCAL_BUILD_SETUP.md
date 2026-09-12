@@ -1,5 +1,13 @@
 # Local Android build setup
 
+Current verification on 2026-09-12 uses the OneDrive checkout at
+`C:\Users\rober\OneDrive\Documents\Cursor Projects\hermes-android` and the same
+`Development\android-dev` toolchain. Isolated release tests/builds run from its
+ignored `build/camera-release` snapshot to avoid changing source while a build
+is active. The disposable Android 36 QA device is `Hermes_Roadmap_QA`,
+`emulator-5556`. The earlier relocation and verification below are historical.
+See [the emulator record](EMULATOR_ROADMAP_VERIFICATION.md) for current results.
+
 ## Current Windows checkout
 
 On 2026-09-06, development moved to

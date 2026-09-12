@@ -369,11 +369,41 @@ class ProfileGateway {
     );
   }
 
-  Future<Map<String, dynamic>> branch(String runtimeId, int count) async {
+  Future<Map<String, dynamic>> branch(
+    String runtimeId,
+    int count, {
+    int? answerVersionSourceRowId,
+  }) async {
     if (count <= 0) throw ArgumentError.value(count, 'count');
+    if (answerVersionSourceRowId != null && answerVersionSourceRowId <= 0) {
+      throw ArgumentError.value(
+        answerVersionSourceRowId,
+        'answerVersionSourceRowId',
+      );
+    }
     await requireProfile();
     return _ownedSession(
-      await call('session.branch', {'session_id': runtimeId, 'count': count}),
+      await call('session.branch', {
+        'session_id': runtimeId,
+        'count': count,
+        if (answerVersionSourceRowId != null)
+          'relationship': {
+            'kind': 'answer_version',
+            'source_answer_row_id': answerVersionSourceRowId,
+          },
+      }),
+    );
+  }
+
+  Future<AnswerVersions> answerVersions(String durableId, int rowId) async {
+    if (durableId.isEmpty || rowId <= 0) {
+      throw ArgumentError('Invalid saved answer address');
+    }
+    return AnswerVersions.fromJson(
+      await call('session.answer_versions', {
+        'session_id': durableId,
+        'answer_row_id': rowId,
+      }),
     );
   }
 

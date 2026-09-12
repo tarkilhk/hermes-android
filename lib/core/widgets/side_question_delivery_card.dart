@@ -10,12 +10,15 @@ class SideQuestionDeliveryCard extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final pending = delivery.state == SideQuestionDeliveryState.pending;
+    final failed = delivery.state == SideQuestionDeliveryState.failed;
     final background = delivery.kind == SideQuestionDeliveryKind.backgroundTask;
-    final label = switch ((background, pending)) {
-      (false, true) => 'Side question running',
-      (false, false) => 'Side question answer',
-      (true, true) => 'Background task running',
-      (true, false) => 'Background task result',
+    final label = switch ((background, pending, failed)) {
+      (false, true, _) => 'Side question running',
+      (false, false, true) => 'Side question failed',
+      (false, false, false) => 'Side question answer',
+      (true, true, _) => 'Background task running',
+      (true, false, true) => 'Background task failed',
+      (true, false, false) => 'Background task result',
     };
     final colors = Theme.of(context).colorScheme;
     return Card(
@@ -46,11 +49,15 @@ class SideQuestionDeliveryCard extends StatelessWidget {
             if (delivery.question.isNotEmpty) ...[
               const SizedBox(height: 8),
               SelectableText(delivery.question),
+              if (delivery.questionTruncated)
+                const Text('Prompt shortened by Hermes.'),
             ],
             const SizedBox(height: 8),
             SelectableText(
               pending ? 'Waiting for the Hermes host.' : delivery.result,
             ),
+            if (!pending && delivery.resultTruncated)
+              const Text('Result shortened by Hermes.'),
           ],
         ),
       ),

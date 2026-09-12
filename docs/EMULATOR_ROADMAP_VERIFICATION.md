@@ -74,12 +74,65 @@ VM port. Setting `VM_SERVICE_URL` to that forwarded service URI and running
 `dart --packages=.dart_tool/package_config.json test_driver/roadmap_emulator_driver.dart`
 completed the suite. VM ports and service tokens change on each app launch.
 
+The final 2.30.0 run used the same direct standard driver with the expanded
+suite. All four scenarios passed in 62 seconds and the driver exited 0:
+
+- Drawer, settings, profiles, chats and projects at large text size.
+- Drafts, provider/model and slash controls, paged Find/Outputs and context.
+- Activity, approval responses and queued work with their original chat owner.
+- Resumed sensitive requests and expiry, idle foreground chats with background
+  tasks, and Previous/Next navigation through server-owned answer versions.
+
+The result is in `build/2.30.0-emulator-direct-driver.log`. The last scenario
+checks actual screen navigation and profile-scoped requests against synthetic
+server responses. Live deployment acceptance remains separate.
+
 `integration_test/roadmap_native_preview.dart` uses the same synthetic transport
 with real Android plugins, secure storage and preferences for direct UI checks.
 It requires a debug build and is only used on the disposable emulator.
 
-Media/PDF/browser previews and cold/warm session-target notification taps still
-need their Android checks. The force-stop checks above test draft/intake
+## Native reading checks on 2.29.0
+
+`integration_test/reading_native_preview.dart` opens production PDF, media and
+web viewers with locally generated fixtures. It requires a debug build. Its PDF
+has two pages; audio is a 12-second generated tone; the optional MP4 is a small
+12-second blue frame generated with FFmpeg and supplied through the
+`HERMES_QA_VIDEO_BASE64` build define. Nothing is downloaded from Hermes.
+
+| Check | Observed result | Evidence |
+| --- | --- | --- |
+| PDF | Android rendered page 1; Next rendered page 2 and updated the page count | `build/qa-reading-pdf1.png`, `build/qa-reading-pdf2.xml` |
+| Audio | Native player prepared the WAV, showed its 12-second duration, and Play/Pause advanced then stopped the timeline | `build/qa-reading-audio.xml`, `build/qa-reading-audio-paused.png` |
+| Video | Native player rendered the blue MP4 frame; Play/Pause advanced then stopped its 12-second timeline | `build/qa-reading-video-frame.png`, `build/qa-reading-video-paused.xml` |
+| HTML | Local HTML rendered; tapping its button changed the text to Interaction passed; Show source exposed the original HTML | `build/qa-reading-html.png`, `build/qa-reading-html-clicked.xml`, `build/qa-reading-html-source.xml` |
+| Mermaid | The bundled renderer displayed the draft/server/result diagram in the Android WebView | `build/qa-reading-diagram.png`, `build/qa-reading-diagram.xml` |
+| Browser | Chrome's in-app tab displayed a local HTTP fixture; Close returned to the original Hermes screen | `build/qa-reading-browser-content.xml`, `build/qa-reading-browser-return.xml` |
+
+These checks cover real native rendering and controls. The headless emulator's
+playback timeline does not establish physical speaker output. HTML's WebView
+accessibility label incorrectly said Diagram preview; the shared renderer now
+sets its title and label to the actual format.
+
+## Native notification taps on 2.30.0
+
+The optional `ROADMAP_NATIVE_NOTIFICATION_NONCE` define in
+`roadmap_native_preview.dart` posts two real Android alerts through the production
+notification plugin. Each carries the original connection/profile/chat key.
+A persisted test nonce prevents setup or reposting during the cold launch.
+
+- Warm tap opened `personal/chat-0` and retained its draft and attachments.
+  Evidence: `build/qa-notify-230-expanded.xml`, `build/qa-notify-230-warm.xml`.
+- Before the cold tap, the work profile was selected. Android then removed the
+  background app process, confirmed by an empty `pidof` result. The retained
+  notification launched a new process and reopened `personal/chat-0`, preserving
+  its existing draft and attachments. Evidence: `build/qa-notify-230-work.xml`,
+  `build/qa-notify-230-cold-shade.xml`, `build/qa-notify-230-cold-ready.xml`.
+
+These checks verify the real plugin callback, cold startup and application
+navigation. They do not establish Firebase transport or recovery of a live
+approval request from a deployed server.
+
+The force-stop checks above test draft/intake
 recovery only; they do not claim FCM delivery to a force-stopped application.
 Fixture results must not be recorded as live server results. Production-context
 fullness, deployed profile contracts and real push delivery retain their separate

@@ -8,6 +8,48 @@ Feature releases increment the minor version, fixes increment the patch version,
 and breaking changes increment the major version. The Android build number after
 `+` always increases. Update this changelog for every release milestone.
 
+## [2.30.0+2183] - 2026-09-12
+
+### Added
+
+- Server-backed Previous/Next answer versions. Regenerate records an explicit
+  relationship; ordinary branches remain separate. Selection reveals the saved
+  answer, including older history, and retains version controls there.
+- Side and background task recovery from the server's live session. Activity
+  includes chats whose background work is running while their composer is idle.
+  Failure and truncation labels use server metadata; no task state is saved locally.
+- What's new and Releases links in the installed app version card.
+- Disposable native preview checks for PDF, media, HTML, diagrams and browser
+  navigation, plus a scoped notification-tap fixture.
+
+### Fixed
+
+- HTML and SVG previews identify their actual format to accessibility services.
+
+### Deployment
+
+- Answer versions and side-task recovery require backend patches 0005 and 0006.
+  Firebase project setup and a supervised remote TUI restart remain separate
+  dependencies; this release does not claim to supply either deployment.
+
+### Verification
+
+- Full suite: 1,256 passed, four opt-in skips; 49 focused milestone checks passed.
+  Static analysis is clean. Dependency review completed; package upgrades are
+  deferred because this slice needs no dependency changes.
+- All six exact backend patch artifacts applied in order to fresh pinned Hermes
+  source; the combined suite passed 106 tests.
+- All four emulator integration scenarios passed with a clean driver exit,
+  including resumed requests, background task discovery and answer navigation.
+- Real-browser diagram/HTML/SVG checks passed. Native PDF pages, audio/video
+  playback, HTML interaction/source, Mermaid rendering and browser return
+  navigation passed on the disposable emulator. See
+  [the verification record](docs/EMULATOR_ROADMAP_VERIFICATION.md).
+- Real Android warm/cold notification taps returned to the original profile
+  and chat with the draft intact. These test plugin/navigation behavior, not FCM delivery.
+- Signed Personal 21832 passed native compilation, certificate and package checks,
+  installed in place on the owner's phone and launched successfully.
+
 ## [2.29.0+2182] - 2026-09-12
 
 ### Added

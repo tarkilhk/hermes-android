@@ -509,20 +509,31 @@ class ProfileWorkspaceController extends ChangeNotifier {
               final sessionId = row['session_key'];
               final status = row['status'];
               final lastActive = row['last_active'];
+              final reportedSideTasks = row['side_tasks_running'];
+              final sideTasksRunning = reportedSideTasks is int
+                  ? reportedSideTasks
+                  : 0;
               if (runtimeId is! String ||
                   runtimeId.isEmpty ||
                   sessionId is! String ||
                   sessionId.isEmpty ||
                   status is! String ||
+                  (reportedSideTasks != null && reportedSideTasks is! int) ||
+                  sideTasksRunning < 0 ||
                   (lastActive != null && lastActive is! num)) {
                 throw const FormatException('Invalid active session');
               }
-              final state = switch (status) {
+              final foregroundState = switch (status) {
                 'waiting' => ProfileLiveActivityState.needsInput,
                 'working' => ProfileLiveActivityState.running,
                 'starting' => ProfileLiveActivityState.running,
                 _ => null,
               };
+              final state =
+                  foregroundState ??
+                  (sideTasksRunning > 0
+                      ? ProfileLiveActivityState.running
+                      : null);
               if (state == null) continue;
               activeRows.add({...row, '_activity_state': state});
             }
@@ -567,6 +578,9 @@ class ProfileWorkspaceController extends ChangeNotifier {
                       : knownTitle,
                   lastActive: (row['last_active'] as num?)?.toDouble() ?? 0,
                   state: row['_activity_state'] as ProfileLiveActivityState,
+                  sideTasksRunning: row['side_tasks_running'] is int
+                      ? row['side_tasks_running'] as int
+                      : 0,
                 ),
               );
             }
@@ -2174,6 +2188,114 @@ class ProfileWorkspaceController extends ChangeNotifier {
     await openSession(ProfileSessionKey(resource.scope, parent));
   }
 
+  Future<AnswerVersions?> answerVersions(
+    ProfileChat chat,
+    int answerRowId,
+  ) async {
+    final resource = _owned(chat);
+    final navigation = _navigationGeneration;
+    final profileGeneration = _generation;
+    final historyGeneration = chat.historyGeneration;
+    final runtimeId = chat.runtimeId;
+    try {
+      final result = await resource.gateway.answerVersions(
+        chat.key.sessionId,
+        answerRowId,
+      );
+      if (!_answerVersionReadIsCurrent(
+        resource,
+        chat,
+        runtimeId,
+        navigation,
+        profileGeneration,
+        historyGeneration,
+      )) {
+        return null;
+      }
+      return result.versions.length >= 2 &&
+              result.indexOf(chat.key.sessionId, answerRowId) >= 0
+          ? result
+          : null;
+    } catch (_) {
+      return null;
+    }
+  }
+
+  Future<ProfileHistoryPage?> openAnswerVersion(
+    ProfileChat chat,
+    int answerRowId,
+    AnswerVersionRef target,
+  ) async {
+    final resource = _owned(chat);
+    final navigation = _navigationGeneration;
+    final profileGeneration = _generation;
+    final historyGeneration = chat.historyGeneration;
+    final runtimeId = chat.runtimeId;
+    final currentVersions = await resource.gateway.answerVersions(
+      chat.key.sessionId,
+      answerRowId,
+    );
+    if (!_answerVersionReadIsCurrent(
+      resource,
+      chat,
+      runtimeId,
+      navigation,
+      profileGeneration,
+      historyGeneration,
+    )) {
+      return null;
+    }
+    if (currentVersions.indexOf(target.sessionId, target.answerRowId) < 0) {
+      throw StateError('Answer versions changed. Reload this conversation.');
+    }
+    await openSession(ProfileSessionKey(resource.scope, target.sessionId));
+    final targetChat = resource.chat;
+    if (targetChat == null || targetChat.key.sessionId != target.sessionId) {
+      return null;
+    }
+    final targetNavigation = _navigationGeneration;
+    if (targetNavigation != navigation + 1) return null;
+    final targetHistoryGeneration = targetChat.historyGeneration;
+    var offset = 0;
+    while (true) {
+      final page = await savedHistoryPage(targetChat, offset: offset);
+      if (_closed ||
+          targetNavigation != _navigationGeneration ||
+          profileGeneration != _generation ||
+          !identical(current, resource) ||
+          !identical(resource.chat, targetChat) ||
+          targetChat.historyGeneration != targetHistoryGeneration) {
+        return null;
+      }
+      if (page.rows.any((row) => row['id'] == target.answerRowId)) {
+        return page;
+      }
+      final next = page.nextOffset;
+      if (next == null || next <= offset) {
+        throw StateError('This answer version is no longer saved.');
+      }
+      offset = next;
+    }
+  }
+
+  bool _answerVersionReadIsCurrent(
+    ProfileWorkspaceData resource,
+    ProfileChat chat,
+    String runtimeId,
+    int navigation,
+    int profileGeneration,
+    int historyGeneration,
+  ) =>
+      !_closed &&
+      owns(chat.key) &&
+      identical(_resources[chat.key.workspace], resource) &&
+      identical(current, resource) &&
+      identical(resource.chat, chat) &&
+      chat.runtimeId == runtimeId &&
+      chat.historyGeneration == historyGeneration &&
+      navigation == _navigationGeneration &&
+      profileGeneration == _generation;
+
   /// Fork before regenerating so no operation rewrites the source transcript.
   Future<ProfileChat?> branchAnswer(
     ProfileChat source,
@@ -2224,7 +2346,11 @@ class ProfileWorkspaceController extends ChangeNotifier {
         source.key.sessionId,
         selectedId,
       );
-      final result = await resource.gateway.branch(source.runtimeId, count);
+      final result = await resource.gateway.branch(
+        source.runtimeId,
+        count,
+        answerVersionSourceRowId: regenerate ? selectedId : null,
+      );
       final id = result['stored_session_id'];
       if (id is! String ||
           id.isEmpty ||
@@ -3627,6 +3753,9 @@ class ProfileWorkspaceController extends ChangeNotifier {
     switch (event.type) {
       case 'session.info':
         _hydrateIntelligence(chat, {'info': event.data});
+        if (event.data.containsKey('side_tasks')) {
+          _hydrateSideTasks(chat, event.data['side_tasks']);
+        }
         if (event.data.containsKey('pending_sensitive')) {
           final wasSensitiveAttention =
               chat.status == ProfileTurnStatus.attention &&
@@ -4001,6 +4130,7 @@ class ProfileWorkspaceController extends ChangeNotifier {
         ? Map<String, dynamic>.from(result['pending_clarify'])
         : null;
     _hydrateSensitivePrompt(chat, result['pending_sensitive']);
+    _hydrateSideTasks(chat, result['side_tasks']);
     final failed = inflight?['status'] == 'error';
     chat.status = failed
         ? ProfileTurnStatus.failed
@@ -4029,6 +4159,12 @@ class ProfileWorkspaceController extends ChangeNotifier {
         previous?.kind == next?.kind && previous?.requestId == next?.requestId;
     chat.sensitivePrompt = next;
     if (!sameRequest) chat.sensitivePromptResponding = false;
+  }
+
+  void _hydrateSideTasks(ProfileChat chat, Object? snapshot) {
+    chat.sideQuestionDeliveries
+      ..clear()
+      ..addAll(SideQuestionDelivery.parseSnapshot(snapshot));
   }
 
   Future<void> _journal() {

@@ -295,7 +295,20 @@ For M06, Android's [sharing contract](https://developer.android.com/develop/ui/c
 
 ## Active owner feedback
 
-Current implementation, 2026-09-12: Personal 2.29.0 adds server-backed sensitive
+Current milestone, 2026-09-12: Personal 2.30.0 implements synchronized answer
+versions, live-session side/background task recovery and app release links.
+The Android suite passes 1,256 tests with four opt-in skips; analysis is clean.
+The coordinated server patch series passes 106 tests against a fresh pinned
+Hermes checkout. Deployment of those patches, Firebase configuration/delivery
+and an external supervisor for remote TUI restart remain explicit dependencies.
+Signed Personal 2.30.0 / 21832 is installed in place on the owner's phone and
+launches successfully. This verifies package/process metadata; live-server chat
+acceptance remains open. Full release and native QA results are recorded in
+the changelog and [emulator record](EMULATOR_ROADMAP_VERIFICATION.md). All other
+selected work and exclusions remain in the [delivery sequence](DELIVERY_SEQUENCE.md).
+
+
+Earlier verified implementation, 2026-09-12: Personal 2.29.0 adds server-backed sensitive
 request recovery on reconnect. All 1,245 tests pass with four opt-in skips and
 the analyzer is clean. The 28 focused checks cover current, expired, replaced
 and partial-update requests. Patch 0004 deployment and live verification remain
@@ -322,7 +335,7 @@ versions, side-task recovery and remote TUI restart remain in the global plan.
 
 Earlier verified release, 2026-09-12: Personal 2.27.2 / 21802 fixes duplicate notification screens and obsolete opens during rapid target changes or cold startup. Later taps still refresh from Hermes, failed opens can be retried, and original connection ownership is checked. It includes 2.27.1 startup recovery/stable alert IDs, 2.27.0 attachment queues and the preceding Find, read-state and background-task improvements. All 33 focused notification checks and 1,224 full-suite tests pass, with four opt-in skips. Analyzer clean; the signed APK passed native compilation and certificate/package checks. Installation is deferred while the owner is away from home. Firebase configuration and the trusted backend sender remain necessary for delivery while the app is absent; see [background delivery](BACKGROUND_NOTIFICATIONS.md). The delivery sequence retains all other phone/live QA and backend-contract dependencies. All selected work and exclusions remain intact.
 
-Latest phone delivery, 2026-09-12: Hermes Personal 2.24.0 / 21732 is installed and launched. It fixes large-chat Outputs and adds downloaded self-contained HTML previews. It includes all preceding milestones, thousands separators and the D15 context reopen fix. The full suite passed 1,173 tests with four opt-in skips, and the analyzer is clean. Real browser fixtures passed for HTML, SVG and Mermaid. The signed APK passed native compilation and certificate/package checks. Phone verification covers installed identity and process metadata; the owner's live Outputs chat, playback/reading/browser gestures and server feature QA remain. The documented Firebase/backend-contract dependencies remain tracked. Other unsupported visual formats retain source fallback.
+Earlier phone delivery, 2026-09-12: Hermes Personal 2.24.0 / 21732 is installed and launched. It fixes large-chat Outputs and adds downloaded self-contained HTML previews. It includes all preceding milestones, thousands separators and the D15 context reopen fix. The full suite passed 1,173 tests with four opt-in skips, and the analyzer is clean. Real browser fixtures passed for HTML, SVG and Mermaid. The signed APK passed native compilation and certificate/package checks. Phone verification covers installed identity and process metadata; the owner's live Outputs chat, playback/reading/browser gestures and server feature QA remain. The documented Firebase/backend-contract dependencies remain tracked. Other unsupported visual formats retain source fallback.
 
 - 2026-09-12, D15/T10: the integrated fuse design is accepted. Opening an existing chat must load authoritative context fullness without requiring a new message. The owner reiterated that this must be fixed, so it moved ahead of Camera. The missing deferred-agent ready-event refresh was reproduced and fixed for 2.5.0; see [cause and regression evidence](CONTEXT_REOPEN_FIX.md). Final live-server phone verification remains outstanding. All other planned milestones and exclusions remain unchanged.
 

@@ -51,4 +51,66 @@ void main() {
     expect(tester.takeException(), isNull);
     expect(find.text('Hermes'), findsOneWidget);
   });
+
+  testWidgets("opens this fork's changelog and release pages", (tester) async {
+    PackageInfo.setMockInitialValues(
+      appName: 'Hermes Personal',
+      packageName: 'com.tarkilhk.hermes.android',
+      version: '2.30.0',
+      buildNumber: '2182',
+      buildSignature: '',
+      installerStore: '',
+    );
+    final opened = <Uri>[];
+
+    await tester.pumpWidget(
+      MaterialApp(
+        home: Scaffold(
+          body: InstalledAppVersionCard(
+            openLink: (uri) async {
+              opened.add(uri);
+              return true;
+            },
+          ),
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    await tester.tap(find.text("What's new"));
+    await tester.pump();
+    await tester.tap(find.text('Releases'));
+    await tester.pump();
+
+    expect(opened, [
+      Uri.parse(
+        'https://github.com/tarkilhk/hermes-android/blob/main/CHANGELOG.md',
+      ),
+      Uri.parse('https://github.com/tarkilhk/hermes-android/releases'),
+    ]);
+  });
+
+  testWidgets('reports when a release link cannot open', (tester) async {
+    PackageInfo.setMockInitialValues(
+      appName: 'Hermes',
+      packageName: 'com.tarkilhk.hermes.android',
+      version: '2.30.0',
+      buildNumber: '2182',
+      buildSignature: '',
+      installerStore: '',
+    );
+
+    await tester.pumpWidget(
+      MaterialApp(
+        home: Scaffold(
+          body: InstalledAppVersionCard(openLink: (_) async => false),
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('Releases'));
+    await tester.pump();
+
+    expect(find.text('Could not open this link.'), findsOneWidget);
+  });
 }

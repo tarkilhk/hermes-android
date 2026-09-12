@@ -9,6 +9,7 @@ class ProfileLiveActivity {
   final String title;
   final double lastActive;
   final ProfileLiveActivityState state;
+  final int sideTasksRunning;
 
   const ProfileLiveActivity({
     required this.workspace,
@@ -17,5 +18,6 @@ class ProfileLiveActivity {
     required this.title,
     required this.lastActive,
     required this.state,
+    this.sideTasksRunning = 0,
   });
 }

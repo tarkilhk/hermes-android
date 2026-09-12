@@ -4,6 +4,7 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:hermes_android/core/models/gateway_process.dart';
 import 'package:hermes_android/core/models/hermes_profile.dart';
 import 'package:hermes_android/core/models/session_control.dart';
+import 'package:hermes_android/core/models/side_question_delivery.dart';
 import 'package:hermes_android/core/services/profile_gateway.dart';
 import 'package:hermes_android/core/services/profile_workspace_controller.dart';
 import 'package:shared_preferences/shared_preferences.dart';
@@ -46,6 +47,7 @@ class _BackgroundHost extends Host {
   Completer<Map<String, dynamic>>? pendingKill;
   bool listFails = false;
   int controlRevision = 0;
+  Object? sideTasks = const {'retention': 'live_session', 'tasks': <Object>[]};
 
   @override
   ProfileGateway gateway(WorkspaceScope scope) {
@@ -73,7 +75,11 @@ class _BackgroundHost extends Host {
           calls.add((scope.profileName, method, params));
           return _controlResponse('control-${++controlRevision}');
         }
-        return base.call(method, params);
+        final result = await base.call(method, params);
+        if (method == 'session.resume') {
+          return {...result, 'side_tasks': sideTasks};
+        }
+        return result;
       },
     );
   }
@@ -121,6 +127,86 @@ void main() {
       });
     },
   );
+
+  test('session info authoritatively hydrates side-task history', () {
+    chat.status = ProfileTurnStatus.idle;
+    host.event('a', 'session.info', {
+      'side_tasks': {
+        'retention': 'live_session',
+        'tasks': [
+          {
+            'task_id': 'running',
+            'kind': 'background',
+            'prompt': 'Check deployment',
+            'prompt_truncated': false,
+            'status': 'running',
+            'result': null,
+            'result_truncated': false,
+          },
+          {
+            'task_id': 'answered',
+            'kind': 'btw',
+            'prompt': 'What changed?',
+            'prompt_truncated': true,
+            'status': 'completed',
+            'result': 'The server changed.',
+            'result_truncated': false,
+          },
+          {
+            'task_id': 'failed',
+            'kind': 'background',
+            'prompt': 'Deploy',
+            'prompt_truncated': false,
+            'status': 'error',
+            'result': 'Deployment failed.',
+            'result_truncated': true,
+          },
+        ],
+      },
+    });
+
+    expect(chat.sideQuestionDeliveries, hasLength(3));
+    expect(
+      chat.sideQuestionDeliveries[0].state,
+      SideQuestionDeliveryState.pending,
+    );
+    expect(chat.sideQuestionDeliveries[1].questionTruncated, isTrue);
+    expect(
+      chat.sideQuestionDeliveries[2].state,
+      SideQuestionDeliveryState.failed,
+    );
+    expect(chat.sideQuestionDeliveries[2].resultTruncated, isTrue);
+    expect(chat.status, ProfileTurnStatus.idle);
+
+    host.event('a', 'session.info', {'model': 'fixture-model'});
+    expect(chat.sideQuestionDeliveries, hasLength(3));
+  });
+
+  test('resume restores tasks and malformed snapshots clear them', () async {
+    host.sideTasks = {
+      'retention': 'live_session',
+      'tasks': [
+        {
+          'task_id': 'recovered',
+          'kind': 'btw',
+          'prompt': 'Recovered question',
+          'prompt_truncated': false,
+          'status': 'running',
+          'result': null,
+          'result_truncated': false,
+        },
+      ],
+    };
+    await controller.reconnect(chat.key.workspace);
+    expect(chat.sideQuestionDeliveries.single.taskId, 'recovered');
+    expect(chat.busy, isTrue);
+    expect(chat.status, ProfileTurnStatus.running);
+
+    host.event('a', 'session.info', {
+      'side_tasks': {'retention': 'wrong', 'tasks': <Object>[]},
+    });
+    expect(chat.sideQuestionDeliveries, isEmpty);
+  });
 
   test(
     'stop validates the acknowledgement and refreshes the exited row',

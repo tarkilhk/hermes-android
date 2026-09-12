@@ -28,6 +28,8 @@ class _ActivityHost {
             'sessions': [
               {'id': 'running', 'title': 'Running job', 'profile': 'main'},
               {'id': 'needs-input', 'title': 'Question', 'profile': 'main'},
+              {'id': 'side-work', 'title': 'Deploy checks', 'profile': 'main'},
+              {'id': 'idle-old', 'title': 'Idle old server', 'profile': 'main'},
             ],
             'offset': int.parse(query['offset']!),
             'limit': int.parse(query['limit']!),
@@ -63,7 +65,11 @@ void main() {
     host = _ActivityHost();
     controller = ProfileWorkspaceController(
       connection: SavedConnection(
-        id: 'host', label: 'Host', host: 'localhost', port: 1, apiKey: '',
+        id: 'host',
+        label: 'Host',
+        host: 'localhost',
+        port: 1,
+        apiKey: '',
       ),
       connectionIdentity: 'activity-filter-test',
       preferences: await SharedPreferences.getInstance(),
@@ -82,6 +88,20 @@ void main() {
         'session_key': 'needs-input',
         'status': 'waiting',
         'last_active': 1,
+        'side_tasks_running': 0,
+      },
+      {
+        'id': 'runtime-side',
+        'session_key': 'side-work',
+        'status': 'idle',
+        'last_active': 3,
+        'side_tasks_running': 2,
+      },
+      {
+        'id': 'runtime-idle-old',
+        'session_key': 'idle-old',
+        'status': 'idle',
+        'last_active': 4,
       },
     ];
     await controller.refreshActivity();
@@ -112,6 +132,9 @@ void main() {
     await tester.pump();
     expect(find.text('Running job'), findsOneWidget);
     expect(find.text('Question'), findsOneWidget);
+    expect(find.text('Deploy checks'), findsOneWidget);
+    expect(find.textContaining('2 background tasks running'), findsOneWidget);
+    expect(find.text('Idle old server'), findsNothing);
 
     await tester.tap(find.widgetWithText(FilterChip, 'Needs input'));
     await tester.pump();
@@ -124,6 +147,7 @@ void main() {
     await tester.pump();
     expect(find.text('Running job'), findsOneWidget);
     expect(find.text('Question'), findsNothing);
+    expect(find.text('Deploy checks'), findsOneWidget);
     await tester.tap(find.widgetWithText(FilterChip, 'All'));
     await tester.pump();
     expect(find.text('Question'), findsOneWidget);

@@ -6,7 +6,7 @@ operations and draft protection. A rejected regeneration returns to its source;
 an uncertain submission is not automatically retried.
 
 The old answer arrows relied on a phone-only index of related sessions. That
-index and carousel are removed. Startup makes a best-effort removal of only
+index was removed in 2.18.0. Startup makes a best-effort removal of only
 `answer_versions_v1_*` preferences; no draft or queue keys are removed, and the
 obsolete links are never read again. Server conversations remain available in Chats.
 
@@ -21,10 +21,11 @@ Parent does not mean previous answer: Hermes also uses parent sessions for other
 relationships. The app does not infer siblings from matching transcript prefixes,
 scan session pages as a complete version list, or assign version numbers locally.
 
-Q09's synchronized answer carousel remains selected. It needs a server contract
-identifying the origin answer row, relationship kind and stable sibling order or
-a relationship endpoint. The inspected backend stores parent identity but does
-not expose that complete contract.
+Q09's synchronized answer carousel is implemented in 2.30.0 with backend patch
+0005. Its explicit relationship, source answer and version order are stored on
+Hermes. It never derives a version group from the generic parent link. See
+[answer actions and versions](ANSWER_VERSIONS.md) for the current contract,
+historical-answer navigation and deployment boundary.
 
 Contract evidence: installed Hermes revision
 `8d79c2ff57bba4b07e5b37ed90387b16541aef53`,

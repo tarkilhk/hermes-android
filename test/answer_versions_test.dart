@@ -19,7 +19,10 @@ class AnswerHost {
   final histories = <String, List<Map<String, dynamic>>>{};
   final parents = <String, String>{};
   final calls = <(String, Map<String, dynamic>)>[];
+  final reads = <(String, Map<String, String>)>[];
+  final answerVersionResponses = <String, Map<String, dynamic>>{};
   Completer<void>? branchDelay;
+  Completer<void>? answerVersionsDelay;
   Object? submitError;
   bool omitRowIds = false;
   bool omitSessionParent = false;
@@ -65,6 +68,36 @@ class AnswerHost {
     };
   }
 
+  Future<Map<String, dynamic>> get(
+    WorkspaceScope scope,
+    String path,
+    Map<String, String> query,
+  ) async {
+    reads.add((path, Map<String, String>.from(query)));
+    if (path != 'sessions') {
+      return historyPage(scope.profileName, path, query);
+    }
+    return {
+      'offset': int.parse(query['offset']!),
+      'limit': int.parse(query['limit']!),
+      'total': 1 + parents.length,
+      'sessions': [
+        {
+          'id': 'original',
+          'title': 'Original chat',
+          'profile': scope.profileName,
+        },
+        for (final entry in parents.entries)
+          {
+            'id': entry.key,
+            'title': 'Branched chat',
+            'profile': scope.profileName,
+            'parent_session_id': entry.value,
+          },
+      ],
+    };
+  }
+
   ProfileGateway gateway(WorkspaceScope scope) =>
       gateways[scope.profileName] = ProfileGateway(
         scope: scope,
@@ -76,27 +109,7 @@ class AnswerHost {
           currentName: 'a',
           activeName: 'a',
         ),
-        get: (path, query) async => path == 'sessions'
-            ? {
-                'offset': int.parse(query['offset']!),
-                'limit': int.parse(query['limit']!),
-                'total': 1 + parents.length,
-                'sessions': [
-                  {
-                    'id': 'original',
-                    'title': 'Original chat',
-                    'profile': scope.profileName,
-                  },
-                  for (final entry in parents.entries)
-                    {
-                      'id': entry.key,
-                      'title': 'Branched chat',
-                      'profile': scope.profileName,
-                      'parent_session_id': entry.value,
-                    },
-                ],
-              }
-            : historyPage(scope.profileName, path, query),
+        get: (path, query) => get(scope, path, query),
         rpc: (method, params) async {
           calls.add((method, params));
           final profile = scope.profileName;
@@ -133,6 +146,16 @@ class AnswerHost {
                     )
                     .toList(),
               };
+            case 'session.answer_versions':
+              await answerVersionsDelay?.future;
+              final rowId = params['answer_row_id'] as int;
+              return answerVersionResponses['$profile/$id/$rowId'] ??
+                  {
+                    'source': {'session_id': id, 'answer_row_id': rowId},
+                    'versions': [
+                      {'session_id': id, 'answer_row_id': rowId, 'position': 0},
+                    ],
+                  };
             case 'session.branch':
               await branchDelay?.future;
               final child = 'child-${++next}';
@@ -246,6 +269,26 @@ void main() {
         ],
       }),
       isFalse,
+    );
+  });
+
+  test('answer version responses require durable server addresses', () {
+    final versions = AnswerVersions.fromJson({
+      'source': {'session_id': 'original', 'answer_row_id': 3},
+      'versions': [
+        {'session_id': 'original', 'answer_row_id': 3, 'position': 0},
+        {'session_id': 'child', 'answer_row_id': 9, 'position': 1},
+      ],
+    });
+    expect(versions.indexOf('child', 9), 1);
+    expect(
+      () => AnswerVersions.fromJson({
+        'source': null,
+        'versions': [
+          {'session_id': 'child', 'answer_row_id': null, 'position': 0},
+        ],
+      }),
+      throwsFormatException,
     );
   });
 
@@ -388,6 +431,12 @@ void main() {
       ))!;
       await host.complete(child);
       final submit = host.calls.lastWhere((c) => c.$1 == 'prompt.submit').$2;
+      expect(
+        host.calls
+            .lastWhere((c) => c.$1 == 'session.branch')
+            .$2['relationship'],
+        {'kind': 'answer_version', 'source_answer_row_id': 3},
+      );
       expect(submit, {
         'session_id': child.runtimeId,
         'profile': 'a',
@@ -516,10 +565,7 @@ void main() {
   test(
     'parent navigation uses the server lineage in the captured profile',
     () async {
-      final child = (await controller.branchAnswer(
-        original,
-        2,
-      ))!;
+      final child = (await controller.branchAnswer(original, 2))!;
       await controller.switchProfile('b');
 
       await controller.openParentChat(child);
@@ -529,35 +575,41 @@ void main() {
     },
   );
 
-  test('explicit server parent state wins while omitted metadata falls back', () async {
-    final child = (await controller.branchAnswer(original, 2))!;
-    final row = controller.current!.sessions.firstWhere(
-      (row) => row['id'] == child.key.sessionId,
-    );
-    row.remove('parent_session_id');
-    expect(controller.parentSessionId(child), original.key.sessionId);
+  test(
+    'explicit server parent state wins while omitted metadata falls back',
+    () async {
+      final child = (await controller.branchAnswer(original, 2))!;
+      final row = controller.current!.sessions.firstWhere(
+        (row) => row['id'] == child.key.sessionId,
+      );
+      row.remove('parent_session_id');
+      expect(controller.parentSessionId(child), original.key.sessionId);
 
-    row['parent_session_id'] = null;
-    expect(controller.parentSessionId(child), isNull);
-  });
+      row['parent_session_id'] = null;
+      expect(controller.parentSessionId(child), isNull);
+    },
+  );
 
-  test('server parent lineage restores without phone relationship state', () async {
-    final child = (await controller.branchAnswer(original, 2))!;
-    final key = child.key;
-    host.omitSessionParent = true;
-    controller.dispose();
-    controller = makeController();
-    await controller.initialize();
+  test(
+    'server parent lineage restores without phone relationship state',
+    () async {
+      final child = (await controller.branchAnswer(original, 2))!;
+      final key = child.key;
+      host.omitSessionParent = true;
+      controller.dispose();
+      controller = makeController();
+      await controller.initialize();
 
-    await controller.openSession(key);
+      await controller.openSession(key);
 
-    final restored = controller.current!.chat!;
-    expect(restored.parentSessionId, original.key.sessionId);
-    expect(
-      preferences.getKeys().where((key) => key.startsWith('answer_versions')),
-      isEmpty,
-    );
-  });
+      final restored = controller.current!.chat!;
+      expect(restored.parentSessionId, original.key.sessionId);
+      expect(
+        preferences.getKeys().where((key) => key.startsWith('answer_versions')),
+        isEmpty,
+      );
+    },
+  );
 
   testWidgets('explicit null resume parent clears stale list navigation', (
     tester,
@@ -684,24 +736,148 @@ void main() {
     },
   );
 
-  testWidgets('server branch controls fit a narrow phone without version arrows', (
-    tester,
-  ) async {
-    tester.view.physicalSize = const Size(320, 640);
-    tester.view.devicePixelRatio = 1;
-    addTearDown(tester.view.resetPhysicalSize);
-    addTearDown(tester.view.resetDevicePixelRatio);
-    await tester.pumpWidget(
-      MaterialApp(
-        home: Scaffold(
-          body: AnswerActions(onBranch: () {}, onRegenerate: () {}),
+  test(
+    'answer version navigation ignores a result after leaving the chat',
+    () async {
+      host.answerVersionsDelay = Completer<void>();
+      host.answerVersionResponses['a/original/3'] = {
+        'source': {'session_id': 'original', 'answer_row_id': 3},
+        'versions': [
+          {'session_id': 'original', 'answer_row_id': 3, 'position': 0},
+          {'session_id': 'version-child', 'answer_row_id': 103, 'position': 1},
+        ],
+      };
+      final pending = controller.openAnswerVersion(
+        original,
+        3,
+        const AnswerVersionRef(
+          sessionId: 'version-child',
+          answerRowId: 103,
+          position: 1,
         ),
-      ),
-    );
-    expect(tester.takeException(), isNull);
-    expect(find.byTooltip('Branch in new session'), findsOneWidget);
-    expect(find.byTooltip('Regenerate response'), findsOneWidget);
-    expect(find.byIcon(Icons.chevron_left), findsNothing);
-    expect(find.byIcon(Icons.chevron_right), findsNothing);
-  });
+      );
+      await Future<void>.delayed(Duration.zero);
+      controller.showList();
+      host.answerVersionsDelay!.complete();
+      await pending;
+
+      expect(controller.current!.chat, isNull);
+      expect(
+        host.calls.where(
+          (call) =>
+              call.$1 == 'session.resume' &&
+              call.$2['session_id'] == 'version-child',
+        ),
+        isEmpty,
+      );
+    },
+  );
+
+  testWidgets(
+    'server versions focus a target older than the latest history page',
+    (tester) async {
+      host.histories['a/version-child'] = [
+        {'role': 'user', 'text': 'Original prompt', 'row_id': 101},
+        {'role': 'assistant', 'text': 'Alternate answer', 'row_id': 102},
+        for (var i = 0; i < 510; i++)
+          {
+            'role': i.isEven ? 'user' : 'assistant',
+            'text': 'Later version message $i',
+            'row_id': 200 + i,
+          },
+      ];
+      host.answerVersionResponses['a/original/3'] = {
+        'source': {'session_id': 'original', 'answer_row_id': 3},
+        'versions': [
+          {'session_id': 'version-child', 'answer_row_id': 102, 'position': 0},
+          {'session_id': 'original', 'answer_row_id': 3, 'position': 1},
+          {'session_id': 'newer-child', 'answer_row_id': 903, 'position': 2},
+        ],
+      };
+      host.answerVersionResponses['a/version-child/102'] = {
+        'source': {'session_id': 'original', 'answer_row_id': 3},
+        'versions': [
+          {'session_id': 'version-child', 'answer_row_id': 102, 'position': 0},
+          {'session_id': 'original', 'answer_row_id': 3, 'position': 1},
+          {'session_id': 'newer-child', 'answer_row_id': 903, 'position': 2},
+        ],
+      };
+      await tester.pumpWidget(
+        MaterialApp(home: ProfileWorkspaceScreen(controller: controller)),
+      );
+      await tester.pumpAndSettle();
+
+      final actions = find.byKey(const ValueKey('answer-actions-3'));
+      await tester.ensureVisible(actions);
+      expect(
+        find.descendant(of: actions, matching: find.text('2 / 3')),
+        findsOneWidget,
+      );
+      final previousButton = find.descendant(
+        of: actions,
+        matching: find.widgetWithIcon(IconButton, Icons.chevron_left),
+      );
+      expect(tester.widget<IconButton>(previousButton).onPressed, isNotNull);
+      await tester.tap(previousButton);
+      await tester.pumpAndSettle();
+
+      expect(controller.current!.chat!.key.sessionId, 'version-child');
+      expect(find.text('Alternate answer'), findsOneWidget);
+      expect(
+        host.reads.any(
+          (read) =>
+              read.$1 == 'sessions/version-child/messages' &&
+              read.$2['offset'] == '500',
+        ),
+        isTrue,
+      );
+      final focusedActions = find.byKey(const ValueKey('answer-actions-102'));
+      expect(
+        find.descendant(of: focusedActions, matching: find.text('1 / 3')),
+        findsOneWidget,
+      );
+      final branchButton = find.descendant(
+        of: focusedActions,
+        matching: find.widgetWithIcon(IconButton, Icons.fork_right),
+      );
+      expect(tester.widget<IconButton>(branchButton).onPressed, isNull);
+      await tester.tap(
+        find.descendant(
+          of: focusedActions,
+          matching: find.widgetWithIcon(IconButton, Icons.chevron_right),
+        ),
+      );
+      await tester.pumpAndSettle();
+      expect(controller.current!.chat, same(original));
+      expect(find.text('Original answer'), findsOneWidget);
+      expect(
+        host.calls
+            .where((call) => call.$1 == 'session.answer_versions')
+            .every((call) => call.$2['profile'] == 'a'),
+        isTrue,
+      );
+    },
+  );
+
+  testWidgets(
+    'server branch controls fit a narrow phone without version arrows',
+    (tester) async {
+      tester.view.physicalSize = const Size(320, 640);
+      tester.view.devicePixelRatio = 1;
+      addTearDown(tester.view.resetPhysicalSize);
+      addTearDown(tester.view.resetDevicePixelRatio);
+      await tester.pumpWidget(
+        MaterialApp(
+          home: Scaffold(
+            body: AnswerActions(onBranch: () {}, onRegenerate: () {}),
+          ),
+        ),
+      );
+      expect(tester.takeException(), isNull);
+      expect(find.byTooltip('Branch in new session'), findsOneWidget);
+      expect(find.byTooltip('Regenerate response'), findsOneWidget);
+      expect(find.byIcon(Icons.chevron_left), findsNothing);
+      expect(find.byIcon(Icons.chevron_right), findsNothing);
+    },
+  );
 }

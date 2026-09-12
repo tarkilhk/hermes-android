@@ -167,6 +167,7 @@ void main() {
   ) async {
     await show(tester, scale: 2);
     await navigate(tester, AppDestination.settings);
+    await tester.scrollUntilVisible(find.text('Theme'), 200);
     expect(find.text('Theme'), findsOneWidget);
     expect(tester.takeException(), isNull);
     await navigate(tester, AppDestination.administration);

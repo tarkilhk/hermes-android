@@ -96,4 +96,28 @@ void main() {
       findsOneWidget,
     );
   });
+
+  testWidgets('labels failed and shortened recovered work', (tester) async {
+    await tester.pumpWidget(
+      const MaterialApp(
+        home: Scaffold(
+          body: SideQuestionDeliveryCard(
+            delivery: SideQuestionDelivery(
+              kind: SideQuestionDeliveryKind.backgroundTask,
+              taskId: 'failed',
+              question: 'Long prompt',
+              state: SideQuestionDeliveryState.failed,
+              result: 'Task failed.',
+              questionTruncated: true,
+              resultTruncated: true,
+            ),
+          ),
+        ),
+      ),
+    );
+
+    expect(find.text('Background task failed'), findsOneWidget);
+    expect(find.text('Prompt shortened by Hermes.'), findsOneWidget);
+    expect(find.text('Result shortened by Hermes.'), findsOneWidget);
+  });
 }

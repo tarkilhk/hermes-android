@@ -16,7 +16,11 @@ List<ProfileLiveActivity> _filterWorkspaceActivity(
   _ActivityFilter.all => activity,
   _ActivityFilter.running =>
     activity
-        .where((item) => item.state == ProfileLiveActivityState.running)
+        .where(
+          (item) =>
+              item.state == ProfileLiveActivityState.running ||
+              item.sideTasksRunning > 0,
+        )
         .toList(growable: false),
   _ActivityFilter.needsInput =>
     activity
@@ -121,7 +125,13 @@ class _WorkspaceActivityContentState extends State<WorkspaceActivityContent> {
               ),
               subtitle: Text(
                 '${item.workspace.profileName} · '
-                '${item.state == ProfileLiveActivityState.needsInput ? 'Needs input' : 'Running'}',
+                '${item.state == ProfileLiveActivityState.needsInput
+                    ? 'Needs input'
+                    : item.sideTasksRunning > 0
+                    ? item.sideTasksRunning == 1
+                          ? 'Background work running'
+                          : '${item.sideTasksRunning} background tasks running'
+                    : 'Running'}',
               ),
               trailing: const Icon(Icons.chevron_right),
               onTap: controller.switching ? null : () => widget.onOpen(item),

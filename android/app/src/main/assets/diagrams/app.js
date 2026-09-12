@@ -156,6 +156,8 @@
   }
 
   async function render(source, dark, sequence) {
+    document.title = 'Diagram preview';
+    diagram.setAttribute('aria-label', document.title);
     setTheme(dark);
     status.hidden = true;
     clearPreview();
@@ -201,6 +203,8 @@
   }
 
   async function renderSvg(source, dark, sequence) {
+    document.title = 'SVG preview';
+    diagram.setAttribute('aria-label', document.title);
     setTheme(dark);
     status.hidden = true;
     clearPreview();
@@ -259,6 +263,8 @@
   }
 
   function renderHtml(source, dark, sequence) {
+    document.title = 'HTML preview';
+    diagram.setAttribute('aria-label', document.title);
     setTheme(dark);
     status.hidden = true;
     clearPreview();
