@@ -25,6 +25,7 @@ import 'core/widgets/app_drawer.dart';
 import 'core/screens/app_settings_content.dart';
 import 'core/widgets/config_backup_card.dart';
 import 'core/widgets/gateway_headers_editor.dart';
+import 'core/screens/backend_updates_screen.dart';
 
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
@@ -802,6 +803,18 @@ class HomeScreenState extends State<HomeScreen> {
         appBar: AppBar(
           title: Text(_destination.label),
           actions: [
+            if (_destination == AppDestination.connections &&
+                _connections.isNotEmpty)
+              IconButton(
+                tooltip: 'Backend updates',
+                onPressed: () => Navigator.of(context).push(
+                  MaterialPageRoute<void>(
+                    builder: (_) =>
+                        BackendUpdatesScreen(connections: _connections),
+                  ),
+                ),
+                icon: const Icon(Icons.system_update_alt),
+              ),
             if (_destination == AppDestination.connections &&
                 _connections.isNotEmpty)
               IconButton(

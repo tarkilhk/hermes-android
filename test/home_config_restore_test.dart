@@ -401,6 +401,26 @@ void main() {
     },
   );
 
+  testWidgets('connections opens backend updates with deliberate selection', (
+    tester,
+  ) async {
+    final manager = await buildManager();
+    await manager.saveConnection('Work', 'localhost', 9119, '');
+    await pumpHome(tester, manager);
+    await tester.tap(find.byTooltip('Backend updates'));
+    await tester.pumpAndSettle();
+    expect(find.text('Check selected'), findsOneWidget);
+    final update = tester.widget<FilledButton>(
+      find.byKey(const ValueKey('backend-updates-update-selected')),
+    );
+    expect(update.onPressed, isNull);
+    expect(find.byType(CheckboxListTile), findsOneWidget);
+    expect(
+      tester.widget<CheckboxListTile>(find.byType(CheckboxListTile)).value,
+      isFalse,
+    );
+  });
+
   testWidgets('a new connection never pre-fills a Desktop Gateway URL', (
     tester,
   ) async {

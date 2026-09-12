@@ -3,6 +3,7 @@ import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:hermes_android/core/models/hermes_profile.dart';
+import 'package:hermes_android/core/services/backend_update_controller.dart';
 import 'package:hermes_android/core/services/profile_gateway.dart';
 import 'package:hermes_android/core/services/profiles_repository.dart';
 import 'package:hermes_android/core/widgets/backend_version_card.dart';
@@ -309,6 +310,69 @@ void main() {
     await openConfirmation(tester);
 
     replace(() => current = second);
+    await tester.pump();
+    await tester.tap(find.widgetWithText(FilledButton, 'Update backend').last);
+    await tester.pumpAndSettle();
+
+    expect(first.posts, isEmpty);
+    expect(second.posts, isEmpty);
+  });
+
+  testWidgets('external controller remains parent-owned after card disposal', (
+    tester,
+  ) async {
+    final host = _UpdateHost();
+    final external = BackendUpdateController(host.gateway);
+    await external.checkForUpdate();
+    await tester.pumpWidget(
+      MaterialApp(
+        home: BackendVersionCard(
+          gateway: host.gateway,
+          updateController: external,
+        ),
+      ),
+    );
+    expect(find.text('1.2.3'), findsOneWidget);
+    await tester.pumpWidget(const MaterialApp(home: SizedBox()));
+
+    void listener() {}
+    expect(() => external.addListener(listener), returnsNormally);
+    external.removeListener(listener);
+    external.dispose();
+  });
+
+  testWidgets('confirmation cannot start a replacement external controller', (
+    tester,
+  ) async {
+    final first = _UpdateHost();
+    final second = _UpdateHost();
+    final firstController = BackendUpdateController(first.gateway);
+    final secondController = BackendUpdateController(second.gateway);
+    addTearDown(firstController.dispose);
+    addTearDown(secondController.dispose);
+    late StateSetter replace;
+    var currentHost = first;
+    var currentController = firstController;
+    await tester.pumpWidget(
+      MaterialApp(
+        home: StatefulBuilder(
+          builder: (context, setState) {
+            replace = setState;
+            return BackendVersionCard(
+              gateway: currentHost.gateway,
+              updateController: currentController,
+            );
+          },
+        ),
+      ),
+    );
+    await check(tester);
+    await openConfirmation(tester);
+
+    replace(() {
+      currentHost = second;
+      currentController = secondController;
+    });
     await tester.pump();
     await tester.tap(find.widgetWithText(FilledButton, 'Update backend').last);
     await tester.pumpAndSettle();

@@ -8,6 +8,15 @@ Feature releases increment the minor version, fixes increment the patch version,
 and breaking changes increment the major version. The Android build number after
 `+` always increases. Update this changelog for every release milestone.
 
+## [2.16.0+2165] - 2026-09-12
+
+### Added
+
+- Check and update explicitly selected Hermes backends from Connections.
+  Review the host list before starting, choose one saved connection per dashboard
+  endpoint, and retain separate eligibility, progress and outcomes for each host.
+  Reuse the existing update controls and manual status refresh.
+
 ## [2.15.0+2164] - 2026-09-12
 
 ### Added

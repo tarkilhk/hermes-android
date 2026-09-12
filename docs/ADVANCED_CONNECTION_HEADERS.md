@@ -40,3 +40,5 @@ copies custom headers. The Android HTTP client and the narrow WebSocket custom
 client therefore disable redirect following when custom headers are present.
 
 Verification for 2.15.0: 1,124 tests passed, four opt-in skips, clean analyzer. Focused checks cover secure rollback/persistence, connection identities, form validation and retained edits, encrypted backup, token/password/proxy authentication, WebSocket tickets, and real HTTP/WebSocket redirects. The WebSocket redirect regression was confirmed failing without the guard and passing with it. No live proxy credentials or backend settings were changed.
+
+Deployment on 2026-09-12: signed Personal 2.15.0 / 21642 passed certificate/package checks, installed in place wirelessly and launched on the owner's phone. No real proxy credentials were changed during verification.

@@ -8,11 +8,13 @@ import '../services/profile_gateway.dart';
 class BackendVersionCard extends StatefulWidget {
   final ProfileGateway gateway;
   final String? connectionLabel;
+  final BackendUpdateController? updateController;
 
   const BackendVersionCard({
     super.key,
     required this.gateway,
     this.connectionLabel,
+    this.updateController,
   });
 
   @override
@@ -21,32 +23,50 @@ class BackendVersionCard extends StatefulWidget {
 
 class _BackendVersionCardState extends State<BackendVersionCard> {
   late BackendUpdateController _controller;
+  late bool _ownsController;
 
   @override
   void initState() {
     super.initState();
-    _controller = BackendUpdateController(widget.gateway);
+    _controller =
+        widget.updateController ?? BackendUpdateController(widget.gateway);
+    _ownsController = widget.updateController == null;
   }
 
   @override
   void didUpdateWidget(covariant BackendVersionCard oldWidget) {
     super.didUpdateWidget(oldWidget);
-    if (identical(oldWidget.gateway, widget.gateway)) {
+    final suppliedControllerChanged = !identical(
+      oldWidget.updateController,
+      widget.updateController,
+    );
+    final internalGatewayChanged =
+        widget.updateController == null &&
+        !identical(oldWidget.gateway, widget.gateway);
+    if (!suppliedControllerChanged && !internalGatewayChanged) {
       return;
     }
     final oldController = _controller;
-    _controller = BackendUpdateController(widget.gateway);
-    oldController.dispose();
+    final disposedByCard = _ownsController;
+    _controller =
+        widget.updateController ?? BackendUpdateController(widget.gateway);
+    _ownsController = widget.updateController == null;
+    if (disposedByCard) {
+      oldController.dispose();
+    }
   }
 
   @override
   void dispose() {
-    _controller.dispose();
+    if (_ownsController) {
+      _controller.dispose();
+    }
     super.dispose();
   }
 
   Future<void> _confirmAndStart() async {
     final controller = _controller;
+    final gateway = widget.gateway;
     if (!controller.canStart) {
       return;
     }
@@ -72,7 +92,10 @@ class _BackendVersionCardState extends State<BackendVersionCard> {
         ],
       ),
     );
-    if (confirmed != true || !mounted || !identical(controller, _controller)) {
+    if (confirmed != true ||
+        !mounted ||
+        !identical(controller, _controller) ||
+        !identical(gateway, widget.gateway)) {
       return;
     }
     await controller.startUpdate();

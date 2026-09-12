@@ -17,7 +17,7 @@ The [Desktop/Android comparison](docs/HERMES_DESKTOP_ANDROID_FEATURE_ANALYSIS.md
 The current connection flow opens `ProfileWorkspaceScreen`, which owns the drawer and the existing chat workspace. Implemented behavior includes:
 
 - Saved connections in the shared app style, password setup, modern dashboard/gateway validation, profile discovery and client-local profile switching.
-- Drawer navigation, Activity discovery across profiles, reachable theme/accent/text-size and notification controls, and installed Android version/build in App settings. Hermes administration shows the selected connection/profile, description/SOUL editing, manual access/provider diagnostics, server-recorded profile usage and confirmed one-host backend updates with server progress and outcomes. Activity reports profiles it could not reach. Advanced connection settings support custom access-proxy headers stored with secure credentials.
+- Drawer navigation, Activity discovery across profiles, reachable theme/accent/text-size and notification controls, and installed Android version/build in App settings. Hermes administration shows the selected connection/profile, description/SOUL editing, manual access/provider diagnostics, server-recorded profile usage and confirmed one-host backend updates with server progress and outcomes. Activity reports profiles it could not reach. Advanced connection settings support custom access-proxy headers stored with secure credentials. The Connections toolbar also opens selected-host backend updates with per-host progress and outcomes.
 - Separate profile-owned conversations and running work, with reconnect and server-history refresh.
 - Chat-menu supervision of subagents, goal details and background work. Supported controls include targeted subagent Steer/Interrupt, goal Pause/Resume/Clear, loop/heartbeat controls and background-process Stop. Goal criteria can be added, removed or cleared; actions wait for server acknowledgement.
 - Projects with rename, server appearance and delete controls; recent and pinned chats, paginated unread filtering, Running/Needs input Activity filters, full-text conversation search, Find within the current chat, and an option to include automated chats.
@@ -55,12 +55,12 @@ The app's current slash/profile contracts and any separately maintained backend 
 
 ## Version and application identity
 
-Source version on 2026-09-12 is `2.15.0+2164` in [pubspec.yaml](pubspec.yaml). This is the checked-out version, not a claim that a matching public release has been published. Each release is recorded in the [changelog](CHANGELOG.md), with semantic versions and an increasing Android build number.
+Source version on 2026-09-12 is `2.16.0+2165` in [pubspec.yaml](pubspec.yaml). This is the checked-out version, not a claim that a matching public release has been published. Each release is recorded in the [changelog](CHANGELOG.md), with semantic versions and an increasing Android build number.
 
 - Personal release package: `com.tarkilhk.hermes.android`, labelled Hermes Personal.
 - Development package: `com.hermesagent.hermes_android.dev`.
 - The inherited upstream package is separate and is not this fork's release identity.
-- ABI-split codes derive from the base build number; the current ARM64 split uses `21642`.
+- ABI-split codes derive from the base build number; the current ARM64 split uses `21652`.
 
 The [release plan](docs/ANDROID_RELEASE_PLAN.md) and [build configuration](android/app/build.gradle.kts) document identity, signing and version-code rules. The selected S08 work will expose this client's version/build and update information in the app, separately from the backend version.
 

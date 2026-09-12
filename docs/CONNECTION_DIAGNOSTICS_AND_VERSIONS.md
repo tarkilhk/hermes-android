@@ -44,3 +44,5 @@ The 2.10.0 snapshot passed 1,072 tests with four opt-in skips. Focused checks co
 The 2.12.0 update snapshot passed 1,097 tests with four opt-in skips and a clean analyzer. Update coverage includes exact scoped requests, fresh eligibility refusals, confirmations, already-running responses, nested receipts, lost acknowledgements, late status reads, replaced owners and narrow large-text layout. No live backend update was triggered.
 
 Deployment on 2026-09-12: the signed Personal 2.12.0 APK passed certificate/package checks, installed in place via wireless debugging, and launched. Android reported versionCode 21612 and versionName 2.12.0. Earlier deployment-pending notes above are historical. No backend update was triggered.
+
+The multi-host follow-up is implemented in 2.16.0; see [Backend updates](BACKEND_UPDATES.md) for selection, endpoint matching, per-host outcomes and verification. Earlier follow-up notes above describe the initial 2.12.0 boundary. Remote TUI restart remains a separate backend dependency.
