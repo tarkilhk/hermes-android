@@ -146,6 +146,31 @@ void main() {
     await controller.refresh();
     expect(controller.current!.sessions.any((r) => r['id'] == 'newest'), false);
   });
+  test('delete accepts the reused live runtime resume response', () async {
+    host.active = true;
+    host.reuseLiveResume = true;
+    await controller.mutateSession(key(), delete: true);
+    expect(host.closes.single.$2['session_id'], 'runtime');
+    expect(host.deletes.single.$2, {'profile': 'personal'});
+    expect(controller.current!.sessions.any((r) => r['id'] == 'newest'), false);
+  });
+  for (final response in [
+    {'session_key': 'another-chat'},
+    {'session_key': null},
+    {'stored_session_id': 'another-chat'},
+  ]) {
+    test('delete rejects conflicting resume identity $response', () async {
+      host.active = true;
+      host.reuseLiveResume = true;
+      host.resumeOverrides = response;
+      await expectLater(
+        controller.mutateSession(key(), delete: true),
+        throwsFormatException,
+      );
+      expect(host.closes, isEmpty);
+      expect(host.deletes, isEmpty);
+    });
+  }
   test('delete uses profile query and refuses a working durable ID', () async {
     host.active = true;
     host.activeStatus = 'working';
@@ -470,6 +495,7 @@ void main() {
     tester,
   ) async {
     host.active = true;
+    host.reuseLiveResume = true;
     await show(tester);
     await menu(tester, 'newest');
     await tester.tap(find.text('Delete'));

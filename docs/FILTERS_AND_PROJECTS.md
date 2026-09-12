@@ -49,6 +49,17 @@ Dart analyzer hit a Windows performance-pipe shutdown error; rerunning through
 Flutter completed successfully. Phone installation and live smoke results are
 reported separately from these automated checks.
 
+Follow-up for `2.5.2+2154`: the owner's "Explorer le sens de gauche" attempt
+exposed a second response shape. Hermes's `_resume_reuse_live_locked` calls
+`_live_session_payload`, returning `session_key` and `resumed`, without
+`stored_session_id`. The original fixture modeled only a fresh runtime. A test
+using the reused-runtime shape reproduced `FormatException: Session response
+has a different chat`, which the browser displayed as its generic retry message.
+Deletion now accepts either durable-ID field and rejects conflicting fields.
+All 32 chat-action tests pass, including the confirmed-delete widget test using
+the reused-runtime response. This reproduces the contract error locally; it
+does not claim a captured response from the owner's remote gateway.
+
 ## Verification
 
 The owner's 2026-09-12 screenshot feedback also refines D15 in this batch: the context fuse sits on the message box's existing top edge, with a small dot at the current usage position. It adds no separate row. Server-reported usage, thresholds, unknown/estimated states and accessibility labels remain unchanged.

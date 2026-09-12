@@ -16,6 +16,8 @@ class ProfileActionsFixture extends ProfileBrowserFixture {
   String? statusAfterResume;
   String? resumeProfile;
   String resumeSessionId = 'newest';
+  bool reuseLiveResume = false;
+  Map<String, dynamic> resumeOverrides = {};
   bool failClose = false;
   bool acknowledgeClose = true;
   bool foreignActive = false;
@@ -80,9 +82,15 @@ class ProfileActionsFixture extends ProfileBrowserFixture {
           activeStatus = statusAfterResume ?? activeStatus;
           return {
             'session_id': 'runtime',
-            'stored_session_id': resumeSessionId,
+            if (reuseLiveResume) ...{
+              'session_key': resumeSessionId,
+              'resumed': resumeSessionId,
+              'status': activeStatus,
+            } else
+              'stored_session_id': resumeSessionId,
             'messages': [],
             'info': {'profile_name': resumeProfile ?? scope.profileName},
+            ...resumeOverrides,
           };
         }
         if (method == 'session.close') {

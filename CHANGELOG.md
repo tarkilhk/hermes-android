@@ -8,6 +8,15 @@ Feature releases increment the minor version, fixes increment the patch version,
 and breaking changes increment the major version. The Android build number after
 `+` always increases. Update this changelog for every release milestone.
 
+## [2.5.2+2154] - 2026-09-12
+
+### Fixed
+
+- Deleting an already-open chat now accepts Hermes's `session_key` identity.
+  The 2.5.1 fix expected `stored_session_id`, which is returned when creating a
+  runtime, and failed when Hermes reused an existing runtime. Conflicting IDs
+  and profile mismatches still block deletion.
+
 ## [2.5.1+2153] - 2026-09-12
 
 ### Fixed

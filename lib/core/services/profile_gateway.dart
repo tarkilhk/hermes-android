@@ -655,7 +655,11 @@ class ProfileGateway {
       // The live list has no profile owner. Resolve through scoped resume before
       // closing anything: the same durable ID can exist in another profile.
       final session = await resume(id);
-      if (session['stored_session_id'] != id) {
+      // Fresh resumes expose stored_session_id; reusing an open runtime exposes
+      // session_key instead. If both are present they must agree.
+      final storedId = session['stored_session_id'] ?? session['session_key'];
+      if (storedId != id ||
+          session.containsKey('session_key') && session['session_key'] != id) {
         throw const FormatException('Session response has a different chat');
       }
       final runtimeId = session['session_id'] as String;
