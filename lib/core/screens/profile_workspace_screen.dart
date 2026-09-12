@@ -152,6 +152,7 @@ class _ProfileWorkspaceScreenState extends State<ProfileWorkspaceScreen>
           drawer: _drawer(),
         );
       }
+      final parentSessionId = controller.parentSessionId(chat);
       return PopScope(
         canPop: false,
         onPopInvokedWithResult: (didPop, _) {
@@ -244,18 +245,31 @@ class _ProfileWorkspaceScreenState extends State<ProfileWorkspaceScreen>
                         ),
                       ),
                     );
+                  } else if (action == 'parent') {
+                    unawaited(_run(() => controller.openParentChat(chat)));
                   }
                 },
-                itemBuilder: (_) => const [
-                  PopupMenuItem(value: 'outputs', child: Text('Outputs')),
-                  PopupMenuItem(value: 'subagents', child: Text('Subagents')),
-                  PopupMenuItem(value: 'goal', child: Text('Goal')),
-                  PopupMenuItem(
+                itemBuilder: (_) => [
+                  if (parentSessionId != null)
+                    const PopupMenuItem(
+                      value: 'parent',
+                      child: Text('Parent chat'),
+                    ),
+                  const PopupMenuItem(value: 'outputs', child: Text('Outputs')),
+                  const PopupMenuItem(
+                    value: 'subagents',
+                    child: Text('Subagents'),
+                  ),
+                  const PopupMenuItem(value: 'goal', child: Text('Goal')),
+                  const PopupMenuItem(
                     value: 'background',
                     child: Text('Background work'),
                   ),
-                  PopupMenuItem(value: 'find', child: Text('Find in chat')),
-                  PopupMenuItem(
+                  const PopupMenuItem(
+                    value: 'find',
+                    child: Text('Find in chat'),
+                  ),
+                  const PopupMenuItem(
                     value: 'refresh',
                     child: Text('Refresh workspace'),
                   ),
@@ -356,8 +370,6 @@ class _ProfileWorkspaceScreenState extends State<ProfileWorkspaceScreen>
         message['role'] == 'assistant' &&
         answerMessageId(message) != null &&
         isBranchMessage(message);
-    final group = controller.answerVersionsForMessage(chat, message);
-    final selected = group?.selections[chat.key.sessionId] ?? 0;
     final enabled =
         !chat.busy &&
         !chat.changingAnswer &&
@@ -415,18 +427,6 @@ class _ProfileWorkspaceScreenState extends State<ProfileWorkspaceScreen>
                       regenerate: true,
                     );
                   })
-                : null,
-            version: selected + 1,
-            count: group?.sessions.length ?? 1,
-            onPrevious: enabled && group != null
-                ? () => _run(
-                    () => controller.selectAnswer(chat, group, selected - 1),
-                  )
-                : null,
-            onNext: enabled && group != null
-                ? () => _run(
-                    () => controller.selectAnswer(chat, group, selected + 1),
-                  )
                 : null,
           ),
       ],

@@ -86,6 +86,7 @@ class ProfileChat {
   String runtimeId;
   String title;
   String source;
+  String? parentSessionId;
   double lastActive = DateTime.now().millisecondsSinceEpoch / 1000;
   String? projectId;
   bool projectLoading = false;
@@ -154,6 +155,7 @@ class ProfileChat {
     required this.runtimeId,
     required this.title,
     this.source = '',
+    this.parentSessionId,
     this.projectId,
   });
 
@@ -215,7 +217,6 @@ class ProfileWorkspaceData {
   Timer? retry;
   bool reconnecting = false;
   String? reconnectError;
-  List<AnswerVersionGroup> answerVersions = [];
   ProfileWorkspaceData(this.gateway);
   WorkspaceScope get scope => gateway.scope;
   ProfileChat? get chat => chats[selectedSession];
@@ -341,9 +342,6 @@ class ProfileWorkspaceController extends ChangeNotifier {
     );
     return _resources.putIfAbsent(scope, () {
       final resource = ProfileWorkspaceData(_factory(scope));
-      resource.answerVersions = AnswerVersionGroup.decode(
-        preferences.getString(_versionsKey(resource)),
-      );
       resource.gateway.onEvent = (event) => _event(resource, event);
       resource.gateway.onConnectionChanged = (connected) {
         if (!connected && !_closed) {
@@ -361,6 +359,20 @@ class ProfileWorkspaceController extends ChangeNotifier {
 
   Future<void> initialize() async {
     try {
+      for (final key in preferences
+          .getKeys()
+          .where((key) => key.startsWith('answer_versions_v1_'))
+          .toList()) {
+        try {
+        try {
+          await preferences.remove(key);
+        } catch (_) {
+          // Obsolete links are never read; cleanup must not block connection.
+        }
+        } catch (_) {
+          // Obsolete local links are never read; cleanup must not block Hermes.
+        }
+      }
       // This temporary owner is used only for host-level discovery, not data.
       discovery = await _resource('default').gateway.discover();
       final initial = ProfileSelectionStore(
@@ -695,7 +707,6 @@ class ProfileWorkspaceController extends ChangeNotifier {
       chat.nextHistoryOffset = page.nextOffset == null
           ? null
           : chat.messages.length;
-      await _refreshAnswerIds(chat);
       unawaited(refreshContext(chat));
     } catch (_) {
       if (!_closed && chat.historyGeneration == generation) {
@@ -1398,29 +1409,25 @@ class ProfileWorkspaceController extends ChangeNotifier {
     var chat = resource.chats[key.sessionId];
     if (chat == null) {
       final response = await resource.gateway.resume(key.sessionId);
+      final sessionRow = <Map<String, dynamic>>[
+        ...resource.searchResults,
+        ...resource.visibleSessions,
+        ...resource.sessions,
+      ].where((row) => row['id'] == key.sessionId).firstOrNull;
+      if (response.containsKey('parent_session_id')) {
+        _applyServerParentRows(resource, key.sessionId, response['parent_session_id']);
+      }
       chat = ProfileChat(
         key: key,
         runtimeId: response['session_id'] as String,
-        source:
-            [
-                  ...resource.searchResults,
-                  ...resource.visibleSessions,
-                  ...resource.sessions,
-                ]
-                .where((s) => s['id'] == key.sessionId)
-                .firstOrNull?['source']
-                ?.toString() ??
-            '',
-        title:
-            [
-                  ...resource.searchResults,
-                  ...resource.visibleSessions,
-                  ...resource.sessions,
-                ]
-                .where((s) => s['id'] == key.sessionId)
-                .firstOrNull?['title']
-                ?.toString() ??
-            'Chat',
+        source: sessionRow?['source']?.toString() ?? '',
+        title: sessionRow?['title']?.toString() ?? 'Chat',
+        parentSessionId: _serverParent(
+          response.containsKey('parent_session_id')
+              ? response['parent_session_id']
+              : sessionRow?['parent_session_id'],
+          key.sessionId,
+        ),
       );
       resource.chats[key.sessionId] = chat;
       chat.archived =
@@ -1440,6 +1447,12 @@ class ProfileWorkspaceController extends ChangeNotifier {
       final response = await resource.gateway.resume(key.sessionId);
       if (_closed || resource.deletedSessions.contains(key.sessionId)) return;
       _hydrate(chat, response);
+      chat.parentSessionId = response.containsKey('parent_session_id')
+          ? _serverParent(response['parent_session_id'], key.sessionId)
+          : parentSessionId(chat);
+      if (response.containsKey('parent_session_id')) {
+        _applyServerParentRows(resource, key.sessionId, response['parent_session_id']);
+      }
       await _restoreDraft(chat);
     }
     // The user may have navigated again while resume was in flight.
@@ -2035,92 +2048,48 @@ class ProfileWorkspaceController extends ChangeNotifier {
     return resource;
   }
 
-  String _versionsKey(ProfileWorkspaceData resource) =>
-      'answer_versions_v1_${resource.scope.storageNamespace}';
+  String? _serverParent(Object? value, String sessionId) {
+    if (value is! String || value.trim().isEmpty || value == sessionId) {
+      return null;
+    }
+    return value;
+  }
 
-  AnswerVersionGroup? answerVersionsForMessage(
-    ProfileChat chat,
-    Map<String, dynamic> message,
+  void _applyServerParentRows(
+    ProfileWorkspaceData resource,
+    String sessionId,
+    Object? value,
   ) {
-    final id = answerMessageId(message);
-    if (id == null) return null;
-    return _owned(chat).answerVersions
-        .where((g) => g.answerIds[chat.key.sessionId] == id)
-        .firstOrNull;
-  }
-
-  Future<void> _refreshAnswerIds(ProfileChat chat) async {
-    final resource = _owned(chat);
-    final groups = resource.answerVersions
-        .where((g) => g.selections.containsKey(chat.key.sessionId))
-        .toList();
-    if (groups.isEmpty) return;
-    final history = await resource.gateway.fullHistory(chat.runtimeId);
-    var ordinal = -1;
-    final answers = <int, int>{};
-    for (final message in history) {
-      if (isAnswerPrompt(message)) ordinal++;
-      final id = answerMessageId(message);
-      if (message['role'] == 'assistant' &&
-          isBranchMessage(message) &&
-          id != null) {
-        answers[ordinal] = id;
-      }
-    }
-    var changed = false;
-    for (final group in groups) {
-      final id = answers[group.userOrdinal];
-      if (id != null && group.answerIds[chat.key.sessionId] != id) {
-        group.answerIds[chat.key.sessionId] = id;
-        changed = true;
-      }
-    }
-    if (changed &&
-        !await preferences.setString(
-          _versionsKey(resource),
-          jsonEncode(resource.answerVersions.map((g) => g.toJson()).toList()),
-        )) {
-      throw StateError('Could not save answer positions');
+    final parent = _serverParent(value, sessionId);
+    for (final row in <Map<String, dynamic>>[
+      ...resource.visibleSessions,
+      ...resource.sessions,
+      ...resource.searchResults,
+    ].where((row) => row['id'] == sessionId)) {
+      row['parent_session_id'] = parent;
     }
   }
 
-  AnswerVersionGroup? answerVersions(ProfileChat chat, int userOrdinal) =>
-      _owned(chat).answerVersions
-          .where(
-            (group) =>
-                group.userOrdinal == userOrdinal &&
-                group.selections.containsKey(chat.key.sessionId),
-          )
-          .firstOrNull;
-
-  Future<void> selectAnswer(
-    ProfileChat chat,
-    AnswerVersionGroup group,
-    int index,
-  ) async {
+  String? parentSessionId(ProfileChat chat) {
     final resource = _owned(chat);
-    if (chat.busy ||
-        chat.changingAnswer ||
-        chat.changingIntelligence ||
-        switching) {
-      return;
+    final rows = <Map<String, dynamic>>[
+      ...resource.visibleSessions,
+      ...resource.sessions,
+      ...resource.searchResults,
+    ];
+    for (final row in rows.where((row) => row['id'] == chat.key.sessionId)) {
+      if (row.containsKey('parent_session_id')) {
+        return _serverParent(row['parent_session_id'], chat.key.sessionId);
+      }
     }
-    if (!resource.answerVersions.contains(group) ||
-        !group.selections.containsKey(chat.key.sessionId) ||
-        index < 0 ||
-        index >= group.sessions.length) {
-      throw ArgumentError('Unknown answer version');
-    }
-    chat.changingAnswer = true;
-    _changed();
-    try {
-      await openSession(
-        ProfileSessionKey(resource.scope, group.sessions[index]),
-      );
-    } finally {
-      chat.changingAnswer = false;
-      _changed();
-    }
+    return chat.parentSessionId;
+  }
+
+  Future<void> openParentChat(ProfileChat chat) async {
+    final resource = _owned(chat);
+    final parent = parentSessionId(chat);
+    if (parent == null) throw StateError('This chat has no server parent');
+    await openSession(ProfileSessionKey(resource.scope, parent));
   }
 
   /// Fork before regenerating so no operation rewrites the source transcript.
@@ -2183,10 +2152,14 @@ class ProfileWorkspaceController extends ChangeNotifier {
           'Branch has no new durable session identity',
         );
       }
+      final parent = result['parent'] == source.key.sessionId
+          ? source.key.sessionId
+          : null;
       final child = ProfileChat(
         key: ProfileSessionKey(resource.scope, id),
         runtimeId: result['session_id'] as String,
         source: source.source,
+        parentSessionId: parent,
         projectId: source.projectId,
         title: regenerate
             ? source.title
@@ -2203,6 +2176,7 @@ class ProfileWorkspaceController extends ChangeNotifier {
         'title': child.title,
         'source': child.source,
         'profile': resource.scope.profileName,
+        'parent_session_id': ?parent,
       });
       final copied = child.messages.where(isBranchMessage).toList();
       if (copied.length != expected.length ||
@@ -2215,42 +2189,6 @@ class ProfileWorkspaceController extends ChangeNotifier {
           'The gateway did not copy the requested answer boundary. The original is unchanged.',
         );
       }
-      if (regenerate) {
-        final snapshot = jsonEncode(
-          resource.answerVersions.map((g) => g.toJson()).toList(),
-        );
-        var group = answerVersions(source, target.userOrdinal);
-        // Earlier answers are inherited by this continuation. Their controls
-        // must still be available when another, later answer is regenerated.
-        for (final earlier in resource.answerVersions.where(
-          (g) => g.userOrdinal < target.userOrdinal,
-        )) {
-          final selected = earlier.selections[source.key.sessionId];
-          if (selected != null) earlier.selections[id] = selected;
-        }
-        if (group == null) {
-          group = AnswerVersionGroup(
-            target.userOrdinal,
-            [source.key.sessionId],
-            {source.key.sessionId: 0},
-          );
-          resource.answerVersions.add(group);
-        }
-        group.selections[id] = group.sessions.length;
-        group.sessions.add(id);
-        group.answerIds[source.key.sessionId] = selectedId;
-        try {
-          if (!await preferences.setString(
-            _versionsKey(resource),
-            jsonEncode(resource.answerVersions.map((g) => g.toJson()).toList()),
-          )) {
-            throw StateError('Could not save answer links');
-          }
-        } catch (_) {
-          resource.answerVersions = AnswerVersionGroup.decode(snapshot);
-          rethrow;
-        }
-      }
       if (current == resource &&
           resource.chat == source &&
           navigation == _navigationGeneration &&
@@ -2260,30 +2198,8 @@ class ProfileWorkspaceController extends ChangeNotifier {
       }
       _changed();
       if (regenerate && !await _regenerate(child, target)) {
-        // A rejected request produced no alternate answer. Keep the standalone
-        // child reachable in Chats, but do not count a copy as a new version.
-        for (final group in resource.answerVersions) {
-          group.selections.remove(id);
-          group.answerIds.remove(id);
-          final index = group.sessions.indexOf(id);
-          if (index >= 0) {
-            group.sessions.removeAt(index);
-            group.selections.updateAll(
-              (_, selected) => selected > index ? selected - 1 : selected,
-            );
-          }
-        }
-        resource.answerVersions.removeWhere(
-          (group) => group.sessions.length < 2,
-        );
-        if (!await preferences.setString(
-          _versionsKey(resource),
-          jsonEncode(resource.answerVersions.map((g) => g.toJson()).toList()),
-        )) {
-          throw StateError(
-            'Regeneration failed and answer links could not be updated',
-          );
-        }
+        // The server child remains reachable, but a rejected regeneration
+        // returns the user to the source transcript.
         if (current == resource &&
             resource.chat == child &&
             navigation == _navigationGeneration &&

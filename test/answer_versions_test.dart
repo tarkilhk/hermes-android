@@ -17,10 +17,13 @@ import 'package:shared_preferences/shared_preferences.dart';
 class AnswerHost {
   final gateways = <String, ProfileGateway>{};
   final histories = <String, List<Map<String, dynamic>>>{};
+  final parents = <String, String>{};
   final calls = <(String, Map<String, dynamic>)>[];
   Completer<void>? branchDelay;
   Object? submitError;
   bool omitRowIds = false;
+  bool omitSessionParent = false;
+  bool clearSessionParent = false;
   int next = 0;
   int nextRow = 10000;
 
@@ -77,13 +80,20 @@ class AnswerHost {
             ? {
                 'offset': int.parse(query['offset']!),
                 'limit': int.parse(query['limit']!),
-                'total': 1,
+                'total': 1 + parents.length,
                 'sessions': [
                   {
                     'id': 'original',
                     'title': 'Original chat',
                     'profile': scope.profileName,
                   },
+                  for (final entry in parents.entries)
+                    {
+                      'id': entry.key,
+                      'title': 'Branched chat',
+                      'profile': scope.profileName,
+                      'parent_session_id': entry.value,
+                    },
                 ],
               }
             : historyPage(scope.profileName, path, query),
@@ -95,6 +105,10 @@ class AnswerHost {
           Map<String, dynamic> session(String child) => {
             'session_id': 'runtime-$child',
             'stored_session_id': child,
+            if (clearSessionParent)
+              'parent_session_id': null
+            else if (!omitSessionParent && parents.containsKey(child))
+              'parent_session_id': parents[child],
             'messages': history(
               profile,
               child,
@@ -131,7 +145,8 @@ class AnswerHost {
                 histories['$profile/$child']![i]['row_id'] =
                     next * 1000 + i + 1;
               }
-              return session(child);
+              parents[child] = id;
+              return {...session(child), 'parent': id};
             case 'prompt.submit':
               if (submitError != null) throw submitError!;
               final rows = history(profile, id);
@@ -362,7 +377,7 @@ void main() {
   );
 
   test(
-    'regenerates in a saved child; switches context and restores links after restart',
+    'regenerates in a durable server child without changing the source',
     () async {
       original.draft = 'Unsent draft';
       final before = jsonEncode(host.history('a', 'original'));
@@ -388,46 +403,28 @@ void main() {
             .map(answerMessageText),
         ['Original prompt', 'New answer 1'],
       );
-      var group = controller.answerVersions(child, 0)!;
-      expect(group.sessions, ['original', child.key.sessionId]);
-      await controller.selectAnswer(child, group, 0);
-      expect(controller.current!.chat, same(original));
+      expect(child.parentSessionId, original.key.sessionId);
       expect(original.draft, 'Unsent draft');
-      original.draft = 'Continue original';
-      await controller.send(original);
-      expect(host.calls.last.$2['session_id'], original.runtimeId);
-      await host.complete(original);
-      final third = (await controller.branchAnswer(
-        child,
-        1,
-        regenerate: true,
-      ))!;
-      await host.complete(third);
-      expect(group.sessions.length, 3);
-      controller.dispose();
-      controller = makeController();
-      await controller.initialize();
-      await controller.openSession(third.key);
-      group = controller.answerVersions(controller.current!.chat!, 0)!;
-      expect(group.sessions.length, 3);
-      await controller.selectAnswer(controller.current!.chat!, group, 0);
-      expect(controller.current!.chat!.messages.last['text'], 'New answer 1');
-      expect(controller.current!.chat!.key, original.key);
       expect(
-        preferences
-            .getKeys()
-            .where((k) => k.startsWith('answer_versions'))
-            .length,
-        1,
+        preferences.getKeys().where((k) => k.startsWith('answer_versions')),
+        isEmpty,
       );
-      final saved = preferences.getString(
-        preferences.getKeys().singleWhere(
-          (k) => k.startsWith('answer_versions'),
-        ),
-      )!;
-      expect(saved, isNot(contains('Original prompt')));
     },
   );
+
+  test('startup purges only obsolete local answer relationships', () async {
+    controller.dispose();
+    await preferences.setString('answer_versions_v1_old-host', 'obsolete');
+    await preferences.setString('answer_versions_v10_keep', 'other');
+    await preferences.setString('composer_draft_v1_keep', 'draft');
+    controller = makeController();
+
+    await controller.initialize();
+
+    expect(preferences.containsKey('answer_versions_v1_old-host'), isFalse);
+    expect(preferences.getString('answer_versions_v10_keep'), 'other');
+    expect(preferences.getString('composer_draft_v1_keep'), 'draft');
+  });
 
   test(
     'duplicate taps and sending during a branch do not submit twice',
@@ -464,7 +461,6 @@ void main() {
       final child = (await pending)!;
       await host.complete(child);
       expect(controller.current!.scope.profileName, 'b');
-      expect(controller.answerVersions(controller.current!.chat!, 0), isNull);
       expect(
         host.calls.lastWhere((c) => c.$1 == 'prompt.submit').$2['profile'],
         'a',
@@ -513,50 +509,79 @@ void main() {
             .map(answerMessageText),
         ['Original prompt', 'Original answer', 'Follow-up', 'New answer 1'],
       );
-      final group = controller.answerVersionsForMessage(
-        child,
-        child.messages.last,
-      )!;
-      expect(group.userOrdinal, 1);
-      await controller.selectAnswer(child, group, 0);
-      expect(
-        controller.answerVersionsForMessage(original, original.messages.last),
-        same(group),
-      );
+      expect(child.parentSessionId, original.key.sessionId);
     },
   );
 
   test(
-    'regenerating a later turn retains navigation for earlier answer versions',
+    'parent navigation uses the server lineage in the captured profile',
     () async {
-      final second = (await controller.branchAnswer(
+      final child = (await controller.branchAnswer(
         original,
         2,
-        regenerate: true,
       ))!;
-      await host.complete(second);
-      second.draft = 'Follow-up on second answer';
-      await controller.send(second);
-      await host.complete(second);
-      final later = (await controller.branchAnswer(
-        second,
-        3,
-        regenerate: true,
-      ))!;
-      await host.complete(later);
-      final earlier = controller.answerVersions(later, 0)!;
-      expect(earlier.selections[later.key.sessionId], 1);
-      expect(controller.answerVersions(later, 1)!.sessions, [
-        second.key.sessionId,
-        later.key.sessionId,
-      ]);
-      await controller.selectAnswer(later, earlier, 0);
+      await controller.switchProfile('b');
+
+      await controller.openParentChat(child);
+
+      expect(controller.current!.scope.profileName, 'a');
       expect(controller.current!.chat, same(original));
-      expect(original.messages.last['text'], 'Later answer');
     },
   );
 
-  test('rejected regeneration removes only its failed version link', () async {
+  test('explicit server parent state wins while omitted metadata falls back', () async {
+    final child = (await controller.branchAnswer(original, 2))!;
+    final row = controller.current!.sessions.firstWhere(
+      (row) => row['id'] == child.key.sessionId,
+    );
+    row.remove('parent_session_id');
+    expect(controller.parentSessionId(child), original.key.sessionId);
+
+    row['parent_session_id'] = null;
+    expect(controller.parentSessionId(child), isNull);
+  });
+
+  test('server parent lineage restores without phone relationship state', () async {
+    final child = (await controller.branchAnswer(original, 2))!;
+    final key = child.key;
+    host.omitSessionParent = true;
+    controller.dispose();
+    controller = makeController();
+    await controller.initialize();
+
+    await controller.openSession(key);
+
+    final restored = controller.current!.chat!;
+    expect(restored.parentSessionId, original.key.sessionId);
+    expect(
+      preferences.getKeys().where((key) => key.startsWith('answer_versions')),
+      isEmpty,
+    );
+  });
+
+  testWidgets('explicit null resume parent clears stale list navigation', (
+    tester,
+  ) async {
+    final child = (await controller.branchAnswer(original, 2))!;
+    final key = child.key;
+    controller.dispose();
+    host.clearSessionParent = true;
+    controller = makeController();
+    await controller.initialize();
+
+    await controller.openSession(key);
+    final restored = controller.current!.chat!;
+    expect(controller.parentSessionId(restored), isNull);
+    await tester.pumpWidget(
+      MaterialApp(home: ProfileWorkspaceScreen(controller: controller)),
+    );
+    await tester.pumpAndSettle();
+    await tester.tap(find.byTooltip('Chat actions'));
+    await tester.pumpAndSettle();
+    expect(find.text('Parent chat'), findsNothing);
+  });
+
+  test('rejected regeneration returns to its server parent', () async {
     final second = (await controller.branchAnswer(
       original,
       2,
@@ -569,9 +594,6 @@ void main() {
       throwsStateError,
     );
     expect(controller.current!.chat, same(second));
-    final group = controller.answerVersions(second, 0)!;
-    expect(group.sessions, [original.key.sessionId, second.key.sessionId]);
-    expect(group.selections.containsKey('child-2'), isFalse);
     expect(
       controller.current!.chats['child-2']!.status,
       ProfileTurnStatus.failed,
@@ -591,13 +613,13 @@ void main() {
       expect(child.error, contains('saved prompt address'));
       expect(child.messages.last['text'], 'Original answer');
       expect(host.calls.where((c) => c.$1 == 'prompt.submit'), isEmpty);
-      expect(controller.answerVersions(child, 0), isNull);
+      expect(child.parentSessionId, original.key.sessionId);
       expect(controller.current!.chat, same(original));
     },
   );
 
   test(
-    'uncertain submit retains links and does not automatically resubmit',
+    'uncertain submit keeps server lineage and does not automatically resubmit',
     () async {
       host.submitError = TimeoutException('connection lost');
       final child = (await controller.branchAnswer(
@@ -606,7 +628,7 @@ void main() {
         regenerate: true,
       ))!;
       expect(child.status, ProfileTurnStatus.reconnecting);
-      expect(controller.answerVersions(child, 0)!.sessions.length, 2);
+      expect(child.parentSessionId, original.key.sessionId);
       await controller.reconnect(child.key.workspace);
       expect(host.calls.where((c) => c.$1 == 'prompt.submit').length, 1);
       expect(original.messages.last['text'], 'Later answer');
@@ -614,7 +636,7 @@ void main() {
   );
 
   testWidgets(
-    'workspace refresh action generates and navigates answer versions',
+    'regenerate opens a server child with parent navigation and no carousel',
     (tester) async {
       await tester.pumpWidget(
         MaterialApp(home: ProfileWorkspaceScreen(controller: controller)),
@@ -628,8 +650,6 @@ void main() {
           matching: find.byTooltip('Regenerate response'),
         ),
       );
-      // The controller's preferences write queue is created in setUp, outside
-      // the widget clock. Let those real futures settle before emitting done.
       await tester.runAsync(() async {
         for (var i = 0; i < 100; i++) {
           if (controller.current!.chat!.status == ProfileTurnStatus.running) {
@@ -651,22 +671,20 @@ void main() {
             .map(answerMessageText),
         ['Original prompt', 'New answer 1'],
       );
-      expect(controller.answerVersions(child, 0)?.sessions.length, 2);
-      expect(find.text('2 / 2'), findsOneWidget);
       expect(find.text('New answer 1'), findsOneWidget);
-      await tester.tap(find.byTooltip('Previous answer'));
+      expect(find.byTooltip('Previous answer'), findsNothing);
+      expect(find.byTooltip('Next answer'), findsNothing);
+      await tester.tap(find.byTooltip('Chat actions'));
       await tester.pumpAndSettle();
-      expect(find.text('1 / 2'), findsOneWidget);
+      expect(find.text('Parent chat'), findsOneWidget);
+      await tester.tap(find.text('Parent chat'));
+      await tester.pumpAndSettle();
       expect(find.text('Original answer'), findsOneWidget);
       expect(find.text('Later answer'), findsOneWidget);
-      await tester.tap(find.byTooltip('Next answer'));
-      await tester.pumpAndSettle();
-      expect(find.text('2 / 2'), findsOneWidget);
-      expect(find.text('Later answer'), findsNothing);
     },
   );
 
-  testWidgets('answer controls fit a narrow phone and disable at the ends', (
+  testWidgets('server branch controls fit a narrow phone without version arrows', (
     tester,
   ) async {
     tester.view.physicalSize = const Size(320, 640);
@@ -676,31 +694,14 @@ void main() {
     await tester.pumpWidget(
       MaterialApp(
         home: Scaffold(
-          body: AnswerActions(
-            count: 2,
-            version: 1,
-            onNext: () {},
-            onPrevious: () {},
-          ),
+          body: AnswerActions(onBranch: () {}, onRegenerate: () {}),
         ),
       ),
     );
     expect(tester.takeException(), isNull);
-    expect(
-      tester
-          .widget<IconButton>(
-            find.widgetWithIcon(IconButton, Icons.chevron_left),
-          )
-          .onPressed,
-      isNull,
-    );
-    expect(
-      tester
-          .widget<IconButton>(
-            find.widgetWithIcon(IconButton, Icons.chevron_right),
-          )
-          .onPressed,
-      isNotNull,
-    );
+    expect(find.byTooltip('Branch in new session'), findsOneWidget);
+    expect(find.byTooltip('Regenerate response'), findsOneWidget);
+    expect(find.byIcon(Icons.chevron_left), findsNothing);
+    expect(find.byIcon(Icons.chevron_right), findsNothing);
   });
 }

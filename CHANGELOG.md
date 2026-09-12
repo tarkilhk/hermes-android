@@ -8,6 +8,19 @@ Feature releases increment the minor version, fixes increment the patch version,
 and breaking changes increment the major version. The Android build number after
 `+` always increases. Update this changelog for every release milestone.
 
+## [2.18.0+2167] - 2026-09-12
+
+### Added
+
+- Open Parent chat from Chat actions when Hermes supplies the relationship,
+  keeping the original connection and profile.
+
+### Changed
+
+- Remove the phone-only answer-version carousel and obsolete link preferences.
+  Regenerate, Branch, Edit and Fork retain their server operations and draft
+  protection. A synchronized version carousel remains a backend dependency.
+
 ## [2.17.0+2166] - 2026-09-12
 
 ### Added

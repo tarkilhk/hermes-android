@@ -1,5 +1,3 @@
-import 'dart:convert';
-
 /// Text projection for gateway display messages and stored multimodal content.
 String answerMessageText(Map<String, dynamic> message) {
   final value = message['content'] ?? message['text'];
@@ -81,51 +79,5 @@ class AnswerTarget {
       }
     }
     return AnswerTarget(index, ordinal, prompt);
-  }
-}
-
-/// Each version has its own server session, including any later conversation.
-/// Only links are stored on the phone; transcripts remain on the Hermes host.
-class AnswerVersionGroup {
-  final int userOrdinal;
-  final List<String> sessions;
-  final Map<String, int> selections;
-  final Map<String, int> answerIds;
-  AnswerVersionGroup(
-    this.userOrdinal,
-    this.sessions,
-    this.selections, [
-    Map<String, int>? answerIds,
-  ]) : answerIds = answerIds ?? {};
-
-  Map<String, dynamic> toJson() => {
-    'turn': userOrdinal,
-    'sessions': sessions,
-    'selections': selections,
-    'answer_ids': answerIds,
-  };
-
-  static List<AnswerVersionGroup> decode(String? raw) {
-    if (raw == null) return [];
-    final values = jsonDecode(raw) as List;
-    return values.map((value) {
-      final sessions = (value['sessions'] as List).cast<String>();
-      final selections = Map<String, int>.from(value['selections'] as Map);
-      final ordinal = value['turn'] as int;
-      if (ordinal < 0 ||
-          sessions.isEmpty ||
-          sessions.any((id) => id.isEmpty) ||
-          selections.values.any(
-            (index) => index < 0 || index >= sessions.length,
-          )) {
-        throw const FormatException('Invalid answer version links');
-      }
-      return AnswerVersionGroup(
-        ordinal,
-        sessions,
-        selections,
-        Map<String, int>.from(value['answer_ids'] as Map? ?? {}),
-      );
-    }).toList();
   }
 }

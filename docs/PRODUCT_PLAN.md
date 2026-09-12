@@ -106,7 +106,7 @@ Rows record selected work and explicit decisions to discard or merge a proposal.
 | Q03 | Better file/image/link intake and draft feedback; reuse the same pipeline for M06. |
 | Q05 | No new work. Typing `/` is the intended shortcut for the existing command picker. Discard the proposed discoverability button/toolbar change. Preserve the working catalog. |
 | Q07 | Edit a prior user message and resend with clear history consequences. |
-| Q09 | Preserve/improve regeneration and answer versions, but use server-owned relationships. Current local-only version grouping conflicts with the desired end state; inspect backend support before choosing a migration. |
+| Q09 | Preserve/improve regeneration and answer versions using server-owned relationships. 2.18.0 removes the phone-only index and offers Parent chat from backend metadata. Regenerate/Branch/Edit/Fork remain available. A synchronized answer carousel still needs an origin-row/relationship/order contract; see [relationship notes](SERVER_CHAT_RELATIONSHIPS.md). |
 | Q10 | Existing steering should be made usable during a running turn. Candidate: long-press Send/Enter to choose Queue, Steer or Fork for this submission. Preserve ordinary tap/Enter behavior and never make the choice a new default. |
 | Q11 | Queue follow-up prompts locally, following Desktop's client-owned composer queue. The owner explicitly approved this on 2026-09-11 after the source audit. Queue per chat, allow review/removal, and drain after the active turn finishes. Reuse draft storage and submission. An uncertain submission must not be silently retried. |
 | Q12 | Important: side/background questions and their visible results/status. Commands already exist in part; improve the interaction and verify busy-turn submission rather than claiming this is entirely new. |
@@ -219,7 +219,7 @@ Some local data is needed for the other selected features: saved connection addr
 
 Current deviations to address as selected work reaches them:
 
-- Answer-version links currently persist in Android preferences. Q09 requires a server-owned alternative or a clear backend dependency; do not claim those links already synchronize.
+- Obsolete phone-only answer-version links are removed in 2.18.0. Parent navigation uses server metadata; Q09's synchronized answer carousel remains a backend dependency.
 - Chat model overrides were removed in the conversation-foundations delivery. Server session configuration is authoritative.
 - Activity now discovers ongoing sessions from each profile on the server. Deployed-gateway coverage still needs live verification.
 - Draft text and staged attachments now persist per connection/profile/chat. Q11 now reuses that storage for the approved client-owned text queue.

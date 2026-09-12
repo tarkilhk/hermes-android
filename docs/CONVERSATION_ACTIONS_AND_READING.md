@@ -8,7 +8,7 @@ Saved user messages offer Edit with explicit confirmation that their turn and la
 
 Message actions adds a one-shot Fork when the conversation is idle and has a saved assistant boundary. It uses the existing server branch operation at the latest loaded saved answer and sends the text into that child. The original composer clears only after the send is acknowledged. This initial action accepts text only; ordinary Send/Stop behavior remains unchanged.
 
-Existing regeneration and answer-version navigation are retained. Their locally stored grouping remains a known dependency for Q09; this delivery neither expands that schema nor claims cross-device version relationships.
+Update for 2.18.0: regeneration remains server-backed. The phone-only answer index and carousel have been removed, with Parent chat navigation available from server metadata. A synchronized answer carousel remains selected but needs backend relationship metadata. See [server chat relationships](SERVER_CHAT_RELATIONSHIPS.md).
 
 ## Side questions
 

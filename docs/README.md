@@ -8,6 +8,9 @@ The [repository README](../README.md) describes the current implementation and s
 
 The approved [delivery sequence](DELIVERY_SEQUENCE.md) tracks implementation in small phone-testable increments, starting with draft protection and conversation reliability.
 
+[Server chat relationships](SERVER_CHAT_RELATIONSHIPS.md) records server-backed
+parent navigation and the remaining answer-version metadata dependency.
+
 ## Research preserved for future work
 
 | Document | Purpose |
