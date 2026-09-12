@@ -12,6 +12,7 @@ import '../services/remote_files_client.dart';
 import '../widgets/chat_image_preview.dart';
 import '../widgets/markdown_code_block.dart';
 import '../widgets/profile_message.dart';
+import 'pdf_preview_screen.dart';
 
 class ChatOutputsScreen extends StatefulWidget {
   final String chatTitle;
@@ -145,6 +146,10 @@ class _ChatOutputsScreenState extends State<ChatOutputsScreen> {
       output.label,
       mimeType: preview.mimeType,
     );
+    final isPdf =
+        preview.mimeType.split(';').first.trim().toLowerCase() ==
+            'application/pdf' ||
+        output.label.toLowerCase().endsWith('.pdf');
     var delivering = false;
     await Navigator.of(context).push(
       MaterialPageRoute<void>(
@@ -209,6 +214,31 @@ class _ChatOutputsScreenState extends State<ChatOutputsScreen> {
                       language: preview.language,
                     ),
                   ],
+                  if (isPdf)
+                    FilledButton.icon(
+                      icon: const Icon(Icons.picture_as_pdf_outlined),
+                      label: const Text('Read PDF'),
+                      onPressed: delivering
+                          ? null
+                          : () async {
+                              if (delivering) return;
+                              setPreviewState(() => delivering = true);
+                              try {
+                                await Navigator.of(previewContext).push(
+                                  MaterialPageRoute<void>(
+                                    builder: (_) => PdfPreviewScreen(
+                                      title: output.label,
+                                      download: () => widget.download(path),
+                                    ),
+                                  ),
+                                );
+                              } finally {
+                                if (previewContext.mounted) {
+                                  setPreviewState(() => delivering = false);
+                                }
+                              }
+                            },
+                    ),
                   if (canOpen)
                     FilledButton.icon(
                       icon: const Icon(Icons.open_in_new),

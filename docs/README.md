@@ -14,6 +14,9 @@ parent navigation and the remaining answer-version metadata dependency.
 [Diagram previews](DIAGRAM_PREVIEWS.md) records the on-demand Mermaid viewer,
 vendored renderer and remaining visual-block scope.
 
+[PDF reading](PDF_READING.md) records in-app PDF pages, native resource cleanup
+and the external-viewer fallback.
+
 ## Research preserved for future work
 
 | Document | Purpose |

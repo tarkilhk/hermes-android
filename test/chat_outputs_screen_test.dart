@@ -1,11 +1,13 @@
 import 'dart:async';
 
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:hermes_android/core/screens/chat_outputs_screen.dart';
 import 'package:hermes_android/core/services/connection_manager.dart';
 import 'package:hermes_android/core/services/remote_files_client.dart';
 import 'package:hermes_android/core/services/android_file_delivery_service.dart';
+import 'package:hermes_android/core/services/pdf_preview_service.dart';
 
 class _FileDelivery extends AndroidFileDeliveryService {
   final Future<bool> Function(RemoteFileDownload file, String? mimeType) open;
@@ -44,6 +46,74 @@ RemoteTextPreview _textPreview(String path) => RemoteTextPreview(
 );
 
 void main() {
+  testWidgets('Read PDF keeps its original path and returns to file options', (
+    tester,
+  ) async {
+    const channel = MethodChannel(PdfPreviewService.channelName);
+    final calls = <MethodCall>[];
+    tester.binding.defaultBinaryMessenger.setMockMethodCallHandler(channel, (
+      call,
+    ) async {
+      calls.add(call);
+      return switch (call.method) {
+        'open' => {'documentId': 'from-output', 'pageCount': 1},
+        'render' => Uint8List(0),
+        _ => null,
+      };
+    });
+    addTearDown(
+      () => tester.binding.defaultBinaryMessenger.setMockMethodCallHandler(
+        channel,
+        null,
+      ),
+    );
+    String? downloadedPath;
+    await tester.pumpWidget(
+      _screen(
+        loadHistory: () async => [
+          {'role': 'assistant', 'content': 'Saved /srv/current/report.pdf'},
+        ],
+        readText: (path) async => RemoteTextPreview(
+          path: path,
+          text: '',
+          language: '',
+          mimeType: 'application/pdf',
+          byteSize: 4,
+          binary: true,
+          truncated: false,
+        ),
+        download: (path) async {
+          downloadedPath = path;
+          return RemoteFileDownload(
+            filename: 'report.pdf',
+            bytes: [37, 80, 68, 70],
+          );
+        },
+      ),
+    );
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('report.pdf'));
+    await tester.pumpAndSettle();
+    expect(downloadedPath, isNull);
+    await tester.tap(find.text('Read PDF'));
+    await tester.pumpAndSettle();
+    expect(downloadedPath, '/srv/current/report.pdf');
+    expect(calls.first.arguments, {
+      'bytes': Uint8List.fromList([37, 80, 68, 70]),
+    });
+    expect(
+      find.textContaining('This PDF could not be displayed'),
+      findsOneWidget,
+    );
+    await tester.pageBack();
+    await tester.pumpAndSettle();
+    expect(calls.last.method, 'close');
+    expect(calls.last.arguments, {'documentId': 'from-output'});
+    expect(find.text('Open in app'), findsOneWidget);
+    expect(find.text('Save or share'), findsOneWidget);
+    expect(tester.takeException(), isNull);
+  });
+
   testWidgets('PDF open uses original download and keeps save/share fallback', (
     tester,
   ) async {

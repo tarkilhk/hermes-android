@@ -8,6 +8,15 @@ Feature releases increment the minor version, fixes increment the patch version,
 and breaking changes increment the major version. The Android build number after
 `+` always increases. Update this changelog for every release milestone.
 
+## [2.20.0+2169] - 2026-09-12
+
+### Added
+
+- Read PDFs inside Hermes from chat Outputs, with page navigation, pinch zoom
+  and retry. Reuse one authenticated download and Android's built-in PDF
+  renderer. Release the temporary document when the reader closes, while
+  keeping external app and save/share options available.
+
 ## [2.19.0+2168] - 2026-09-12
 
 ### Added

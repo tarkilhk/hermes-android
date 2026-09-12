@@ -4,7 +4,9 @@ Open a PDF, audio or video file from a chat's **Outputs** view, then choose
 **Open in app**. Hermes downloads the file through the original authenticated
 connection and asks Android to open it with a compatible installed viewer.
 **Save or share** remains available when no viewer is installed. This is a
-document/media handoff; an integrated PDF/media renderer remains separate work.
+document/media handoff. Since 2.20.0, PDFs also offer **Read PDF** for in-app
+pages and zoom; see [PDF reading](PDF_READING.md). Integrated audio/video
+playback remains separate work.
 
 The existing 32 MiB download limit applies. Unsupported files retain their
 existing preview/save/share behavior. Opening is explicit, duplicate taps are
