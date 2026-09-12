@@ -1,5 +1,14 @@
 # Changelog
 
+## [2.31.2+2187] - 2026-09-13
+
+### Fixed
+
+- Open linked Hermes files from downloaded Markdown previews and return to the source preview.
+- Display SVG previews and embedded images in self-contained HTML files.
+- Mark directly opened chats as read after history loads, even when they are outside the loaded chat list.
+- Keep confirmed subagents and background processes visible when a refresh returns invalid data, with a Retry error.
+
 ## [2.31.1+2186] - 2026-09-12
 
 ### Fixed

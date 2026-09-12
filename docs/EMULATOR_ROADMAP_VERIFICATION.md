@@ -4,7 +4,24 @@ The owner requested direct emulator testing after the selected implementation
 work. This record separates native Android checks, synthetic server scenarios
 and checks that still need a configured Hermes server or Firebase project.
 
-## Current milestone, 2.31.0
+## Current installed baseline, 2.31.1
+
+The 2.31.1 full suite passed 1,288 tests with four opt-in skips. Analysis was
+clean, and all four emulator scenarios passed with driver exit code 0. Evidence
+is in `build/2.31.1-full-tests-final.log`, `build/2.31.1-analyze-clean.log` and
+`build/2.31.1-emulator-direct-driver-final.log`. A first runner lost its service
+connection before testing; restarting the test app and driver completed the run.
+
+The signed Personal build is installed as 2.31.1 / 21862. Its separate Samsung
+checks are recorded in [live phone acceptance](LIVE_PHONE_ACCEPTANCE_2026-09-12.md).
+
+Use the disposable emulator and isolated fixtures for routine acceptance work.
+Reserve the phone for final deployment, reported live-connection problems and
+Samsung-specific behavior. Neither fixture results nor phone package checks
+establish an untested live-server contract. Real server writes remain separate
+from the isolated emulator scenarios.
+
+## Previous milestone, 2.31.0
 
 The final unit and widget suite passes 1,281 tests with four opt-in skips.
 Static analysis is clean. Evidence is in `build/2.31.0-full-tests-final.log`

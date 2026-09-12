@@ -4,6 +4,7 @@ import 'package:integration_test/integration_test.dart';
 import 'package:package_info_plus/package_info_plus.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
+import 'package:hermes_android/core/models/answer_versions.dart';
 import 'package:hermes_android/core/screens/profile_workspace_screen.dart';
 import 'package:hermes_android/core/services/connection_manager.dart';
 import 'package:hermes_android/core/services/profile_connection_identity.dart';
@@ -17,6 +18,7 @@ import 'support/roadmap_emulator_fixture.dart';
 
 void main() {
   IntegrationTestWidgetsFlutterBinding.ensureInitialized();
+  WidgetController.hitTestWarningShouldBeFatal = true;
 
   late _RoadmapHarness harness;
 
@@ -292,6 +294,53 @@ void main() {
     });
     expect(find.text('Roadmap integration'), findsOneWidget);
 
+    final createdProjectActions = find.descendant(
+      of: find.byKey(const ValueKey('project-roadmap-created')),
+      matching: find.byTooltip('Project actions'),
+    );
+    await tester.tap(createdProjectActions);
+    await _settle(tester);
+    await tester.tap(find.byKey(const ValueKey('project-action-rename')));
+    await _settle(tester);
+    await tester.enterText(
+      find.byKey(const ValueKey('project-name-field')),
+      'Roadmap renamed',
+    );
+    await tester.tap(find.byKey(const ValueKey('project-rename-save')));
+    await _settle(tester);
+    expect(harness.fixture.projectUpdates.single, {
+      'id': 'roadmap-created',
+      'name': 'Roadmap renamed',
+      'profile': 'personal',
+    });
+    expect(find.text('Roadmap renamed'), findsOneWidget);
+
+    await tester.tap(createdProjectActions);
+    await _settle(tester);
+    await tester.tap(find.byKey(const ValueKey('project-action-delete')));
+    await _settle(tester);
+    expect(find.textContaining('chats will remain'), findsOneWidget);
+    expect(
+      find.textContaining('Files on the host will not be deleted'),
+      findsOneWidget,
+    );
+    await tester.tap(find.text('Cancel'));
+    await _settle(tester);
+    expect(harness.fixture.projectDeletes, isEmpty);
+    expect(find.text('Roadmap renamed'), findsOneWidget);
+
+    await tester.tap(createdProjectActions);
+    await _settle(tester);
+    await tester.tap(find.byKey(const ValueKey('project-action-delete')));
+    await _settle(tester);
+    await tester.tap(find.byKey(const ValueKey('project-delete-confirm')));
+    await _settle(tester);
+    expect(harness.fixture.projectDeletes.single, {
+      'id': 'roadmap-created',
+      'profile': 'personal',
+    });
+    expect(find.text('Roadmap renamed'), findsNothing);
+
     await tester.tap(find.byKey(const ValueKey('chat-chat-0')));
     await _settle(tester);
     final chat = harness.controller.current!.chat!;
@@ -318,6 +367,518 @@ void main() {
     expect(chat.historyScrollOffset, closeTo(0, 1));
     expect(chat.sensitivePrompt?.requestId, 'roadmap-vault-unlock');
     expect(find.text('Unlock Roadmap Vault'), findsOneWidget);
+    const vaultPassword = 'isolated-roadmap-vault-secret';
+    await tester.enterText(
+      find.byKey(const Key('sensitive-prompt-field')),
+      vaultPassword,
+    );
+    final sensitiveSubmit = find.byKey(const Key('sensitive-prompt-submit'));
+    await _settle(tester);
+    expect(tester.widget<FilledButton>(sensitiveSubmit).onPressed, isNotNull);
+    await Scrollable.ensureVisible(
+      tester.element(sensitiveSubmit),
+      alignment: 0.5,
+    );
+    await _settle(tester);
+    await tester.tap(sensitiveSubmit);
+    await _pumpUntil(tester, () => chat.sensitivePrompt == null);
+    await _settle(tester);
+    expect(harness.fixture.sensitiveResponses.single, {
+      'request_id': 'roadmap-vault-unlock',
+      'password': vaultPassword,
+      'profile': 'personal',
+    });
+    expect(find.text('Unlock Roadmap Vault'), findsNothing);
+    expect(chat.draft, isNot(contains(vaultPassword)));
+    expect(chat.messages.toString(), isNot(contains(vaultPassword)));
+    expect(
+      [
+        for (final key in harness.preferences.getKeys())
+          harness.preferences.get(key),
+      ].toString(),
+      isNot(contains(vaultPassword)),
+    );
+    expect(tester.takeException(), isNull);
+  });
+
+  testWidgets('subagents goals and background work keep their chat owner', (
+    tester,
+  ) async {
+    await harness.launch(tester);
+    await tester.tap(find.byKey(const ValueKey('chat-chat-0')));
+    await _settle(tester);
+    final chat = harness.controller.current!.chat!;
+    await tester.enterText(
+      find.byKey(const Key('profile-message-composer')),
+      'Keep this supervision draft',
+    );
+
+    await tester.tap(find.byTooltip('Chat actions'));
+    await _settle(tester);
+    await tester.tap(find.text('Subagents'));
+    await _settle(tester);
+    await tester.tap(find.text('Inspect the emulator release'));
+    await _settle(tester);
+    expect(
+      find.text('Emulator child is checking the release.'),
+      findsOneWidget,
+    );
+    await tester.enterText(
+      find.byType(TextField).last,
+      'Check the Android route',
+    );
+    final steer = find.widgetWithText(FilledButton, 'Steer');
+    await tester.ensureVisible(steer);
+    await tester.tap(steer);
+    await _settle(tester);
+    expect(find.text('Steering queued.'), findsOneWidget);
+    final steerRequest = harness.fixture.supervisionRequests.singleWhere(
+      (request) => request.$1 == 'subagent.steer',
+    );
+    expect(steerRequest.$2, {
+      'session_id': chat.runtimeId,
+      'subagent_id': 'roadmap-child',
+      'text': 'Check the Android route',
+      'profile': 'personal',
+    });
+    Navigator.of(tester.element(steer)).pop();
+    await _settle(tester);
+    Navigator.of(tester.element(find.byType(BottomSheet).last)).pop();
+    await _settle(tester);
+
+    await tester.tap(find.byTooltip('Chat actions'));
+    await _settle(tester);
+    await tester.tap(find.text('Goal'));
+    await _settle(tester);
+    final goalSheet = find.byType(BottomSheet).last;
+    expect(
+      find.descendant(
+        of: goalSheet,
+        matching: find.text('Verify the emulator roadmap'),
+      ),
+      findsOneWidget,
+    );
+    final pauseGoal = find.descendant(
+      of: goalSheet,
+      matching: find.text('Pause'),
+    );
+    await tester.ensureVisible(pauseGoal);
+    await _settle(tester);
+    await tester.tap(pauseGoal);
+    await _settle(tester);
+    expect(
+      find.descendant(of: goalSheet, matching: find.text('Paused · 2/8 turns')),
+      findsOneWidget,
+    );
+    final goalRequest = harness.fixture.supervisionRequests.singleWhere(
+      (request) =>
+          request.$1 == 'session.control' &&
+          request.$2['action'] == 'goal.pause',
+    );
+    expect(goalRequest.$2['session_id'], chat.runtimeId);
+    expect(goalRequest.$2['profile'], 'personal');
+    Navigator.of(tester.element(find.byType(BottomSheet).last)).pop();
+    await _settle(tester);
+
+    await tester.tap(find.byTooltip('Chat actions'));
+    await _settle(tester);
+    await tester.tap(find.text('Background work'));
+    await _settle(tester);
+    expect(find.text('Report emulator health'), findsOneWidget);
+    await tester.ensureVisible(find.text('Pause loop'));
+    await _settle(tester);
+    await tester.tap(find.text('Pause loop'));
+    await _settle(tester);
+    expect(find.text('Loop · Paused'), findsOneWidget);
+    await tester.ensureVisible(find.text('dart run roadmap_worker.dart'));
+    await tester.tap(find.text('dart run roadmap_worker.dart'));
+    await _settle(tester);
+    await tester.ensureVisible(find.text('Stop process'));
+    await _settle(tester);
+    await tester.tap(find.text('Stop process'));
+    await _settle(tester);
+    expect(find.text('dart run roadmap_worker.dart'), findsNothing);
+    await tester.ensureVisible(find.text('dart test roadmap_check.dart'));
+    await tester.tap(find.text('dart test roadmap_check.dart'));
+    await _settle(tester);
+    await tester.ensureVisible(find.text('Dismiss'));
+    await _settle(tester);
+    await tester.tap(find.text('Dismiss'));
+    await _settle(tester);
+    expect(find.text('dart test roadmap_check.dart'), findsNothing);
+
+    final loopRequest = harness.fixture.supervisionRequests.singleWhere(
+      (request) =>
+          request.$1 == 'session.control' &&
+          request.$2['action'] == 'loop.pause',
+    );
+    expect(loopRequest.$2['session_id'], chat.runtimeId);
+    expect(loopRequest.$2['profile'], 'personal');
+    final processRequest = harness.fixture.supervisionRequests.singleWhere(
+      (request) => request.$1 == 'process.kill',
+    );
+    expect(processRequest.$2, {
+      'session_id': chat.runtimeId,
+      'process_id': 'roadmap-process-running',
+      'profile': 'personal',
+    });
+    expect(chat.draft, 'Keep this supervision draft');
+    expect(tester.takeException(), isNull);
+  });
+
+  testWidgets('administration checks edits and update refusal stay scoped', (
+    tester,
+  ) async {
+    await harness.launch(tester);
+    await _navigate(tester, AppDestination.administration);
+
+    await tester.tap(find.byTooltip('Edit selected profile'));
+    await _settle(tester);
+    await tester.enterText(
+      find.byKey(const ValueKey('profile-description-field')),
+      'Discard this edit',
+    );
+    await tester.pump();
+    await tester.tap(find.byTooltip('Close profile editor'));
+    await _settle(tester);
+    expect(find.text('Discard unsaved changes?'), findsOneWidget);
+    await tester.tap(find.widgetWithText(FilledButton, 'Discard'));
+    await _settle(tester);
+    expect(harness.fixture.profileConfigureRequests, isEmpty);
+
+    await tester.tap(find.byTooltip('Edit selected profile'));
+    await _settle(tester);
+    await tester.enterText(
+      find.byKey(const ValueKey('profile-description-field')),
+      '  Updated from emulator  ',
+    );
+    await tester.pump();
+    await tester.enterText(
+      find.byKey(const ValueKey('profile-soul-field')),
+      'Keep this exact.\n',
+    );
+    await tester.pump();
+    await tester.ensureVisible(find.text('Save'));
+    await _settle(tester);
+    await tester.tap(find.text('Save'));
+    await _settle(tester);
+
+    expect(harness.fixture.profileConfigureRequests.single, {
+      'name': 'personal',
+      'description': '  Updated from emulator  ',
+      'soul': 'Keep this exact.\n',
+      'profile': 'personal',
+    });
+    expect(find.text('Saved: description.'), findsOneWidget);
+    expect(
+      find.text('Not applied: SOUL. Review the fields before trying again.'),
+      findsOneWidget,
+    );
+    expect(
+      tester
+          .widget<TextField>(find.byKey(const ValueKey('profile-soul-field')))
+          .controller!
+          .text,
+      'Keep this exact.\n',
+    );
+    await tester.ensureVisible(find.byTooltip('Close profile editor'));
+    await _settle(tester);
+    await tester.tap(find.byTooltip('Close profile editor'));
+    await _settle(tester);
+    await tester.tap(find.widgetWithText(FilledButton, 'Discard'));
+    await _settle(tester);
+
+    await tester.scrollUntilVisible(
+      find.text('Backend version'),
+      260,
+      scrollable: find.byType(Scrollable).last,
+    );
+    await tester.tap(find.text('Check for updates'));
+    await _settle(tester);
+    expect(find.text('1.2.3'), findsOneWidget);
+    expect(find.text('Install method: pipx'), findsOneWidget);
+    expect(harness.fixture.updateCheckCount, 1);
+
+    await tester.ensureVisible(find.text('Update backend'));
+    await tester.tap(find.text('Update backend'));
+    await _settle(tester);
+    expect(find.text('Update backend on Roadmap fixture?'), findsOneWidget);
+    await tester.tap(find.widgetWithText(TextButton, 'Cancel'));
+    await _settle(tester);
+    expect(harness.fixture.backendUpdatePosts, isEmpty);
+
+    await tester.tap(find.text('Update backend'));
+    await _settle(tester);
+    await tester.tap(find.widgetWithText(FilledButton, 'Update backend').last);
+    await _settle(tester);
+    expect(harness.fixture.updateCheckCount, 2);
+    expect(harness.fixture.backendUpdatePosts, isEmpty);
+    expect(
+      find.text('The server reports no update is available.'),
+      findsOneWidget,
+    );
+
+    await tester.scrollUntilVisible(
+      find.text('Load usage'),
+      260,
+      scrollable: find.byType(Scrollable).last,
+    );
+    await tester.tap(find.text('Load usage'));
+    await _settle(tester);
+    expect(
+      find.text('Session usage · last 30 days · Roadmap fixture'),
+      findsOneWidget,
+    );
+    expect(find.text('12'), findsOneWidget);
+    expect(find.text('5,600'), findsOneWidget);
+    expect(find.text(r'$1.25'), findsOneWidget);
+    expect(find.text('Unknown'), findsOneWidget);
+    expect(
+      harness.fixture.administrationReads
+          .singleWhere((request) => request.$1 == 'analytics/usage')
+          .$2,
+      {'days': '30', 'profile': 'personal'},
+    );
+
+    await tester.scrollUntilVisible(
+      find.text('Run checks'),
+      260,
+      scrollable: find.byType(Scrollable).last,
+    );
+    await _settle(tester);
+    await tester.ensureVisible(find.text('Run checks'));
+    await _settle(tester);
+    await tester.tap(find.text('Run checks'));
+    await _settle(tester);
+    expect(find.text('Authenticated dashboard API responded.'), findsOneWidget);
+    expect(
+      find.text(
+        'No provider credential is configured. '
+        'Configure a provider on the Hermes server.',
+      ),
+      findsOneWidget,
+    );
+    expect(
+      find.text('Runtime readiness check is unavailable.'),
+      findsOneWidget,
+    );
+    expect(find.textContaining('private roadmap runtime detail'), findsNothing);
+    expect(
+      harness.fixture.reads.any(
+        (request) =>
+            request.$1 == 'sessions' &&
+            request.$2['limit'] == '1' &&
+            request.$2['offset'] == '0' &&
+            request.$2['order'] == 'recent' &&
+            request.$2['profile'] == 'personal',
+      ),
+      isTrue,
+    );
+    expect(
+      harness.fixture.administrationRequests
+          .singleWhere((request) => request.$1 == 'setup.status')
+          .$2,
+      {'profile': 'personal'},
+    );
+    expect(
+      harness.fixture.administrationRequests
+          .singleWhere((request) => request.$1 == 'setup.runtime_check')
+          .$2,
+      {'profile': 'personal'},
+    );
+    expect(tester.takeException(), isNull);
+  });
+
+  testWidgets('saved answers edit regenerate branch and fork through Hermes', (
+    tester,
+  ) async {
+    await harness.launch(tester);
+    harness.fixture.enableAnswerActions();
+    await tester.tap(find.byKey(const ValueKey('chat-chat-0')));
+    await _settle(tester);
+    final source = harness.controller.current!.chat!;
+    await tester.enterText(
+      find.byKey(const Key('profile-message-composer')),
+      'Keep this unrelated draft',
+    );
+
+    final edit = find.byKey(const ValueKey('edit-message-3'));
+    await tester.ensureVisible(edit);
+    await tester.tap(edit);
+    await _settle(tester);
+    expect(find.text('Edit and resend?'), findsOneWidget);
+    expect(
+      find.textContaining('all later history in this chat'),
+      findsOneWidget,
+    );
+    await tester.enterText(
+      find.byType(TextFormField),
+      'Corrected emulator prompt',
+    );
+    final replaceAndResend = find.text('Replace and resend');
+    await tester.ensureVisible(replaceAndResend);
+    await tester.tap(replaceAndResend);
+    await _pumpUntil(
+      tester,
+      () => harness.fixture.answerActionRequests.any(
+        (request) => request.$1 == 'prompt.submit',
+      ),
+    );
+    final editSubmit = harness.fixture.answerActionRequests.singleWhere(
+      (request) => request.$1 == 'prompt.submit',
+    );
+    expect(editSubmit.$2, {
+      'session_id': source.runtimeId,
+      'text': 'Corrected emulator prompt',
+      'truncate_before_row_id': 3,
+      'confirm_truncate': true,
+      'confirm_empty_truncate': true,
+      'profile': 'personal',
+    });
+    expect(source.status, ProfileTurnStatus.running);
+    harness.fixture.completeAnswerAction('personal', source.runtimeId);
+    await _settle(tester);
+    expect(source.draft, 'Keep this unrelated draft');
+    expect(find.text('Corrected emulator prompt'), findsOneWidget);
+
+    final sourceAnswerId = answerMessageId(source.messages.last)!;
+    final sourceActions = find.byKey(
+      ValueKey('answer-actions-$sourceAnswerId'),
+    );
+    await tester.ensureVisible(sourceActions);
+    await tester.tap(
+      find.descendant(
+        of: sourceActions,
+        matching: find.byTooltip('Regenerate response'),
+      ),
+    );
+    await _pumpUntil(tester, () => harness.controller.current!.chat != source);
+    final regenerated = harness.controller.current!.chat!;
+    await _pumpUntil(
+      tester,
+      () =>
+          harness.fixture.answerActionRequests.any(
+            (request) =>
+                request.$1 == 'prompt.submit' &&
+                request.$2['session_id'] == regenerated.runtimeId,
+          ) &&
+          !source.changingAnswer,
+    );
+    final regeneratedBranch = harness.fixture.answerActionRequests
+        .where((request) => request.$1 == 'session.branch')
+        .single;
+    expect(regeneratedBranch.$2, {
+      'session_id': source.runtimeId,
+      'count': 4,
+      'profile': 'personal',
+    });
+    final regeneratedSubmit = harness.fixture.answerActionRequests
+        .where((request) => request.$1 == 'prompt.submit')
+        .last;
+    expect(regeneratedSubmit.$2['session_id'], regenerated.runtimeId);
+    expect(regeneratedSubmit.$2['text'], 'Corrected emulator prompt');
+    expect(regeneratedSubmit.$2['profile'], 'personal');
+    harness.fixture.completeAnswerAction('personal', regenerated.runtimeId);
+    await _settle(tester);
+    expect(find.byTooltip('Previous answer'), findsNothing);
+    expect(find.byTooltip('Next answer'), findsNothing);
+    await tester.tap(find.byTooltip('Chat actions'));
+    await _settle(tester);
+    await tester.tap(find.text('Parent chat'));
+    await _settle(tester);
+    expect(harness.controller.current!.chat, same(source));
+    expect(source.draft, 'Keep this unrelated draft');
+
+    final submitsBeforeBranch = harness.fixture.answerActionRequests
+        .where((request) => request.$1 == 'prompt.submit')
+        .length;
+    await tester.ensureVisible(sourceActions);
+    await tester.tap(
+      find.descendant(
+        of: sourceActions,
+        matching: find.byTooltip('Branch in new session'),
+      ),
+    );
+    await _pumpUntil(tester, () => harness.controller.current!.chat != source);
+    final ordinaryBranch = harness.controller.current!.chat!;
+    await _pumpUntil(tester, () => !source.changingAnswer);
+    await _settle(tester);
+    final ordinaryBranchRequest = harness.fixture.answerActionRequests
+        .where((request) => request.$1 == 'session.branch')
+        .last;
+    expect(ordinaryBranchRequest.$2, {
+      'session_id': source.runtimeId,
+      'count': 4,
+      'profile': 'personal',
+    });
+    expect(
+      harness.fixture.answerActionRequests.where(
+        (request) => request.$1 == 'prompt.submit',
+      ),
+      hasLength(submitsBeforeBranch),
+    );
+    await tester.tap(find.byTooltip('Chat actions'));
+    await _settle(tester);
+    await tester.tap(find.text('Parent chat'));
+    await _settle(tester);
+    expect(harness.controller.current!.chat, same(source));
+    expect(ordinaryBranch.parentSessionId, source.key.sessionId);
+
+    await tester.enterText(
+      find.byKey(const Key('profile-message-composer')),
+      'Continue in emulator fork',
+    );
+    final submitsBeforeFork = harness.fixture.answerActionRequests
+        .where((request) => request.$1 == 'prompt.submit')
+        .length;
+    await tester.tap(find.byTooltip('Message actions'));
+    await _settle(tester);
+    await tester.tap(find.text('Fork into a new chat'));
+    await _pumpUntil(tester, () => harness.controller.current!.chat != source);
+    final forked = harness.controller.current!.chat!;
+    await _pumpUntil(
+      tester,
+      () =>
+          harness.fixture.answerActionRequests.any(
+            (request) =>
+                request.$1 == 'prompt.submit' &&
+                request.$2['session_id'] == forked.runtimeId,
+          ) &&
+          !source.changingAnswer,
+    );
+    await _settle(tester);
+    final forkSubmits = harness.fixture.answerActionRequests
+        .where((request) => request.$1 == 'prompt.submit')
+        .skip(submitsBeforeFork)
+        .toList();
+    expect(forkSubmits, hasLength(1));
+    expect(forkSubmits.single.$2, {
+      'session_id': forked.runtimeId,
+      'text': 'Continue in emulator fork',
+      'profile': 'personal',
+    });
+    final forkBranchRequest = harness.fixture.answerActionRequests
+        .where((request) => request.$1 == 'session.branch')
+        .last;
+    expect(forkBranchRequest.$2, {
+      'session_id': source.runtimeId,
+      'count': 4,
+      'profile': 'personal',
+    });
+    expect(source.draft, isEmpty);
+    expect(forked.parentSessionId, source.key.sessionId);
+    await tester.tap(find.byTooltip('Chat actions'));
+    await _settle(tester);
+    await tester.tap(find.text('Parent chat'));
+    await _settle(tester);
+    expect(harness.controller.current!.chat, same(source));
+    expect(source.draft, isEmpty);
+    expect(
+      harness.fixture.calls.where(
+        (request) => request.$2 == 'session.answer_versions',
+      ),
+      isEmpty,
+    );
     expect(tester.takeException(), isNull);
   });
 }

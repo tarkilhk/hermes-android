@@ -129,6 +129,44 @@ void main() {
     },
   );
 
+  test(
+    'malformed snapshot preserves confirmed processes and reports an error',
+    () async {
+      host.listResponse = {
+        'processes': [
+          {'session_id': 'live', 'status': 'running'},
+        ],
+      };
+      await controller.refreshProcesses(chat);
+
+      expect(chat.processes.single.id, 'live');
+      expect(chat.processes.single.command, 'Background process');
+      expect(chat.processesError, isNull);
+
+      host.listResponse = {
+        'processes': [
+          {'status': 'running'},
+        ],
+      };
+      await controller.refreshProcesses(chat);
+
+      expect(chat.processes.single.id, 'live');
+      expect(chat.processes.single.isRunning, isTrue);
+      expect(chat.processesError, contains('could not be refreshed'));
+
+      host.listResponse = {
+        'processes': [
+          {'session_id': 'new-live', 'status': 'running'},
+          'not a process row',
+        ],
+      };
+      await controller.refreshProcesses(chat);
+
+      expect(chat.processes.single.id, 'live');
+      expect(chat.processesError, contains('could not be refreshed'));
+    },
+  );
+
   test('session info authoritatively hydrates side-task history', () {
     chat.status = ProfileTurnStatus.idle;
     host.event('a', 'session.info', {

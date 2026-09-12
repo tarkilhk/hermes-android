@@ -100,6 +100,39 @@ void main() {
     },
   );
 
+  test(
+    'direct open outside loaded rows marks the server session read after history',
+    () async {
+      final directKey = key('notification-only');
+      expect(
+        controller.current!.sessions.any(
+          (row) => row['id'] == directKey.sessionId,
+        ),
+        isFalse,
+      );
+
+      await controller.openSession(directKey);
+
+      expect(host.updates, hasLength(1));
+      expect(host.updates.single.$1, 'personal');
+      expect(host.updates.single.$2, 'sessions/notification-only');
+      expect(host.updates.single.$3, {'unread': false, 'profile': 'personal'});
+    },
+  );
+
+  test(
+    'failed direct-open history does not mark an unknown session read',
+    () async {
+      host.failHistory = true;
+
+      await controller.openSession(key('notification-only'));
+
+      expect(controller.current!.selectedSession, 'notification-only');
+      expect(controller.current!.chat!.historyError, isNotNull);
+      expect(host.updates, isEmpty);
+    },
+  );
+
   test('failed history leaves an opened chat unread', () async {
     await loadNewestUnread();
     host.failHistory = true;

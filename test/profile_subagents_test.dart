@@ -154,6 +154,44 @@ void main() {
   );
 
   test(
+    'malformed snapshot preserves confirmed active rows and reports an error',
+    () async {
+      host.listResponse = {
+        'subagents': [
+          {'subagent_id': 'child'},
+        ],
+      };
+      await controller.refreshSubagents(chat);
+
+      expect(chat.subagents.single.id, 'child');
+      expect(chat.subagents.single.status, GatewaySubagentStatus.running);
+      expect(chat.subagentsError, isNull);
+
+      host.listResponse = {
+        'subagents': [
+          {'goal': 'Malformed row without a subagent identity'},
+        ],
+      };
+      await controller.refreshSubagents(chat);
+
+      expect(chat.subagents.single.id, 'child');
+      expect(chat.subagents.single.status, GatewaySubagentStatus.running);
+      expect(chat.subagentsError, contains('could not be refreshed'));
+
+      host.listResponse = {
+        'subagents': [
+          {'subagent_id': 'new-child'},
+          'not a subagent row',
+        ],
+      };
+      await controller.refreshSubagents(chat);
+
+      expect(chat.subagents.single.id, 'child');
+      expect(chat.subagentsError, contains('could not be refreshed'));
+    },
+  );
+
+  test(
     'list rejects newer events while tail ignores unrelated progress',
     () async {
       host.pendingList = Completer<Map<String, dynamic>>();

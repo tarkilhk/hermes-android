@@ -94,7 +94,8 @@ private class MermaidDiagramView(
             allowFileAccess = false
             allowContentAccess = false
             blockNetworkLoads = true
-            blockNetworkImage = true
+            // Local blob/data images need decoding; network requests stay blocked.
+            blockNetworkImage = false
             domStorageEnabled = false
             databaseEnabled = false
             setGeolocationEnabled(false)

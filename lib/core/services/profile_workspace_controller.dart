@@ -805,15 +805,19 @@ class ProfileWorkspaceController extends ChangeNotifier {
       }
       final raw = response['subagents'];
       if (raw is! List) throw const FormatException('Missing subagent list');
-      final snapshot = raw
-          .whereType<Map>()
-          .map(
-            (value) => GatewaySubagentActivity.fromSnapshot(
-              Map<String, dynamic>.from(value),
-            ),
-          )
-          .whereType<GatewaySubagentActivity>()
-          .toList();
+      final snapshot = <GatewaySubagentActivity>[];
+      for (final value in raw) {
+        if (value is! Map) {
+          throw const FormatException('Invalid subagent row');
+        }
+        final item = GatewaySubagentActivity.fromSnapshot(
+          Map<String, dynamic>.from(value),
+        );
+        if (item == null) {
+          throw const FormatException('Invalid subagent row');
+        }
+        snapshot.add(item);
+      }
       final ids = snapshot.map((item) => item.id).toSet();
       final next = before
           .where((item) => item.isTerminal || ids.contains(item.id))
@@ -971,11 +975,17 @@ class ProfileWorkspaceController extends ChangeNotifier {
       if (raw is! List) throw const FormatException('Missing process list');
       final next = <GatewayProcessActivity>[];
       final reported = <String>{};
-      for (final value in raw.whereType<Map>()) {
+      for (final value in raw) {
+        if (value is! Map) {
+          throw const FormatException('Invalid process row');
+        }
         final process = GatewayProcessActivity.fromJson(
           Map<String, dynamic>.from(value),
         );
-        if (process != null && reported.add(process.id)) next.add(process);
+        if (process == null) {
+          throw const FormatException('Invalid process row');
+        }
+        if (reported.add(process.id)) next.add(process);
       }
       chat._dismissedProcessIds.retainWhere(reported.contains);
       chat.processes = next
@@ -1442,11 +1452,14 @@ class ProfileWorkspaceController extends ChangeNotifier {
       throw StateError('Chat was deleted');
     }
     final openedSessionGeneration = resource.sessionGeneration;
-    final openedUnread = <Map<String, dynamic>>[
+    final openedRows = <Map<String, dynamic>>[
       ...resource.searchResults,
       ...resource.visibleSessions,
       ...resource.sessions,
-    ].any((row) => row['id'] == key.sessionId && row['unread'] == true);
+    ].where((row) => row['id'] == key.sessionId).toList();
+    final markReadAfterOpen =
+        openedRows.any((row) => row['unread'] == true) ||
+        !openedRows.any((row) => row['unread'] == false);
     _cancelOlderLoads();
     var chat = resource.chats[key.sessionId];
     if (chat == null) {
@@ -1516,7 +1529,7 @@ class ProfileWorkspaceController extends ChangeNotifier {
       unawaited(refreshSessionControl(chat));
       if (chat.projectId == null) unawaited(_loadChatProject(resource, chat));
       await refreshHistory(chat);
-      if (openedUnread &&
+      if (markReadAfterOpen &&
           chat.historyError == null &&
           !chat.historyLoading &&
           chat.historySessionId != null &&

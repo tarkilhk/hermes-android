@@ -91,11 +91,7 @@ class _ChatOutputsScreenState extends State<ChatOutputsScreen> {
     }
   }
 
-  void _error(
-    BuildContext context,
-    Object error, {
-    VoidCallback? onRetry,
-  }) {
+  void _error(BuildContext context, Object error, {VoidCallback? onRetry}) {
     if (!context.mounted) return;
     ScaffoldMessenger.of(context).showSnackBar(
       SnackBar(
@@ -424,7 +420,10 @@ class _ChatOutputsScreenState extends State<ChatOutputsScreen> {
                         'Preview shortened by Hermes. Save the file to read it all.',
                       ),
                     if (isMarkdown && !showMarkdownSource)
-                      MarkdownMessageContent(data: preview.text)
+                      MarkdownMessageContent(
+                        data: preview.text,
+                        onOpenRemoteFile: _preview,
+                      )
                     else
                       MarkdownCodeBlock(
                         code: preview.text,

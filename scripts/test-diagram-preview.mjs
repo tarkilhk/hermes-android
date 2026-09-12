@@ -164,12 +164,15 @@ try {
   await page.screenshot({ path: join(root, 'build', 'svg-preview.png'), fullPage: true });
   console.log('SVG image context blocks script execution and external content; errors, limits and replacement pass.');
 
+  const embeddedDataImage = 'data:image/svg+xml,%3Csvg%20xmlns%3D%22http%3A%2F%2Fwww.w3.org%2F2000%2Fsvg%22%20width%3D%22160%22%20height%3D%2260%22%3E%3Crect%20width%3D%22160%22%20height%3D%2260%22%20fill%3D%22%23005f49%22%2F%3E%3Ctext%20x%3D%2280%22%20y%3D%2238%22%20text-anchor%3D%22middle%22%20font-size%3D%2220%22%20fill%3D%22white%22%3EData%20image%3C%2Ftext%3E%3C%2Fsvg%3E';
   const htmlSource = `<!doctype html><html><head>
-    <meta http-equiv="Content-Security-Policy" content="default-src * 'unsafe-inline'">
+    <meta http-equiv="Content-Security-Policy" content="default-src * 'unsafe-inline'; img-src * data:">
     <style>body { font: 20px system-ui; padding: 16px; } button { font: inherit; padding: 12px; }</style>
     <script src="${origin}/forbidden-html.js"></script>
     </head><body><h1>Preview check</h1><button id="increment">Increment</button>
-    <p>Count: <output id="count">0</output></p><img src="${origin}/forbidden-html.png">
+    <p>Count: <output id="count">0</output></p>
+    <img id="embedded-data-image" src="${embeddedDataImage}" alt="Embedded data image">
+    <img src="${origin}/forbidden-html.png">
     <script>
       try { parent.document.body.dataset.escaped = 'yes'; } catch (_) { document.body.dataset.parentAccess = 'blocked'; }
       try { localStorage.setItem('probe', 'yes'); } catch (_) { document.body.dataset.storage = 'blocked'; }
@@ -184,6 +187,11 @@ try {
   assert.equal(await htmlFrame.locator('body').getAttribute('data-storage'), 'blocked');
   assert.equal(await page.locator('#diagram iframe').getAttribute('sandbox'), 'allow-scripts');
   assert.equal(await page.locator('body').getAttribute('data-escaped'), null);
+  const embeddedDataImageSize = await htmlFrame.locator('#embedded-data-image').evaluate(async (image) => {
+    await image.decode();
+    return [image.naturalWidth, image.naturalHeight];
+  });
+  assert.deepEqual(embeddedDataImageSize, [160, 60]);
   assert.equal(await htmlFrame.locator('html').evaluate(() => document.compatMode), 'CSS1Compat');
   assert.deepEqual(unexpectedRequests, [], 'HTML preview attempted an HTTP asset or fetch request');
   await page.screenshot({ path: join(root, 'build', 'html-preview.png'), fullPage: true });

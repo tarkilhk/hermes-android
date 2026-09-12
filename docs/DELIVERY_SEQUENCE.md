@@ -6,6 +6,10 @@ W00, the shell, is deployed. The W packages remain feature themes and coverage r
 
 ## How we deliver
 
+As of 2026-09-13, pause new feature work and complete the
+[implemented-feature QA sweep](QA_SWEEP_2026-09-13.md). Check every delivered
+feature, record failures, fix them and rerun the failed checks before proceeding.
+
 Owner correction, 2026-09-12: **No Hermes backend modifications.** Earlier
 instructions to deploy `server-patches` or add a sender/supervisor are withdrawn.
 The experiments were never deployed. Use existing Hermes APIs and defer unsupported
@@ -22,6 +26,11 @@ withdrawn. No server deployment is requested or planned.
 Start a slice by checking its existing behavior and the relevant deployed backend contract. Preserve working implementations and define the specific remaining change. Keep this check inside the slice; do not make a complete backend audit a prerequisite for all development.
 
 Implement one useful outcome at a time. Prefer one focused commit and a short set of acceptance checks. If a slice becomes too large, split it at a usable intermediate outcome, such as displaying server project appearance before adding its editor. Do not bundle unrelated work to fill a release.
+
+Use the emulator for routine implementation and acceptance checks. Reserve the
+phone for final deployment, Samsung-specific behavior and reproducing reported
+live-connection problems. Synthetic gateway scenarios must remain isolated from
+real Hermes servers and must not be reported as live-server verification.
 
 For each phone build, keep the [changelog](../CHANGELOG.md) limited to added, changed and fixed product behavior. Record checks, deployment details and remaining limits in the relevant technical feature note or verification record. Use semantic versions: minor for added features, patch for fixes, major for breaking changes. Increase the Android build number for each release and preserve published version history. Update the changelog with each milestone commit and push to `main`. The owner tries the change during normal use; correct problems before adding another layer to that workflow. Closely related small slices can share a build. One slice is not a promise of one day or one conversation of development.
 

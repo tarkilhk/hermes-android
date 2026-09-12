@@ -7,10 +7,16 @@ import 'dart:math';
 
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
+import 'package:hermes_android/core/models/gateway_activity.dart';
+import 'package:hermes_android/core/models/gateway_todo.dart';
+import 'package:hermes_android/core/screens/chat_outputs_screen.dart';
 import 'package:hermes_android/core/screens/pdf_preview_screen.dart';
 import 'package:hermes_android/core/services/media_preview_service.dart';
+import 'package:hermes_android/core/services/profile_gateway.dart';
 import 'package:hermes_android/core/services/remote_files_client.dart';
 import 'package:hermes_android/core/services/web_preview.dart';
+import 'package:hermes_android/core/widgets/markdown_message_content.dart';
+import 'package:hermes_android/core/widgets/profile_execution_activity.dart';
 import 'package:hermes_android/core/widgets/web_output_preview.dart';
 
 void main() {
@@ -78,7 +84,7 @@ class _Menu extends StatelessWidget {
                 title: 'QA HTML',
                 format: WebOutputFormat.html,
                 source:
-                    '<!doctype html><html><meta name="viewport" content="width=device-width"><body style="background:#fff;color:#152231;padding:24px"><h1>Hermes reading check</h1><p>Local HTML preview.</p><button onclick="this.textContent=\'Interaction passed\'">Test interaction</button></body></html>',
+                    '<!doctype html><html><meta name="viewport" content="width=device-width"><body style="background:#fff;color:#152231;padding:24px"><h1>Hermes reading check</h1><p>Local HTML preview.</p><img src="$_qaEmbeddedDataImage" alt="Embedded data image"><p>The green Data image must appear above.</p><button onclick="this.textContent=\'Interaction passed\'">Test interaction</button></body></html>',
               ),
             ),
           ),
@@ -94,6 +100,10 @@ class _Menu extends StatelessWidget {
             ),
           ),
           ListTile(
+            title: const Text('Content and execution details'),
+            onTap: () => open(_contentExecutionScreen()),
+          ),
+          ListTile(
             title: const Text('Browser preview'),
             onTap: () => openWebPreview(
               Uri.parse(
@@ -104,11 +114,133 @@ class _Menu extends StatelessWidget {
               ),
             ),
           ),
+          ListTile(
+            title: const Text('Markdown linked output'),
+            onTap: () => open(_localOutputsScreen()),
+          ),
         ],
       ),
     );
   }
 }
+
+const _qaEmbeddedDataImage =
+    'data:image/svg+xml,%3Csvg%20xmlns%3D%22http%3A%2F%2Fwww.w3.org%2F2000%2Fsvg%22%20width%3D%22160%22%20height%3D%2260%22%3E%3Crect%20width%3D%22160%22%20height%3D%2260%22%20fill%3D%22%23005f49%22%2F%3E%3Ctext%20x%3D%2280%22%20y%3D%2238%22%20text-anchor%3D%22middle%22%20font-size%3D%2220%22%20fill%3D%22white%22%3EData%20image%3C%2Ftext%3E%3C%2Fsvg%3E';
+
+const _qaReadingMarkdown = r'''
+## Narrow reading fixture
+
+| Stage | Owner | State | Long detail |
+| --- | --- | --- | --- |
+| Parse | Android | Complete | This wide table must scroll without clipping the final column. |
+| Render | Hermes | Running | The reader must retain access to every column on a narrow screen. |
+
+```dart
+final longNativeQaValue = 'This line exercises horizontal scrolling and the wrap control on a narrow Android screen.';
+```
+
+```svg
+<svg xmlns="http://www.w3.org/2000/svg" width="320" height="120" viewBox="0 0 320 120">
+  <rect width="320" height="120" rx="16" fill="#25344a"/>
+  <circle cx="62" cy="60" r="28" fill="#62d9a7"/>
+  <path d="M98 60h116" stroke="#ffffff" stroke-width="8"/>
+  <text x="224" y="68" fill="#ffffff" font-size="24">SVG QA</text>
+</svg>
+```
+''';
+
+Widget _contentExecutionScreen() {
+  final tool = GatewayToolActivity.fromGatewayEvent('tool.complete', const {
+    'tool_id': 'native-reading-tool',
+    'name': 'inspect_native_fixture',
+    'args': {'target': 'narrow Android screen'},
+    'result': {'rows': 2, 'status': 'verified'},
+    'duration_s': 0.4,
+  })!;
+  return Scaffold(
+    appBar: AppBar(title: const Text('Content and execution QA')),
+    body: ListView(
+      padding: const EdgeInsets.all(16),
+      children: [
+        const MarkdownMessageContent(data: _qaReadingMarkdown),
+        const Divider(height: 32),
+        ProfileLiveToolActivity(activities: [tool]),
+        const ProfileTodoPanel(
+          todos: [
+            GatewayTodo(
+              id: 'native-reading-one',
+              content: 'Inspect the wide table and code controls',
+              status: GatewayTodoStatus.completed,
+            ),
+            GatewayTodo(
+              id: 'native-reading-two',
+              content: 'Open and return from the SVG preview',
+              status: GatewayTodoStatus.inProgress,
+              parent: 'native-reading-one',
+            ),
+          ],
+        ),
+        const ProfileReasoningDisclosure(
+          text: 'The fixture uses public production widgets and local data.',
+        ),
+      ],
+    ),
+  );
+}
+
+const _qaMarkdownPath = '/qa/hermes-native-link-source-20260913.md';
+const _qaTextPath = '/qa/hermes-native-linked-report-20260913.txt';
+const _qaMarkdown =
+    '''
+# Local output link
+
+[Open the linked text output]($_qaTextPath)
+''';
+const _qaText = 'Hermes native linked output bytes.\n';
+
+Widget _localOutputsScreen() => ChatOutputsScreen(
+  chatTitle: 'Local native QA',
+  loadHistory: (offset) async => ProfileHistoryPage(
+    'local-native-qa',
+    const [
+      {'id': 1, 'role': 'assistant', 'content': 'Saved $_qaMarkdownPath'},
+    ],
+    offset,
+    500,
+    isComplete: true,
+  ),
+  readText: (path) async {
+    final text = switch (path) {
+      _qaMarkdownPath => _qaMarkdown,
+      _qaTextPath => _qaText,
+      _ => throw StateError('Unknown local QA path'),
+    };
+    return RemoteTextPreview(
+      path: path,
+      text: text,
+      language: path == _qaMarkdownPath ? 'markdown' : 'text',
+      mimeType: path == _qaMarkdownPath
+          ? 'text/markdown; charset=utf-8'
+          : 'text/plain; charset=utf-8',
+      byteSize: utf8.encode(text).length,
+      binary: false,
+      truncated: false,
+    );
+  },
+  download: (path) async {
+    final text = switch (path) {
+      _qaMarkdownPath => _qaMarkdown,
+      _qaTextPath => _qaText,
+      _ => throw StateError('Unknown local QA path'),
+    };
+    return RemoteFileDownload(
+      filename: path == _qaMarkdownPath
+          ? 'hermes-native-link-source-20260913.md'
+          : 'hermes-native-linked-report-20260913.txt',
+      bytes: utf8.encode(text),
+    );
+  },
+);
 
 Uint8List _pdf() {
   final objects = <String>[

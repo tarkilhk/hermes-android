@@ -981,6 +981,68 @@ void main() {
   );
 
   testWidgets(
+    'markdown preview opens an explicit Hermes file and returns to its source',
+    (tester) async {
+      final readPaths = <String>[];
+      await tester.pumpWidget(
+        _screen(
+          loadHistory: () async => [
+            {'role': 'assistant', 'content': 'Saved /srv/current/notes.md'},
+          ],
+          readText: (path) async {
+            readPaths.add(path);
+            if (path == '/srv/current/notes.md') {
+              const source =
+                  '# Notes\n\n[Open report](/srv/current/report.txt)';
+              return RemoteTextPreview(
+                path: path,
+                text: source,
+                language: 'markdown',
+                mimeType: 'text/markdown',
+                byteSize: source.length,
+                binary: false,
+                truncated: false,
+              );
+            }
+            return RemoteTextPreview(
+              path: path,
+              text: 'Scoped report contents',
+              language: 'text',
+              mimeType: 'text/plain',
+              byteSize: 22,
+              binary: false,
+              truncated: false,
+            );
+          },
+          download: (_) async => throw StateError('Unexpected download'),
+        ),
+      );
+      await tester.pumpAndSettle();
+
+      await tester.tap(find.text('notes.md'));
+      await tester.pumpAndSettle();
+      expect(readPaths, ['/srv/current/notes.md']);
+
+        await tester.tap(find.text('Open report', findRichText: true));
+      await tester.pumpAndSettle();
+
+      expect(readPaths, ['/srv/current/notes.md', '/srv/current/report.txt']);
+      expect(find.text('Scoped report contents'), findsOneWidget);
+
+        await tester.binding.handlePopRoute();
+        await tester.pumpAndSettle();
+        expect(find.text('Notes'), findsOneWidget);
+        expect(find.text('Open report'), findsOneWidget);
+        expect(find.text('Outputs · Only this chat'), findsNothing);
+
+        await tester.binding.handlePopRoute();
+      await tester.pumpAndSettle();
+      expect(find.text('Outputs · Only this chat'), findsOneWidget);
+      expect(find.text('notes.md'), findsOneWidget);
+    },
+  );
+
+  testWidgets(
     'markdown detection accepts language and MIME but excludes binary',
     (tester) async {
       final cases = <({String language, String mimeType, bool binary})>[
