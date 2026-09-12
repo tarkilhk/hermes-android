@@ -119,3 +119,11 @@ Live completion events can carry more fields than the list. The child completion
 The installed backend above emits `notification.show`/`notification.clear` through the transient TUI event stream (`tui_gateway/agent_callbacks.py:101-105`). The inspected source has no Firebase token registration, installation registry or FCM sender. Android already has local notification settings, original-session routing and authenticated reopening in `turn_notification_service.dart` and `main.dart`; these should be reused.
 
 Firebase project/app configuration for `com.tarkilhk.hermes.android` and trusted server-side sender credentials remain external setup dependencies. No SDK, project, credential or backend registration API was added during this investigation. Completion/input events need authenticated profile-scoped registration and minimal routing payloads, then client token lifecycle, duplicate handling and locked/terminated-phone checks. All conversation state stays on Hermes. FCM remains selected roadmap work while independent app milestones continue.
+
+## Session usage and cost (S02; follow-up on 2026-09-12)
+
+The primary contract is `GET /api/analytics/usage?days=30&profile=...`, implemented in installed `hermes_cli/web_routers/analytics.py:75-150`. It reads the selected profile's session database with a bounded day interval and returns `totals`, `daily`, `by_model`, `by_task`, `period_days`, skills and tools. This performs no inference or provider billing-portal request. Desktop's Command Center uses the same analytics route.
+
+Totals contain server-recorded sessions, API calls, input/output/cache/reasoning tokens, estimated cost and provider-reported actual cost. The SQL coalesces an absent actual-cost sum to zero, so that number is not proof of a zero bill: unreported provider costs are excluded. The client should label it reported cost where available and retain Unknown for malformed/missing fields. Estimates remain explicitly estimates supplied by Hermes.
+
+The model breakdown adds auxiliary model calls while the overview totals come from session rows. Do not recompute or force those totals to match on the client. Label auxiliary inclusion in the breakdown. `usage.bars` is a separate Nous subscription/top-up balance surface and was rejected as the primary S02 source; it is not general session cost analytics.

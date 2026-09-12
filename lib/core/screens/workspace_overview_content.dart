@@ -5,6 +5,7 @@ import '../services/profile_workspace_controller.dart';
 import '../widgets/profile_diagnostics_panel.dart';
 import '../widgets/backend_version_card.dart';
 import '../widgets/profile_editor_sheet.dart';
+import '../widgets/profile_usage_panel.dart';
 
 enum _ActivityFilter { all, running, needsInput }
 
@@ -242,6 +243,12 @@ class HermesAdministrationContent extends StatelessWidget {
           BackendVersionCard(
             key: ValueKey(controller.current!.gateway),
             gateway: controller.current!.gateway,
+            connectionLabel: controller.connection.label,
+          ),
+          const SizedBox(height: 12),
+          ProfileUsagePanel(
+            key: ValueKey(controller.current!.gateway),
+            capturedProfileGateway: controller.current!.gateway,
             connectionLabel: controller.connection.label,
           ),
         ],

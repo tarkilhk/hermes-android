@@ -8,6 +8,14 @@ Feature releases increment the minor version, fixes increment the patch version,
 and breaking changes increment the major version. The Android build number after
 `+` always increases. Update this changelog for every release milestone.
 
+## [2.13.0+2162] - 2026-09-12
+
+### Added
+
+- Read the selected profile's last 30 days of server-recorded sessions, API
+  calls, tokens and costs in Hermes administration. Keep estimated and reported
+  costs separate, with an optional server model breakdown and manual refresh.
+
 ## [2.12.0+2161] - 2026-09-12
 
 ### Added
