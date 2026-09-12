@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_markdown/flutter_markdown.dart';
 
 import '../models/chat_output.dart';
+import '../services/file_open_error_message.dart';
 import '../services/web_preview.dart';
 import '../theme/profile_markdown_style.dart';
 import 'chat_image_preview.dart';
@@ -31,13 +32,11 @@ class MarkdownMessageContent extends StatelessWidget {
         try {
           await onOpenRemoteFile!(output);
           return;
-        } catch (_) {
+        } catch (error) {
           if (context.mounted) {
             ScaffoldMessenger.of(context).showSnackBar(
-              const SnackBar(
-                content: Text(
-                  'This file could not be opened. It may have moved or be unavailable on Hermes.',
-                ),
+              SnackBar(
+                content: Text(fileOpenErrorMessage(error)),
               ),
             );
           }

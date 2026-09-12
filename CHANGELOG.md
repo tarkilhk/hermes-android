@@ -1,5 +1,14 @@
 # Changelog
 
+## [2.31.1+2186] - 2026-09-12
+
+### Fixed
+
+- Explain file-opening failures with specific next steps and offer Retry for temporary failures.
+- Apply saved proxy authentication settings to file previews and downloads.
+- Keep Find results newest-first when loading older matches.
+- Keep View in chat accessible above long expanded search results.
+
 ## [2.31.0+2185] - 2026-09-12
 
 ### Added

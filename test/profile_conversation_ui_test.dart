@@ -6,6 +6,7 @@ import 'package:shared_preferences/shared_preferences.dart';
 import 'package:hermes_android/core/widgets/profile_message.dart';
 import 'package:hermes_android/core/widgets/markdown_code_block.dart';
 import 'package:hermes_android/core/screens/profile_workspace_screen.dart';
+import 'package:hermes_android/core/services/connection_manager.dart';
 import 'package:hermes_android/core/services/profile_workspace_controller.dart';
 import 'profile_connection_identity_test.dart' show identityTestConnection;
 import 'support/profile_history_fixture.dart';
@@ -169,7 +170,7 @@ void main() {
     expect(openedPath, '../exports/final-report.pdf');
   });
 
-  testWidgets('unavailable assistant file links report a scoped error', (
+  testWidgets('assistant file links explain an authentication failure', (
     tester,
   ) async {
     await tester.pumpWidget(
@@ -180,7 +181,8 @@ void main() {
               'role': 'assistant',
               'content': '[Missing report](/srv/removed/report.pdf)',
             },
-            onOpenRemoteFile: (_) async => throw StateError('gone'),
+            onOpenRemoteFile: (_) async =>
+                throw const DashboardHttpException(401, 'files/read'),
           ),
         ),
       ),
@@ -191,7 +193,7 @@ void main() {
 
     expect(
       find.text(
-        'This file could not be opened. It may have moved or be unavailable on Hermes.',
+        'Hermes could not authenticate this session. Reconnect, then try again.',
       ),
       findsOneWidget,
     );

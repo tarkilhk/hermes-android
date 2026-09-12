@@ -145,7 +145,7 @@ void main() {
 
     expect(
       find.text(
-        'This file could not be opened. It may have moved or be unavailable on Hermes.',
+        'This file could not be opened. Try again, or refresh the chat.',
       ),
       findsOneWidget,
     );
@@ -154,6 +154,109 @@ void main() {
 
     expect(attempts, 2);
     expect(find.byType(MarkdownCodeBlock), findsOneWidget);
+  });
+
+  testWidgets('initial output explains an HTTP access denial', (tester) async {
+    await tester.pumpWidget(
+      MaterialApp(
+        home: ChatOutputsScreen(
+          chatTitle: 'Owned chat',
+          initialOutput: const ChatOutput(
+            kind: ChatOutputKind.file,
+            path: '/srv/private/report.md',
+            url: null,
+            label: 'report.md',
+          ),
+          loadHistory: (_) async => throw StateError('Unexpected history'),
+          readText: (_) async =>
+              throw const DashboardHttpException(403, 'files/read'),
+          download: (_) async => throw StateError('Unexpected download'),
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    expect(
+      find.text(
+        'Hermes denied access to this file. Ask Hermes for an accessible copy.',
+      ),
+      findsOneWidget,
+    );
+    expect(
+      find.text(
+        'This file could not be opened. It may have moved or be unavailable on Hermes.',
+      ),
+      findsNothing,
+    );
+  });
+
+  testWidgets('output preview explains a 404 without offering a retry', (
+    tester,
+  ) async {
+    await tester.pumpWidget(
+      _screen(
+        loadHistory: () async => [
+          {
+            'role': 'assistant',
+            'content': 'Saved /srv/current/export-review.md',
+          },
+        ],
+        download: (_) async => throw StateError('Unexpected download'),
+        readText: (_) async =>
+            throw const DashboardHttpException(404, 'files/read'),
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    await tester.tap(find.text('export-review.md'));
+    await tester.pumpAndSettle();
+    expect(
+      find.text(
+        'Hermes could not find this file, or its file service is unavailable. Ask Hermes for a fresh download link.',
+      ),
+      findsOneWidget,
+    );
+    expect(find.text('Retry'), findsNothing);
+  });
+
+  testWidgets('output preview retries a temporary server failure', (
+    tester,
+  ) async {
+    var attempts = 0;
+    await tester.pumpWidget(
+      _screen(
+        loadHistory: () async => [
+          {
+            'role': 'assistant',
+            'content': 'Saved /srv/current/export-review.md',
+          },
+        ],
+        download: (_) async => throw StateError('Unexpected download'),
+        readText: (path) async {
+          attempts++;
+          if (attempts == 1) {
+            throw const DashboardHttpException(503, 'files/read');
+          }
+          return _textPreview(path);
+        },
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    await tester.tap(find.text('export-review.md'));
+    await tester.pumpAndSettle();
+    expect(
+      find.text(
+        'Hermes could not open this file right now. Try again shortly.',
+      ),
+      findsOneWidget,
+    );
+    expect(find.text('Retry'), findsOneWidget);
+
+    await tester.tap(find.text('Retry'));
+    await tester.pumpAndSettle();
+    expect(attempts, 2);
+    expect(find.byType(MarkdownMessageContent), findsOneWidget);
   });
 
   testWidgets('initial output Back to chat returns to its exact caller', (

@@ -7,8 +7,8 @@ import 'package:path_provider/path_provider.dart';
 import 'package:share_plus/share_plus.dart';
 
 import '../models/chat_output.dart';
-import '../services/connection_manager.dart';
 import '../services/android_file_delivery_service.dart';
+import '../services/file_open_error_message.dart';
 import '../services/media_preview_service.dart';
 import '../services/profile_gateway.dart';
 import '../services/remote_files_client.dart';
@@ -84,24 +84,25 @@ class _ChatOutputsScreenState extends State<ChatOutputsScreen> {
     } catch (error) {
       if (!mounted) return;
       setState(() {
-        _initialError = error is DashboardResponseTooLargeException
-            ? 'This file exceeds the ${(error.maxBytes / (1024 * 1024)).round()} MiB download limit.'
-            : 'This file could not be opened. It may have moved or be unavailable on Hermes.';
+        _initialError = fileOpenErrorMessage(error);
       });
     } finally {
       if (mounted) setState(() => _initialOpening = false);
     }
   }
 
-  void _error(BuildContext context, Object error) {
+  void _error(
+    BuildContext context,
+    Object error, {
+    VoidCallback? onRetry,
+  }) {
     if (!context.mounted) return;
     ScaffoldMessenger.of(context).showSnackBar(
       SnackBar(
-        content: Text(
-          error is DashboardResponseTooLargeException
-              ? 'This file exceeds the ${(error.maxBytes / (1024 * 1024)).round()} MiB download limit.'
-              : 'This output could not be opened. It may have moved or be unavailable on Hermes.',
-        ),
+        content: Text(fileOpenErrorMessage(error)),
+        action: onRetry == null
+            ? null
+            : SnackBarAction(label: 'Retry', onPressed: onRetry),
       ),
     );
   }
@@ -147,13 +148,24 @@ class _ChatOutputsScreenState extends State<ChatOutputsScreen> {
     await SharePlus.instance.share(ShareParams(files: [XFile(file.path)]));
   }
 
-  Future<void> _run(Future<void> Function() action) async {
+  Future<void> _run(
+    Future<void> Function() action, {
+    bool offerRetry = false,
+  }) async {
     if (_working) return;
     setState(() => _working = true);
     try {
       await action();
     } catch (error) {
-      if (mounted) _error(context, error);
+      if (mounted) {
+        _error(
+          context,
+          error,
+          onRetry: offerRetry && canRetryFileOpen(error)
+              ? () => unawaited(_run(action, offerRetry: true))
+              : null,
+        );
+      }
     } finally {
       if (mounted) setState(() => _working = false);
     }
@@ -579,7 +591,10 @@ class _ChatOutputsScreenState extends State<ChatOutputsScreen> {
                         ),
                         onTap: _working
                             ? null
-                            : () => _run(() => _preview(output)),
+                            : () => _run(
+                                () => _preview(output),
+                                offerRetry: true,
+                              ),
                         trailing: output.path == null
                             ? null
                             : IconButton(

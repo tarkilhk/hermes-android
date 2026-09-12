@@ -87,11 +87,11 @@ Use these packages to avoid building the same requirement twice. Their order is 
 | Package | Selected IDs | Intended outcome | Status |
 | --- | --- | --- | --- |
 | W00 App shell | Left drawer, B01 presentation, W09/W11 entry points, legacy UI retirement | Shared navigation and styling around existing behavior; read-only administration entry. No new backend features. See [shell delivery notes](APP_SHELL.md). | Done, deployed to the owner's phone as Personal 2.1.2 / 21452 on 2026-09-11 |
-| W01 Find and resume work | C02, C03, C07, C08 P1, C09 ongoing only, T11, T12, R02, R03, M01, M02, M04 | Authoritative history/status, useful search and filters, simple refresh/recovery and cross-profile Activity. | In progress: D02/D05/D18/D19 implemented; live QA remains; unread filtering is paginated |
+| W01 Find and resume work | C02, C03, C07, C08 P1, C09 ongoing only, T11, T12, R02, R03, M01, M02, M04 | Authoritative history/status, useful search and filters, simple refresh/recovery and cross-profile Activity. | D02/D05/D18/D19 are implemented. Older Find navigation and draft survival passed live 2.31.1 checks; cross-client read state and Activity with live work remain |
 | W02 Protect drafts and control submission | Q02, Q03, Q07, Q09, Q10, Q11, Q12, M03 | Unsent work survives interruption; correct, branch, steer and queue without changing default send behavior. | Drafts, Queue/Steer, Edit/Fork and live side questions implemented; synchronized answer versions and cold side-task recovery are deferred without existing server APIs |
-| W03 Commands, model choice and context | Q16, T10, R06 | Correct session-scoped `/yolo`, real provider grouping with collapsible sections, minimal context indicator. Keep typing `/` as the command entry point. | D03/D04/D15 implemented; live QA pending |
-| W04 Projects | P03, P04, P06, P08 | Useful project creation/admin/context with server-owned metadata. | Project management is implemented. The 2.31 release adds explicit discovery of configured repository roots while preserving manual absolute-path entry; its full suite, analysis, emulator and signed-build checks pass; live server acceptance remains |
-| W05 Read and use results | T03 common content, T04, T05, T06, T07, T08, T09, T14, F03, F04, F05 per-chat only, F06, F07, G07 | Read media and tool progress; open, download and use generated results without a general filesystem browser. | Common content, diagrams, media, execution details and previews implemented. The 2.31 release adds direct Markdown file links and transient review-summary notices; its full suite, analysis, emulator and signed-build checks pass; live server acceptance remains. Live-server and format limits remain |
+| W03 Commands, model choice and context | Q16, T10, R06 | Correct session-scoped `/yolo`, real provider grouping with collapsible sections, minimal context indicator. Keep typing `/` as the command entry point. | D03/D04/D15 implemented. The reported existing-chat context regression passed live on 2.31.1; other provider/server combinations remain bounded by server data |
+| W04 Projects | P03, P04, P06, P08 | Useful project creation/admin/context with server-owned metadata. | Project management is implemented. Live 2.31.1 verified repository discovery and selection with manual fallback; project creation was cancelled, so a real write remains unchecked |
+| W05 Read and use results | T03 common content, T04, T05, T06, T07, T08, T09, T14, F03, F04, F05 per-chat only, F06, F07, G07 | Read media and tool progress; open, download and use generated results without a general filesystem browser. | Common content, diagrams, media, execution details and previews implemented. Live 2.31.1 verified large-chat Outputs, one authenticated Markdown preview and corrected Find navigation. Two older generated paths return HTTP 404 and remain unresolved; Samsung media QA remains |
 | W06 Unblock and supervise work | R04, R05, R07, R08, R09, R10, R11, R12, R13, R14, R15, R18 | Answer requests and inspect/control active agent work through supported server contracts. | Live request forms and D23-D25 controls are implemented. The 2.31 release labels sensitive input while reading older history; its full suite, analysis, emulator and signed-build checks pass; live server acceptance remains. Cold sensitive-request recovery remains unavailable without an existing server snapshot |
 | W07 Notifications | R16, R17, S12, M01, M09 | First, useful local notices and correct task opening. Later, server-triggered push delivery through Firebase Cloud Messaging while the app is absent. Both phases are selected; the first release may omit push. | Local controls, startup retry and tap routing implemented. Background delivery is deferred because no existing Hermes registration/sender integration has been verified |
 | W08 Connections and operations | B01, B02, B04, B10, B11 all proposed, B14, B15, S01, S02 | Current-looking password setup and repair, understandable health/usage, scoped profile/admin actions and backend updates. | Diagnostics, profile editing, usage, custom access headers and one-host/selected-host updates implemented. Remote TUI restart is deferred because existing Hermes exposes no authenticated restart API |
@@ -317,23 +317,29 @@ All 53 focused checks and 1,257 full-suite tests pass, with four opt-in skips;
 analysis is clean. Detailed verification remains in the linked technical records,
 not the product changelog.
 
-The 2.31 release adds four client-only improvements through existing Hermes
+The 2.31 release added four client-only improvements through existing Hermes
 data and APIs: discovered repository roots during project creation, direct
 Markdown file links, transient `review.summary` notices, and an **Input needed**
-jump label for sensitive requests while reading older history. All 1,281 tests
-pass with four opt-in skips, and analysis is clean. All four emulator scenarios
-pass. The signed Personal build passed identity/certificate checks and is
-installed in place as 2.31.0 / 21852. See the
-[verification record](EMULATOR_ROADMAP_VERIFICATION.md) for evidence and limits.
+jump label for sensitive requests while reading older history. The 2.31.1
+correction adds safe actionable file HTTP errors, transient Retry, saved
+proxied-auth forwarding, stable recent-first Find loading and action-first long
+results. All 1,288 tests pass with four opt-in skips, analysis is clean, and all
+four emulator scenarios pass. Personal 2.31.1 / 21862 is installed and launches.
+See the [live phone record](LIVE_PHONE_ACCEPTANCE_2026-09-12.md) and
+[emulator record](EMULATOR_ROADMAP_VERIFICATION.md) for evidence and limits.
 
 No Hermes patches were deployed. The 2.28-2.30 server-contract experiments are
 rejected history, not open deployment work. Background push, synchronized answer
 versions, cold sensitive/side-task recovery and remote TUI restart remain deferred
 because unmodified Hermes does not expose the required capabilities.
 
-Live phone/server acceptance remains open for context fullness on existing chats,
-large-chat Outputs and relative paths, older Find navigation, cross-client read
-state, queue/upload behavior, and Samsung-specific media and capture behavior.
+Live 2.31.1 closes the reported existing-chat context, large-chat Outputs and
+older Find regressions, and verifies one current Markdown file. Two older
+generated references return HTTP 404 and were not restored. Draft survival,
+provider grouping and a basic prompt round trip also passed live checks. The
+temporary test chat was deleted. Project creation, Activity with real work,
+cross-client read state, queue/upload behavior, sensitive response delivery and
+Samsung-specific media and capture behavior remain open.
 The [delivery sequence](DELIVERY_SEQUENCE.md) and technical feature notes record
 the precise limits and completed verification.
 

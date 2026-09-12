@@ -94,7 +94,7 @@ class _ChatFindSheetState extends State<ChatFindSheet> {
   List<_ChatFindRow> get _matches {
     final query = _query.text.trim().toLowerCase();
     if (query.isEmpty) return const [];
-    return _history
+    return _history.reversed
         .where((entry) => _rowText(entry.row).toLowerCase().contains(query))
         .toList(growable: false);
   }
@@ -184,13 +184,11 @@ class _ChatFindSheetState extends State<ChatFindSheet> {
                                     ? Icons.person_outline
                                     : Icons.smart_toy_outlined,
                               ),
-                              title: expanded
-                                  ? SelectableText(_rowText(row))
-                                  : Text(
-                                      _rowText(row),
-                                      maxLines: 5,
-                                      overflow: TextOverflow.ellipsis,
-                                    ),
+                              title: Text(
+                                _rowText(row),
+                                maxLines: 5,
+                                overflow: TextOverflow.ellipsis,
+                              ),
                               subtitle: Text(role),
                               children: [
                                 Align(
@@ -214,6 +212,18 @@ class _ChatFindSheetState extends State<ChatFindSheet> {
                                       icon: const Icon(Icons.open_in_new),
                                       label: const Text('View in chat'),
                                     ),
+                                  ),
+                                ),
+                                Padding(
+                                  padding: const EdgeInsets.fromLTRB(
+                                    16,
+                                    0,
+                                    16,
+                                    12,
+                                  ),
+                                  child: Align(
+                                    alignment: Alignment.centerLeft,
+                                    child: SelectableText(_rowText(row)),
                                   ),
                                 ),
                               ],

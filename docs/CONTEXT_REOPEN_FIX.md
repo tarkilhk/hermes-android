@@ -38,5 +38,13 @@ old zero-limit response after the ready response and checks that it cannot erase
 the newer fullness.
 
 Release validation and phone installation are recorded in
-[the delivery sequence](DELIVERY_SEQUENCE.md). Reading package/process metadata
-does not verify the owner's live conversation; that final phone check remains.
+[the delivery sequence](DELIVERY_SEQUENCE.md).
+
+## Live verification
+
+On 2026-09-12, Personal 2.31.1 opened the previously affected large chat with an
+empty composer and immediately displayed 57% context fullness. No prompt was
+submitted. Opening Outputs and returning preserved the populated indicator and
+the original chat. This closes the reported live D15 regression for that chat;
+it does not establish context behavior for every provider or server version. See
+the [live phone acceptance record](LIVE_PHONE_ACCEPTANCE_2026-09-12.md).

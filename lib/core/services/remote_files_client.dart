@@ -129,6 +129,7 @@ class RemoteFilesClient implements RemoteFilesDataSource {
         port: baseUri.port,
         useHttps: baseUri.scheme == 'https',
         pathPrefix: baseUri.path == '/' ? '' : baseUri.path,
+        proxied: connection.dashboardProxied,
         username: connection.dashboardUsername,
         password: connection.dashboardPassword,
         gatewayHeaders: connection.gatewayHeaders,

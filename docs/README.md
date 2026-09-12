@@ -68,6 +68,7 @@ The inventories describe their inspection dates and source commits. Do not silen
 
 ## Build, distribution and verification
 
+- [Live phone acceptance, 2026-09-12](LIVE_PHONE_ACCEPTANCE_2026-09-12.md), installed 2.31.1 checks and their remaining live limits.
 - [Roadmap emulator verification](EMULATOR_ROADMAP_VERIFICATION.md), actual Android UI checks, synthetic server scenarios and remaining device/server acceptance checks.
 - [Local build setup](LOCAL_BUILD_SETUP.md). Host paths and tool versions are dated evidence; use the actual current checkout rather than assuming an old location.
 - [Android release identity and signing](ANDROID_RELEASE_PLAN.md).

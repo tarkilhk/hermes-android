@@ -87,6 +87,71 @@ void main() {
     expect(find.text('1 matching message'), findsOneWidget);
   });
 
+  testWidgets('keeps recent matches first after loading older messages', (
+    tester,
+  ) async {
+    await tester.pumpWidget(
+      MaterialApp(
+        home: ChatFindSheet(
+          loadHistory: (offset) async => offset == 0
+              ? page([
+                  {
+                    'id': 501,
+                    'role': 'assistant',
+                    'content': 'recent earlier needle',
+                  },
+                  for (var i = 502; i < 1000; i++)
+                    {'id': i, 'content': 'recent filler $i'},
+                  {
+                    'id': 1000,
+                    'role': 'assistant',
+                    'content': 'recent newest needle',
+                  },
+                ])
+              : page([
+                  {
+                    'id': 1,
+                    'role': 'assistant',
+                    'content': 'oldest needle',
+                  },
+                  {
+                    'id': 500,
+                    'role': 'assistant',
+                    'content': 'older newest needle',
+                  },
+                ], offset: offset),
+        ),
+      ),
+    );
+    await tester.pump();
+    await tester.pump(const Duration(milliseconds: 1));
+    await tester.enterText(find.byType(TextField), 'needle');
+    await tester.pump();
+
+    expect(
+      tester
+          .widgetList<ExpansionTile>(find.byType(ExpansionTile))
+          .map((tile) => (tile.title as Text).data),
+      ['recent newest needle', 'recent earlier needle'],
+    );
+
+    await tester.tap(find.text('Search older messages'));
+    await tester.pump();
+    await tester.pump(const Duration(milliseconds: 1));
+
+    expect(
+      tester
+          .widgetList<ExpansionTile>(find.byType(ExpansionTile))
+          .map((tile) => (tile.title as Text).data),
+      [
+        'recent newest needle',
+        'recent earlier needle',
+        'older newest needle',
+        'oldest needle',
+      ],
+    );
+  });
+
   testWidgets('initial failures use friendly retry and close actions', (
     tester,
   ) async {
@@ -113,7 +178,6 @@ void main() {
       MaterialApp(
         home: ChatFindSheet(
           loadHistory: (_) async => page([
-            {'id': 0, 'role': 'assistant', 'content': longText},
             ...List.generate(
               100,
               (index) => {
@@ -122,6 +186,7 @@ void main() {
                 'content': 'needle ${index + 1}',
               },
             ),
+            {'id': 101, 'role': 'assistant', 'content': longText},
           ]),
         ),
       ),
@@ -134,10 +199,35 @@ void main() {
     await tester.tap(find.byType(ExpansionTile).first);
     await tester.pump();
     expect(find.byType(SelectableText), findsOneWidget);
-    expect(find.text(longText), findsOneWidget);
+    expect(tester.widget<SelectableText>(find.byType(SelectableText)).data, longText);
     await tester.drag(find.byType(ListView), const Offset(0, -10000));
     await tester.pumpAndSettle();
-    expect(find.text('needle 100'), findsOneWidget);
+    expect(find.text('needle 1'), findsOneWidget);
+  });
+
+  testWidgets('expanded long result keeps View in chat visible', (
+    tester,
+  ) async {
+    final longText = List.filled(200, 'needle detail').join('\n');
+    await tester.pumpWidget(
+      MaterialApp(
+        home: ChatFindSheet(
+          loadHistory: (_) async => page([
+            {'id': 1, 'role': 'assistant', 'content': longText},
+          ]),
+        ),
+      ),
+    );
+    await tester.pump();
+    await tester.pump(const Duration(milliseconds: 1));
+    await tester.enterText(find.byType(TextField), 'needle');
+    await tester.pump();
+
+    await tester.tap(find.byType(ExpansionTile));
+    await tester.pumpAndSettle();
+
+    expect(find.byType(SelectableText), findsOneWidget);
+    expect(find.text('View in chat').hitTestable(), findsOneWidget);
   });
 
   testWidgets(
