@@ -8,6 +8,23 @@ Feature releases increment the minor version, fixes increment the patch version,
 and breaking changes increment the major version. The Android build number after
 `+` always increases. Update this changelog for every release milestone.
 
+## [2.27.2+2180] - 2026-09-12
+
+### Fixed
+
+- Notification taps reuse the chat screen for their original connection instead
+  of stacking copies. Concurrent callbacks for the same target share one open;
+  later taps still refresh the session from Hermes.
+- A newer notification target takes precedence over an older pending open,
+  including rapid switches between chats. Failed opens remain retryable.
+
+### Verification
+
+- All 33 focused notification checks and 1,224 full-suite tests pass, with four
+  opt-in skips. Analyzer clean; signed Personal 21802 passed native compilation
+  and certificate/package checks.
+- Phone installation remains deferred while the owner is away from home.
+
 ## [2.27.1+2179] - 2026-09-12
 
 ### Fixed

@@ -91,12 +91,16 @@ See [registration-token management](https://firebase.google.com/docs/cloud-messa
 Persist only the installation/delivery configuration needed for this flow,
 alongside existing device settings. Do not add a local conversation database.
 
-The current tap handler also needs a focused navigation correction. Repeated
-callbacks can push the same chat screen more than once. Keep one pending open
-for the same target and reuse an existing notification destination where
-appropriate. A later tap must still refresh from Hermes, and a failed open must
-remain retryable. Do not retain a permanent list of opened chats to suppress
-notifications.
+The 2.27.2 tap handler shares the latest pending open for the same target and
+reuses a live notification-opened screen for that connection. The screen follows
+the controller's current profile and chat. A later tap refreshes from Hermes;
+closing the route removes its record, and a failed open remains retryable.
+Only the latest requested target can finish opening, including rapid A-B-A
+switches and slow cold initialization. This uses temporary navigation state,
+not a saved list of opened chats. Eight routing widget tests and all 33 combined
+notification checks pass. The full suite passed 1,224 tests with four opt-in
+skips; analyzer clean. Signed Personal 21802 passed certificate/package checks.
+Native cold/warm taps and live server behavior still need phone verification.
 
 ## Completion checks
 

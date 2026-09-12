@@ -47,10 +47,14 @@ class HermesApp extends StatefulWidget {
   final ConnectionManager connManager;
   final AndroidShareIntentService? shareIntents;
   final AndroidLaunchIntentService? launchIntents;
+
+  /// When supplied, this app owns and disposes the registry.
+  final ProfileWorkspaceRegistry? profileControllers;
   const HermesApp({
     required this.connManager,
     this.shareIntents,
     this.launchIntents,
+    this.profileControllers,
     super.key,
   });
 
@@ -89,9 +93,13 @@ class HermesApp extends StatefulWidget {
 class HermesAppState extends State<HermesApp> {
   final _navigatorKey = GlobalKey<NavigatorState>();
   final _homeKey = GlobalKey<HomeScreenState>();
+  final _notificationRoutes = <ProfileWorkspaceController, Route<void>>{};
   late final ProfileWorkspaceRegistry _profileControllers;
   late final PluginTurnNotificationSink _profileNotifications;
   late final Future<void> _notificationsReady;
+  ProfileSessionKey? _pendingNotificationKey;
+  Future<void>? _pendingNotificationOpen;
+  int _notificationOpenGeneration = 0;
 
   Future<ProfileWorkspaceController> profileController(
     SavedConnection connection,
@@ -122,49 +130,106 @@ class HermesAppState extends State<HermesApp> {
     );
   }
 
-  Future<void> _openProfileNotification(String payload) async {
+  Future<void> openProfileNotification(String payload) async {
     if (payload.isEmpty) return; // Test alerts have no conversation target.
+    final ProfileSessionKey key;
     try {
-      final key = ProfileSessionKey.fromJson(
+      key = ProfileSessionKey.fromJson(
         jsonDecode(payload) as Map<String, dynamic>,
       );
+    } catch (_) {
+      _notificationOpenGeneration++;
+      _pendingNotificationKey = null;
+      _pendingNotificationOpen = null;
+      _showNotificationOpenError();
+      return;
+    }
+
+    final pending = _pendingNotificationOpen;
+    if (_pendingNotificationKey == key && pending != null) return pending;
+
+    final generation = ++_notificationOpenGeneration;
+    final opening = _openProfileNotificationTarget(key, generation);
+    _pendingNotificationKey = key;
+    _pendingNotificationOpen = opening;
+    try {
+      await opening;
+    } finally {
+      if (identical(_pendingNotificationOpen, opening)) {
+        _pendingNotificationKey = null;
+        _pendingNotificationOpen = null;
+      }
+    }
+  }
+
+  bool _isCurrentNotificationOpen(int generation) =>
+      mounted && generation == _notificationOpenGeneration;
+
+  Future<void> _openProfileNotificationTarget(
+    ProfileSessionKey key,
+    int generation,
+  ) async {
+    try {
       final connection = (await widget.connManager.loadConnectionsWithSecrets())
           .where((c) => c.id == key.workspace.connectionId)
           .firstOrNull;
-      if (!mounted) return;
+      if (!_isCurrentNotificationOpen(generation)) return;
       if (connection == null) {
         throw StateError('The original connection is unavailable');
       }
       final controller = await _profileControllers.forSession(connection, key);
+      if (!_isCurrentNotificationOpen(generation)) return;
       if (controller.discovery == null) await controller.initialize();
+      if (!_isCurrentNotificationOpen(generation)) return;
       await controller.openSession(key);
-      if (!mounted) return;
+      if (!_isCurrentNotificationOpen(generation)) return;
       if (controller.current?.scope != key.workspace ||
           controller.current?.chat?.key != key) {
         throw StateError('The notification target is unavailable');
       }
-      _navigatorKey.currentState?.push(
-        MaterialPageRoute(
-          builder: (_) => ProfileWorkspaceScreen(
-            controller: controller,
-            enableNotifications: enableProfileNotifications,
-            onConnections: openConnections,
-            onPreferencesChanged: refreshPreferences,
+      final navigator = _navigatorKey.currentState;
+      if (navigator == null) {
+        throw StateError('Notification navigation is unavailable');
+      }
+      final existingRoute = _notificationRoutes[controller];
+      if (existingRoute != null && existingRoute.isActive) {
+        navigator.popUntil((route) => identical(route, existingRoute));
+        return;
+      }
+      final route = MaterialPageRoute<void>(
+        builder: (_) => ProfileWorkspaceScreen(
+          controller: controller,
+          enableNotifications: enableProfileNotifications,
+          onConnections: openConnections,
+          onPreferencesChanged: refreshPreferences,
+        ),
+      );
+      _notificationRoutes[controller] = route;
+      unawaited(
+        route.popped.then((_) {
+          if (identical(_notificationRoutes[controller], route)) {
+            _notificationRoutes.remove(controller);
+          }
+        }),
+      );
+      navigator.push(route);
+    } catch (_) {
+      if (!_isCurrentNotificationOpen(generation)) return;
+      // Malformed or removed targets cannot be rerouted to a default profile.
+      _showNotificationOpenError();
+    }
+  }
+
+  void _showNotificationOpenError() {
+    final context = _navigatorKey.currentContext;
+    if (context != null && context.mounted) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text(
+            'This chat is unavailable on its original host or profile.',
           ),
         ),
       );
-    } catch (_) {
-      // Malformed or removed targets cannot be rerouted to a default profile.
-      final context = _navigatorKey.currentContext;
-      if (context != null && context.mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(
-            content: Text(
-              'This chat is unavailable on its original host or profile.',
-            ),
-          ),
-        );
-      }
     }
   }
 
@@ -175,7 +240,7 @@ class HermesAppState extends State<HermesApp> {
       onOpen: (payload) {
         unawaited(
           WidgetsBinding.instance.endOfFrame.then(
-            (_) => _openProfileNotification(payload),
+            (_) => openProfileNotification(payload),
           ),
         );
       },
@@ -183,36 +248,38 @@ class HermesAppState extends State<HermesApp> {
     _notificationsReady = _profileNotifications.initialize().catchError(
       (Object _) {},
     );
-    _profileControllers = ProfileWorkspaceRegistry(
-      identities: ProfileConnectionIdentity(),
-      create: (connection, identity) => ProfileWorkspaceController(
-        connection: connection,
-        connectionIdentity: identity,
-        preferences: widget.connManager.prefs,
-        onAttention: (chat, needsInput) async {
-          final preference = needsInput
-              ? attentionNotificationsKey
-              : completionNotificationsKey;
-          if (widget.connManager.prefs.getBool(preference) == false) return;
-          await _notificationsReady;
-          final payload = jsonEncode(chat.key.toJson());
-          await _profileNotifications.show(
-            TurnNotification(
-              id: TurnNotificationService.notificationIdFor(payload),
-              title:
-                  '${chat.key.workspace.profileName}: ${needsInput ? 'Needs attention' : 'Chat finished'}',
-              body:
-                  widget.connManager.prefs.getBool(notificationTitlesKey) ==
-                      true
-                  ? chat.title
-                  : 'Open Hermes to view this chat.',
-              payload: payload,
-              channel: TurnNotificationService.turnChannel,
-            ),
-          );
-        },
-      ),
-    );
+    _profileControllers =
+        widget.profileControllers ??
+        ProfileWorkspaceRegistry(
+          identities: ProfileConnectionIdentity(),
+          create: (connection, identity) => ProfileWorkspaceController(
+            connection: connection,
+            connectionIdentity: identity,
+            preferences: widget.connManager.prefs,
+            onAttention: (chat, needsInput) async {
+              final preference = needsInput
+                  ? attentionNotificationsKey
+                  : completionNotificationsKey;
+              if (widget.connManager.prefs.getBool(preference) == false) return;
+              await _notificationsReady;
+              final payload = jsonEncode(chat.key.toJson());
+              await _profileNotifications.show(
+                TurnNotification(
+                  id: TurnNotificationService.notificationIdFor(payload),
+                  title:
+                      '${chat.key.workspace.profileName}: ${needsInput ? 'Needs attention' : 'Chat finished'}',
+                  body:
+                      widget.connManager.prefs.getBool(notificationTitlesKey) ==
+                          true
+                      ? chat.title
+                      : 'Open Hermes to view this chat.',
+                  payload: payload,
+                  channel: TurnNotificationService.turnChannel,
+                ),
+              );
+            },
+          ),
+        );
   }
 
   void refreshPreferences() {
