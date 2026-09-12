@@ -13,6 +13,8 @@ import 'support/profile_actions_fixture.dart';
 class _GoalFixture extends ProfileActionsFixture {
   final requests = <(String, Map<String, dynamic>)>[];
   bool hasGoal = true;
+  bool failAction = false;
+  final subgoals = <String>['Implement', 'Verify'];
 
   Map<String, dynamic> get control => {
     'goal': hasGoal
@@ -28,7 +30,7 @@ class _GoalFixture extends ProfileActionsFixture {
               'boundaries': 'No unrelated edits',
               'stop_when': 'Checks pass',
             },
-            'subgoals': ['Implement', 'Verify'],
+            'subgoals': subgoals,
             'gates': const [],
           }
         : null,
@@ -47,6 +49,15 @@ class _GoalFixture extends ProfileActionsFixture {
         requests.add((method, params));
         if (method == 'session.control.read') return {'control': control};
         if (method == 'session.control') {
+          if (failAction) throw StateError('Action rejected');
+          final args = params['args'] as Map<String, dynamic>;
+          if (params['action'] == 'subgoal.add') {
+            subgoals.add(args['text'] as String);
+          } else if (params['action'] == 'subgoal.remove') {
+            subgoals.removeAt((args['index'] as int) - 1);
+          } else if (params['action'] == 'subgoal.clear') {
+            subgoals.clear();
+          }
           return {
             'control': control,
             'dispatch': {
@@ -133,6 +144,196 @@ void main() {
     );
   });
 
+  testWidgets('adds a trimmed criterion through the scoped control action', (
+    tester,
+  ) async {
+    await showPanel(tester);
+    await tester.tap(find.text('Add criterion'));
+    await tester.pumpAndSettle();
+    await tester.enterText(
+      find.byKey(const ValueKey('goal-criterion-draft')),
+      '  Release is verified  ',
+    );
+    await tester.pump();
+    await tester.tap(find.widgetWithText(FilledButton, 'Add'));
+    await tester.pumpAndSettle();
+
+    final request = fixture.requests.lastWhere(
+      (request) => request.$1 == 'session.control',
+    );
+    expect(request.$2['action'], 'subgoal.add');
+    expect(request.$2['args'], {'text': 'Release is verified'});
+    expect(request.$2['session_id'], 'runtime');
+    expect(find.text('3. Release is verified'), findsOneWidget);
+  });
+
+  testWidgets('retains the add draft when the server rejects it', (
+    tester,
+  ) async {
+    fixture.failAction = true;
+    await showPanel(tester);
+    await tester.tap(find.text('Add criterion'));
+    await tester.pumpAndSettle();
+    final draft = find.byKey(const ValueKey('goal-criterion-draft'));
+    await tester.enterText(draft, 'Keep this criterion');
+    await tester.pump();
+    await tester.tap(find.widgetWithText(FilledButton, 'Add'));
+    await tester.pumpAndSettle();
+
+    expect(
+      tester.widget<TextField>(draft).controller!.text,
+      'Keep this criterion',
+    );
+    expect(
+      find.text('Criterion could not be added. Review it and try again.'),
+      findsOneWidget,
+    );
+    expect(
+      fixture.requests.where(
+        (request) =>
+            request.$1 == 'session.control' &&
+            request.$2['action'] == 'subgoal.add',
+      ),
+      hasLength(1),
+    );
+  });
+
+  testWidgets('confirms one-based removal and clearing all criteria', (
+    tester,
+  ) async {
+    await showPanel(tester);
+    await tester.tap(find.byTooltip('Remove criterion 2'));
+    await tester.pumpAndSettle();
+    expect(find.text('Remove criterion 2?'), findsOneWidget);
+    await tester.tap(find.widgetWithText(TextButton, 'Cancel'));
+    await tester.pumpAndSettle();
+    expect(find.text('2. Verify'), findsOneWidget);
+
+    await tester.tap(find.byTooltip('Remove criterion 2'));
+    await tester.pumpAndSettle();
+    await tester.tap(find.widgetWithText(FilledButton, 'Remove'));
+    await tester.pumpAndSettle();
+    final remove = fixture.requests.lastWhere(
+      (request) =>
+          request.$1 == 'session.control' &&
+          request.$2['action'] == 'subgoal.remove',
+    );
+    expect(remove.$2['args'], {'index': 2});
+    expect(find.text('2. Verify'), findsNothing);
+
+    await tester.tap(find.text('Clear criteria'));
+    await tester.pumpAndSettle();
+    expect(find.text('Clear all criteria?'), findsOneWidget);
+    await tester.tap(find.widgetWithText(FilledButton, 'Clear criteria'));
+    await tester.pumpAndSettle();
+    expect(fixture.subgoals, isEmpty);
+    expect(find.text('Criteria (0)'), findsOneWidget);
+    final clear = fixture.requests.lastWhere(
+      (request) =>
+          request.$1 == 'session.control' &&
+          request.$2['action'] == 'subgoal.clear',
+    );
+    expect(clear.$2['args'], isEmpty);
+  });
+
+  testWidgets('does not remove or clear criteria changed during confirmation', (
+    tester,
+  ) async {
+    await showPanel(tester);
+
+    await tester.tap(find.byTooltip('Remove criterion 1'));
+    await tester.pumpAndSettle();
+    fixture.subgoals[0] = 'Changed by server';
+    await controller.refreshSessionControl(chat);
+    await tester.pumpAndSettle();
+    await tester.tap(find.widgetWithText(FilledButton, 'Remove'));
+    await tester.pumpAndSettle();
+
+    expect(find.text('Criteria changed'), findsOneWidget);
+    expect(find.textContaining('Review the refreshed list'), findsOneWidget);
+    expect(
+      fixture.requests.where(
+        (request) =>
+            request.$1 == 'session.control' &&
+            request.$2['action'] == 'subgoal.remove',
+      ),
+      isEmpty,
+    );
+    await tester.tap(find.widgetWithText(TextButton, 'OK'));
+    await tester.pumpAndSettle();
+
+    await tester.tap(find.text('Clear criteria'));
+    await tester.pumpAndSettle();
+    fixture.subgoals.add('Added by server');
+    await controller.refreshSessionControl(chat);
+    await tester.pumpAndSettle();
+    await tester.tap(find.widgetWithText(FilledButton, 'Clear criteria'));
+    await tester.pumpAndSettle();
+
+    expect(find.text('Criteria changed'), findsOneWidget);
+    expect(
+      fixture.requests.where(
+        (request) =>
+            request.$1 == 'session.control' &&
+            request.$2['action'] == 'subgoal.clear',
+      ),
+      isEmpty,
+    );
+  });
+
+  testWidgets('add dialog keeps its draft when the parent panel is disposed', (
+    tester,
+  ) async {
+    var showGoalPanel = true;
+    late StateSetter updateHost;
+    await tester.pumpWidget(
+      MaterialApp(
+        home: StatefulBuilder(
+          builder: (context, setState) {
+            updateHost = setState;
+            return Scaffold(
+              body: showGoalPanel
+                  ? ProfileGoalPanel(
+                      controller: controller,
+                      chat: chat,
+                      initiallyExpanded: true,
+                    )
+                  : const SizedBox.shrink(),
+            );
+          },
+        ),
+      ),
+    );
+    await tester.pump();
+    await tester.pump(const Duration(milliseconds: 100));
+    await tester.tap(find.text('Add criterion'));
+    await tester.pumpAndSettle();
+    final draft = find.byKey(const ValueKey('goal-criterion-draft'));
+    await tester.enterText(draft, 'Keep this local draft');
+
+    updateHost(() => showGoalPanel = false);
+    await tester.pump();
+    expect(tester.takeException(), isNull);
+    expect(
+      tester.widget<TextField>(draft).controller!.text,
+      'Keep this local draft',
+    );
+
+    await tester.tap(find.widgetWithText(FilledButton, 'Add'));
+    await tester.pump();
+    expect(
+      fixture.requests.where(
+        (request) =>
+            request.$1 == 'session.control' &&
+            request.$2['action'] == 'subgoal.add',
+      ),
+      isEmpty,
+    );
+    await tester.tap(find.widgetWithText(TextButton, 'Cancel'));
+    await tester.pumpAndSettle();
+    expect(tester.takeException(), isNull);
+  });
+
   testWidgets('chat menu opens server goal details', (tester) async {
     await tester.pumpWidget(
       MaterialApp(home: ProfileWorkspaceScreen(controller: controller)),
@@ -188,6 +389,13 @@ void main() {
       fixture.requests.where((r) => r.$1 == 'session.control.read').length,
       reads + 1,
     );
+    await tester.ensureVisible(find.text('Add criterion'));
+    await tester.tap(find.text('Add criterion'));
+    await tester.pumpAndSettle();
+    expect(find.byKey(const ValueKey('goal-criterion-draft')), findsOneWidget);
+    expect(tester.takeException(), isNull);
+    await tester.tap(find.widgetWithText(TextButton, 'Cancel'));
+    await tester.pumpAndSettle();
     expect(tester.takeException(), isNull);
   });
 }

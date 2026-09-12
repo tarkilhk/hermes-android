@@ -1078,10 +1078,12 @@ class ProfileWorkspaceController extends ChangeNotifier {
 
   Future<bool> controlSession(
     ProfileChat chat,
-    SessionControlAction action,
-  ) async {
+    SessionControlAction action, {
+    Map<String, dynamic> args = const <String, dynamic>{},
+  }) async {
     final resource = _owned(chat);
     if (chat.sessionControlWorking) return false;
+    final requestArgs = Map<String, dynamic>.from(args);
     final runtime = chat.runtimeId;
     final eventRevision = chat._sessionControlEventRevision;
     chat._sessionControlGeneration++;
@@ -1094,7 +1096,7 @@ class ProfileWorkspaceController extends ChangeNotifier {
       final response = await resource.gateway.call('session.control', {
         'session_id': runtime,
         'action': action.wireValue,
-        'args': <String, dynamic>{},
+        'args': requestArgs,
       });
       if (!_sessionControlIsCurrent(resource, chat, runtime)) return false;
       final snapshot = SessionControlSnapshot.parse(response);

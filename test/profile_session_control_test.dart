@@ -213,6 +213,51 @@ void main() {
     },
   );
 
+  test('subgoal actions send their exact manager arguments', () async {
+    expect(
+      await controller.controlSession(
+        chat,
+        SessionControlAction.subgoalAdd,
+        args: {'text': 'Verify hydration'},
+      ),
+      isTrue,
+    );
+    expect(host.calls.last.$3, {
+      'session_id': 'a-runtime',
+      'action': 'subgoal.add',
+      'args': {'text': 'Verify hydration'},
+      'profile': 'a',
+    });
+
+    host.actionResponse = _actionResponse('removed');
+    expect(
+      await controller.controlSession(
+        chat,
+        SessionControlAction.subgoalRemove,
+        args: {'index': 1},
+      ),
+      isTrue,
+    );
+    expect(host.calls.last.$3, {
+      'session_id': 'a-runtime',
+      'action': 'subgoal.remove',
+      'args': {'index': 1},
+      'profile': 'a',
+    });
+
+    host.actionResponse = _actionResponse('cleared');
+    expect(
+      await controller.controlSession(chat, SessionControlAction.subgoalClear),
+      isTrue,
+    );
+    expect(host.calls.last.$3, {
+      'session_id': 'a-runtime',
+      'action': 'subgoal.clear',
+      'args': <String, dynamic>{},
+      'profile': 'a',
+    });
+  });
+
   test(
     'duplicate and stale actions fail closed without changing ownership',
     () async {

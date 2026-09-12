@@ -23,6 +23,13 @@ class ProfileGoalPanel extends StatefulWidget {
 
 class _ProfileGoalPanelState extends State<ProfileGoalPanel> {
   bool _requested = false;
+  final _criterionDraft = TextEditingController();
+
+  @override
+  void dispose() {
+    _criterionDraft.dispose();
+    super.dispose();
+  }
 
   @override
   void initState() {
@@ -35,6 +42,7 @@ class _ProfileGoalPanelState extends State<ProfileGoalPanel> {
     super.didUpdateWidget(oldWidget);
     if (!identical(oldWidget.chat, widget.chat)) {
       _requested = false;
+      _criterionDraft.clear();
       _requestRefresh();
     }
   }
@@ -66,6 +74,150 @@ class _ProfileGoalPanelState extends State<ProfileGoalPanel> {
     } catch (_) {
       // The controller retains the error and notice for the panel.
     }
+  }
+
+  Future<void> _addCriterion() async {
+    final controller = widget.controller;
+    final chat = widget.chat;
+    await showDialog<void>(
+      context: context,
+      barrierDismissible: false,
+      builder: (dialogContext) => _AddCriterionDialog(
+        controller: controller,
+        chat: chat,
+        initialText: _criterionDraft.text,
+        ownsDestination: () =>
+            mounted &&
+            identical(widget.controller, controller) &&
+            identical(widget.chat, chat),
+        onDraftChanged: (value) {
+          if (mounted &&
+              identical(widget.controller, controller) &&
+              identical(widget.chat, chat)) {
+            _criterionDraft.text = value;
+          }
+        },
+        onAccepted: () {
+          if (mounted &&
+              identical(widget.controller, controller) &&
+              identical(widget.chat, chat)) {
+            _criterionDraft.clear();
+          }
+        },
+      ),
+    );
+  }
+
+  Future<void> _removeCriterion(int index, String text) async {
+    final controller = widget.controller;
+    final chat = widget.chat;
+    final criteria = List<String>.of(
+      chat.sessionControl?.goal?.subgoals ?? const <String>[],
+    );
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (context) => AlertDialog(
+        scrollable: true,
+        title: Text('Remove criterion ${index + 1}?'),
+        content: Text(text),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(context, false),
+            child: const Text('Cancel'),
+          ),
+          FilledButton(
+            onPressed: () => Navigator.pop(context, true),
+            child: const Text('Remove'),
+          ),
+        ],
+      ),
+    );
+    if (confirmed != true ||
+        !mounted ||
+        !identical(widget.controller, controller) ||
+        !identical(widget.chat, chat)) {
+      return;
+    }
+    if (!_sameCriteria(
+      criteria,
+      chat.sessionControl?.goal?.subgoals ?? const <String>[],
+    )) {
+      await _showCriteriaChanged();
+      return;
+    }
+    await controller.controlSession(
+      chat,
+      SessionControlAction.subgoalRemove,
+      args: {'index': index + 1},
+    );
+  }
+
+  Future<void> _clearCriteria() async {
+    final controller = widget.controller;
+    final chat = widget.chat;
+    final criteria = List<String>.of(
+      chat.sessionControl?.goal?.subgoals ?? const <String>[],
+    );
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (context) => AlertDialog(
+        scrollable: true,
+        title: const Text('Clear all criteria?'),
+        content: const Text('This removes every criterion from this goal.'),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(context, false),
+            child: const Text('Cancel'),
+          ),
+          FilledButton(
+            onPressed: () => Navigator.pop(context, true),
+            child: const Text('Clear criteria'),
+          ),
+        ],
+      ),
+    );
+    if (confirmed != true ||
+        !mounted ||
+        !identical(widget.controller, controller) ||
+        !identical(widget.chat, chat)) {
+      return;
+    }
+    if (!_sameCriteria(
+      criteria,
+      chat.sessionControl?.goal?.subgoals ?? const <String>[],
+    )) {
+      await _showCriteriaChanged();
+      return;
+    }
+    await controller.controlSession(chat, SessionControlAction.subgoalClear);
+  }
+
+  Future<void> _showCriteriaChanged() => showDialog<void>(
+    context: context,
+    builder: (context) => AlertDialog(
+      title: const Text('Criteria changed'),
+      content: const Text(
+        'Hermes updated these criteria. Review the refreshed list before trying again.',
+      ),
+      actions: [
+        TextButton(
+          onPressed: () => Navigator.pop(context),
+          child: const Text('OK'),
+        ),
+      ],
+    ),
+  );
+
+  static bool _sameCriteria(List<String> first, List<String> second) {
+    if (first.length != second.length) {
+      return false;
+    }
+    for (var index = 0; index < first.length; index++) {
+      if (first[index] != second[index]) {
+        return false;
+      }
+    }
+    return true;
   }
 
   Future<void> _clear() async {
@@ -135,6 +287,14 @@ class _ProfileGoalPanelState extends State<ProfileGoalPanel> {
             ),
           if (goal != null) _GoalDetails(goal: goal),
           if (goal != null)
+            _CriteriaSection(
+              goal: goal,
+              disabled: working,
+              onAdd: _addCriterion,
+              onRemove: _removeCriterion,
+              onClear: _clearCriteria,
+            ),
+          if (goal != null)
             _GoalActions(
               goal: goal,
               disabled: working,
@@ -171,6 +331,122 @@ class _ProfileGoalPanelState extends State<ProfileGoalPanel> {
   };
 }
 
+class _AddCriterionDialog extends StatefulWidget {
+  final ProfileWorkspaceController controller;
+  final ProfileChat chat;
+  final String initialText;
+  final bool Function() ownsDestination;
+  final ValueChanged<String> onDraftChanged;
+  final VoidCallback onAccepted;
+
+  const _AddCriterionDialog({
+    required this.controller,
+    required this.chat,
+    required this.initialText,
+    required this.ownsDestination,
+    required this.onDraftChanged,
+    required this.onAccepted,
+  });
+
+  @override
+  State<_AddCriterionDialog> createState() => _AddCriterionDialogState();
+}
+
+class _AddCriterionDialogState extends State<_AddCriterionDialog> {
+  late final TextEditingController _draft;
+  String? _error;
+
+  @override
+  void initState() {
+    super.initState();
+    _draft = TextEditingController(text: widget.initialText);
+  }
+
+  @override
+  void dispose() {
+    _draft.dispose();
+    super.dispose();
+  }
+
+  Future<void> _add() async {
+    if (!widget.ownsDestination()) {
+      setState(() {
+        _error = 'This chat changed. Close this dialog and review the goal.';
+      });
+      return;
+    }
+    final accepted = await widget.controller.controlSession(
+      widget.chat,
+      SessionControlAction.subgoalAdd,
+      args: {'text': _draft.text.trim()},
+    );
+    if (!mounted) {
+      return;
+    }
+    if (!widget.ownsDestination()) {
+      setState(() {
+        _error = 'This chat changed. Close this dialog and review the goal.';
+      });
+      return;
+    }
+    if (accepted) {
+      widget.onAccepted();
+      Navigator.pop(context);
+      return;
+    }
+    setState(() {
+      _error = 'Criterion could not be added. Review it and try again.';
+    });
+  }
+
+  @override
+  Widget build(BuildContext context) => ListenableBuilder(
+    listenable: widget.controller,
+    builder: (context, _) {
+      final working =
+          widget.chat.sessionControlLoading ||
+          widget.chat.sessionControlWorking;
+      return PopScope(
+        canPop: !working,
+        child: AlertDialog(
+          scrollable: true,
+          title: const Text('Add criterion'),
+          content: TextField(
+            key: const ValueKey('goal-criterion-draft'),
+            controller: _draft,
+            enabled: !working,
+            autofocus: true,
+            minLines: 2,
+            maxLines: 5,
+            textInputAction: TextInputAction.done,
+            decoration: InputDecoration(
+              labelText: 'Criterion',
+              hintText: 'What must be true before this goal is done?',
+              errorText: _error,
+              alignLabelWithHint: true,
+              border: const OutlineInputBorder(),
+            ),
+            onChanged: (value) {
+              widget.onDraftChanged(value);
+              setState(() {});
+            },
+          ),
+          actions: [
+            TextButton(
+              onPressed: working ? null : () => Navigator.pop(context),
+              child: const Text('Cancel'),
+            ),
+            FilledButton(
+              onPressed: working || _draft.text.trim().isEmpty ? null : _add,
+              child: const Text('Add'),
+            ),
+          ],
+        ),
+      );
+    },
+  );
+}
+
 class _GoalDetails extends StatelessWidget {
   final SessionGoal goal;
 
@@ -190,15 +466,6 @@ class _GoalDetails extends StatelessWidget {
           _Field(label: 'Constraints', value: goal.contract.constraints),
           _Field(label: 'Boundaries', value: goal.contract.boundaries),
           _Field(label: 'Stop when', value: goal.contract.stopWhen),
-          if (goal.subgoals.isNotEmpty) ...[
-            const SizedBox(height: 6),
-            const Text(
-              'Criteria',
-              style: TextStyle(fontWeight: FontWeight.bold),
-            ),
-            for (var i = 0; i < goal.subgoals.length; i++)
-              SelectableText('${i + 1}. ${goal.subgoals[i]}'),
-          ],
           if (goal.gates.isNotEmpty) ...[
             const SizedBox(height: 6),
             const Text(
@@ -278,6 +545,74 @@ class _Field extends StatelessWidget {
               ],
             ),
           ),
+  );
+}
+
+class _CriteriaSection extends StatelessWidget {
+  final SessionGoal goal;
+  final bool disabled;
+  final Future<void> Function() onAdd;
+  final Future<void> Function(int index, String text) onRemove;
+  final Future<void> Function() onClear;
+
+  const _CriteriaSection({
+    required this.goal,
+    required this.disabled,
+    required this.onAdd,
+    required this.onRemove,
+    required this.onClear,
+  });
+
+  @override
+  Widget build(BuildContext context) => Padding(
+    padding: const EdgeInsets.only(top: 8),
+    child: Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Text(
+          'Criteria (${goal.subgoals.length})',
+          style: Theme.of(context).textTheme.titleSmall,
+        ),
+        Wrap(
+          spacing: 4,
+          runSpacing: 2,
+          children: [
+            TextButton.icon(
+              onPressed: disabled ? null : onAdd,
+              icon: const Icon(Icons.add, size: 18),
+              label: const Text('Add criterion'),
+            ),
+            if (goal.subgoals.isNotEmpty)
+              TextButton.icon(
+                onPressed: disabled ? null : onClear,
+                icon: const Icon(Icons.clear_all, size: 18),
+                label: const Text('Clear criteria'),
+              ),
+          ],
+        ),
+        for (var index = 0; index < goal.subgoals.length; index++)
+          Row(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Expanded(
+                child: Padding(
+                  padding: const EdgeInsets.only(top: 10),
+                  child: SelectableText(
+                    '${index + 1}. ${goal.subgoals[index]}',
+                  ),
+                ),
+              ),
+              IconButton(
+                tooltip: 'Remove criterion ${index + 1}',
+                onPressed: disabled
+                    ? null
+                    : () => onRemove(index, goal.subgoals[index]),
+                icon: const Icon(Icons.close, size: 18),
+              ),
+            ],
+          ),
+      ],
+    ),
   );
 }
 

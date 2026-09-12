@@ -8,6 +8,14 @@ Feature releases increment the minor version, fixes increment the patch version,
 and breaking changes increment the major version. The Android build number after
 `+` always increases. Update this changelog for every release milestone.
 
+## [2.14.0+2163] - 2026-09-12
+
+### Added
+
+- Add, remove or clear server goal criteria from the existing Goal view. Keep
+  failed additions available for review and confirm removals against the latest
+  received criteria. Goal contracts and verification gates remain read-only.
+
 ## [2.13.0+2162] - 2026-09-12
 
 ### Added

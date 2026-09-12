@@ -12,6 +12,9 @@ enum SessionControlAction {
   loopPause('loop.pause'),
   loopResume('loop.resume'),
   loopStop('loop.stop'),
+  subgoalAdd('subgoal.add'),
+  subgoalRemove('subgoal.remove'),
+  subgoalClear('subgoal.clear'),
   heartbeatPause('heartbeat.pause'),
   heartbeatResume('heartbeat.resume'),
   heartbeatClear('heartbeat.clear');
