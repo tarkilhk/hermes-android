@@ -1,3 +1,6 @@
+import 'dart:convert';
+
+import 'package:crypto/crypto.dart';
 import 'package:flutter_local_notifications/flutter_local_notifications.dart';
 
 const completionNotificationsKey = 'completion_notifications';
@@ -6,9 +9,7 @@ const notificationTitlesKey = 'notification_chat_titles';
 
 /// The Android/iOS notification channel a [TurnNotification] belongs to.
 ///
-/// Phase 3 of the daily-driver roadmap replaces the single Hermes Turns
-/// channel with four prioritized channels; describing the channel as data
-/// keeps that change testable.
+/// Describing the channel as data keeps platform delivery testable.
 class TurnNotificationChannel {
   final String id;
   final String name;
@@ -64,6 +65,8 @@ abstract class TurnNotificationSink {
 class PluginTurnNotificationSink implements TurnNotificationSink {
   final FlutterLocalNotificationsPlugin _plugin;
   final void Function(String payload)? onOpen;
+  Future<void>? _initialization;
+  bool _initialized = false;
 
   PluginTurnNotificationSink({
     FlutterLocalNotificationsPlugin? plugin,
@@ -72,6 +75,21 @@ class PluginTurnNotificationSink implements TurnNotificationSink {
 
   @override
   Future<void> initialize() async {
+    if (_initialized) return;
+    final pending = _initialization;
+    if (pending != null) return pending;
+
+    final attempt = _initializeOnce();
+    _initialization = attempt;
+    try {
+      await attempt;
+      _initialized = true;
+    } finally {
+      if (identical(_initialization, attempt)) _initialization = null;
+    }
+  }
+
+  Future<void> _initializeOnce() async {
     const androidSettings = AndroidInitializationSettings(
       '@mipmap/ic_launcher',
     );
@@ -101,6 +119,7 @@ class PluginTurnNotificationSink implements TurnNotificationSink {
 
   @override
   Future<bool?> requestPermission() async {
+    await initialize();
     final android = _plugin
         .resolvePlatformSpecificImplementation<
           AndroidFlutterLocalNotificationsPlugin
@@ -123,6 +142,7 @@ class PluginTurnNotificationSink implements TurnNotificationSink {
 
   @override
   Future<void> show(TurnNotification notification) async {
+    await initialize();
     final androidDetails = AndroidNotificationDetails(
       notification.channel.id,
       notification.channel.name,
@@ -256,5 +276,11 @@ class TurnNotificationService {
   /// Masking instead of negating keeps the id inside the 31-bit range Android
   /// accepts, and keeps one turn mapped to exactly one notification so a turn
   /// replaces its own notification instead of stacking duplicates.
-  static int notificationIdFor(String turnId) => turnId.hashCode & 0x7fffffff;
+  static int notificationIdFor(String turnId) {
+    final bytes = sha256.convert(utf8.encode(turnId)).bytes;
+    return ((bytes[0] & 0x7f) << 24) |
+        (bytes[1] << 16) |
+        (bytes[2] << 8) |
+        bytes[3];
+  }
 }

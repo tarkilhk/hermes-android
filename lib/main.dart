@@ -195,9 +195,10 @@ class HermesAppState extends State<HermesApp> {
               : completionNotificationsKey;
           if (widget.connManager.prefs.getBool(preference) == false) return;
           await _notificationsReady;
+          final payload = jsonEncode(chat.key.toJson());
           await _profileNotifications.show(
             TurnNotification(
-              id: chat.key.hashCode & 0x7fffffff,
+              id: TurnNotificationService.notificationIdFor(payload),
               title:
                   '${chat.key.workspace.profileName}: ${needsInput ? 'Needs attention' : 'Chat finished'}',
               body:
@@ -205,7 +206,7 @@ class HermesAppState extends State<HermesApp> {
                       true
                   ? chat.title
                   : 'Open Hermes to view this chat.',
-              payload: jsonEncode(chat.key.toJson()),
+              payload: payload,
               channel: TurnNotificationService.turnChannel,
             ),
           );

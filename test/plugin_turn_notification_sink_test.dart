@@ -1,0 +1,187 @@
+import 'dart:async';
+
+import 'package:flutter/foundation.dart';
+import 'package:flutter/services.dart';
+import 'package:flutter_local_notifications/flutter_local_notifications.dart';
+import 'package:flutter_test/flutter_test.dart';
+import 'package:hermes_android/core/services/turn_notification_service.dart';
+
+void main() {
+  TestWidgetsFlutterBinding.ensureInitialized();
+  const channel = MethodChannel('dexterous.com/flutter/local_notifications');
+  final messenger =
+      TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger;
+
+  setUp(() {
+    debugDefaultTargetPlatformOverride = TargetPlatform.android;
+    AndroidFlutterLocalNotificationsPlugin.registerWith();
+  });
+
+  tearDown(() {
+    messenger.setMockMethodCallHandler(channel, null);
+    debugDefaultTargetPlatformOverride = null;
+  });
+
+  test(
+    'show retries plugin initialization after a transient failure',
+    () async {
+      var initializeCalls = 0;
+      messenger.setMockMethodCallHandler(channel, (call) async {
+        switch (call.method) {
+          case 'initialize':
+            initializeCalls++;
+            if (initializeCalls == 1) {
+              throw PlatformException(code: 'temporarily-unavailable');
+            }
+            return true;
+          case 'getNotificationAppLaunchDetails':
+            return <String, Object?>{'notificationLaunchedApp': false};
+          case 'show':
+            return null;
+        }
+        return null;
+      });
+      final sink = PluginTurnNotificationSink();
+
+      await expectLater(sink.initialize(), throwsA(isA<PlatformException>()));
+      await sink.show(
+        const TurnNotification(
+          id: 1,
+          title: 'Ready',
+          body: 'Done',
+          payload: 'target',
+          channel: TurnNotificationService.turnChannel,
+        ),
+      );
+
+      expect(initializeCalls, 2);
+    },
+  );
+
+  test(
+    'permission action retries initialization without requesting on startup',
+    () async {
+      var initializeCalls = 0;
+      var permissionCalls = 0;
+      messenger.setMockMethodCallHandler(channel, (call) async {
+        switch (call.method) {
+          case 'initialize':
+            initializeCalls++;
+            if (initializeCalls == 1) {
+              throw PlatformException(code: 'temporarily-unavailable');
+            }
+            return true;
+          case 'getNotificationAppLaunchDetails':
+            return <String, Object?>{'notificationLaunchedApp': false};
+          case 'requestNotificationsPermission':
+            permissionCalls++;
+            return true;
+        }
+        return null;
+      });
+      final sink = PluginTurnNotificationSink();
+
+      await expectLater(sink.initialize(), throwsA(isA<PlatformException>()));
+      expect(permissionCalls, 0);
+      expect(await sink.requestPermission(), isTrue);
+
+      expect(initializeCalls, 2);
+      expect(permissionCalls, 1);
+    },
+  );
+
+  test('launch-detail failure leaves initialization retryable', () async {
+    var initializeCalls = 0;
+    var launchReads = 0;
+    messenger.setMockMethodCallHandler(channel, (call) async {
+      switch (call.method) {
+        case 'initialize':
+          initializeCalls++;
+          return true;
+        case 'getNotificationAppLaunchDetails':
+          launchReads++;
+          if (launchReads == 1) {
+            throw PlatformException(code: 'temporarily-unavailable');
+          }
+          return <String, Object?>{'notificationLaunchedApp': false};
+      }
+      return null;
+    });
+    final sink = PluginTurnNotificationSink();
+
+    await expectLater(sink.initialize(), throwsA(isA<PlatformException>()));
+    await sink.initialize();
+
+    expect(initializeCalls, 2);
+    expect(launchReads, 2);
+  });
+
+  test('concurrent callers share one plugin initialization attempt', () async {
+    final gate = Completer<void>();
+    var initializeCalls = 0;
+    messenger.setMockMethodCallHandler(channel, (call) async {
+      switch (call.method) {
+        case 'initialize':
+          initializeCalls++;
+          await gate.future;
+          return true;
+        case 'getNotificationAppLaunchDetails':
+          return <String, Object?>{'notificationLaunchedApp': false};
+      }
+      return null;
+    });
+    final sink = PluginTurnNotificationSink();
+
+    final first = sink.initialize();
+    final second = sink.initialize();
+    await Future<void>.delayed(Duration.zero);
+    expect(initializeCalls, 1);
+    gate.complete();
+    await Future.wait([first, second]);
+  });
+
+  test('successful initialization reads a cold launch only once', () async {
+    var initializeCalls = 0;
+    var launchReads = 0;
+    final opened = <String>[];
+    messenger.setMockMethodCallHandler(channel, (call) async {
+      switch (call.method) {
+        case 'initialize':
+          initializeCalls++;
+          return true;
+        case 'getNotificationAppLaunchDetails':
+          launchReads++;
+          return <String, Object?>{
+            'notificationLaunchedApp': true,
+            'notificationResponse': <String, Object?>{
+              'notificationId': 1,
+              'actionId': null,
+              'input': null,
+              'notificationResponseType': 0,
+              'payload': 'cold-target',
+            },
+          };
+        case 'show':
+          return null;
+      }
+      return null;
+    });
+    final sink = PluginTurnNotificationSink(onOpen: opened.add);
+
+    await sink.initialize();
+    await sink.initialize();
+    await sink.show(
+      const TurnNotification(
+        id: 1,
+        title: 'Ready',
+        body: 'Done',
+        payload: 'target',
+        channel: TurnNotificationService.turnChannel,
+      ),
+    );
+
+    expect(initializeCalls, 1);
+    expect(launchReads, 1);
+    expect(opened, ['cold-target']);
+  });
+}

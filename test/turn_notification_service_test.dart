@@ -4,10 +4,7 @@ import 'package:hermes_android/core/services/turn_notification_service.dart';
 import 'support/recording_turn_notification_sink.dart';
 
 /// Characterization tests for the notification behaviour Hermes Android ships
-/// today. Phase 3 of the daily-driver roadmap replaces this single channel with
-/// four prioritized channels, deep links, and notification actions. These tests
-/// pin the current contract first so that rework is a deliberate change and not
-/// an accidental regression.
+/// today. These tests pin the current contract so changes remain deliberate.
 void main() {
   late RecordingTurnNotificationSink sink;
   late TurnNotificationService service;
@@ -130,6 +127,24 @@ void main() {
       }
 
       expect(sink.shown.map((n) => n.id), everyElement(isNonNegative));
+    });
+
+    test('notification ids have a fixed cross-process value', () {
+      expect(TurnNotificationService.notificationIdFor('turn-42'), 59289380);
+    });
+
+    test('notification ids separate canonical session owners', () {
+      const original =
+          '{"connection":"host","connection_identity":"owner-a",'
+          '"profile":"default","session":"same"}';
+      const replacement =
+          '{"connection":"host","connection_identity":"owner-b",'
+          '"profile":"default","session":"same"}';
+
+      expect(
+        TurnNotificationService.notificationIdFor(original),
+        isNot(TurnNotificationService.notificationIdFor(replacement)),
+      );
     });
   });
 

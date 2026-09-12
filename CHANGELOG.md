@@ -8,6 +8,29 @@ Feature releases increment the minor version, fixes increment the patch version,
 and breaking changes increment the major version. The Android build number after
 `+` always increases. Update this changelog for every release milestone.
 
+## [2.27.1+2179] - 2026-09-12
+
+### Fixed
+
+- Retry native notification initialization after a temporary startup failure,
+  including before a later alert or the explicit permission/test action.
+- Use deterministic Android notification IDs for the original chat so app
+  restarts do not change the ID used to replace that chat's alert.
+
+### Documentation
+
+- Record Firebase configuration steps and the verified backend event and
+  registration requirements for the selected background-delivery milestone.
+  This patch does not add Firebase delivery or a backend sender.
+
+### Verification
+
+- The startup retry, concurrent initialization and repeated launch regressions
+  failed before the fix. All 24 focused checks and 1,216 full-suite tests pass;
+  four opt-in tests remain skipped. Analyzer clean; signed Personal 21792 passed
+  native compilation and certificate/package checks.
+- Phone installation is deferred while the owner is away from home.
+
 ## [2.27.0+2178] - 2026-09-12
 
 ### Added
