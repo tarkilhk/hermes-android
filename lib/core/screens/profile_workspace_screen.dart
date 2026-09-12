@@ -4,8 +4,10 @@ import 'package:file_picker/file_picker.dart';
 import 'package:flutter/material.dart';
 
 import '../services/profile_workspace_controller.dart';
+import '../services/remote_files_client.dart';
 import '../widgets/profile_message.dart';
 import '../models/answer_versions.dart';
+import '../models/chat_output.dart';
 import '../widgets/answer_actions.dart';
 import '../models/gateway_clarify.dart';
 import '../models/gateway_approval.dart';
@@ -20,6 +22,8 @@ import '../widgets/profile_execution_activity.dart';
 import '../widgets/profile_subagent_panel.dart';
 import '../widgets/profile_goal_panel.dart';
 import '../widgets/profile_background_work_panel.dart';
+import '../widgets/profile_review_notice_card.dart';
+import '../widgets/project_folder_picker.dart';
 import '../widgets/slash_command_suggestions.dart';
 import '../widgets/side_question_delivery_card.dart';
 import 'profile_workspace_browser.dart';
@@ -364,6 +368,11 @@ class _ProfileWorkspaceScreenState extends State<ProfileWorkspaceScreen>
   Future<void> _openOutputs(ProfileChat chat) async {
     final files = controller.outputFiles(chat);
     final owner = chat.key;
+    final ownedFiles = OwnedRemoteFiles(
+      source: files,
+      profileName: owner.workspace.profileName,
+      storedSessionId: owner.sessionId,
+    );
     try {
       await Navigator.of(context).push(
         MaterialPageRoute<void>(
@@ -371,16 +380,34 @@ class _ProfileWorkspaceScreenState extends State<ProfileWorkspaceScreen>
             chatTitle: chat.title,
             loadHistory: (offset) =>
                 controller.savedHistoryPage(chat, offset: offset),
-            download: (path) => files.download(
-              path,
-              profileName: owner.workspace.profileName,
-              storedSessionId: owner.sessionId,
-            ),
-            readText: (path) => files.readText(
-              path,
-              profileName: owner.workspace.profileName,
-              storedSessionId: owner.sessionId,
-            ),
+            download: ownedFiles.download,
+            readText: ownedFiles.readText,
+          ),
+        ),
+      );
+    } finally {
+      files.close();
+    }
+  }
+
+  Future<void> _openAnswerOutput(ProfileChat chat, ChatOutput output) async {
+    final owner = chat.key;
+    final files = controller.outputFiles(chat);
+    final ownedFiles = OwnedRemoteFiles(
+      source: files,
+      profileName: owner.workspace.profileName,
+      storedSessionId: owner.sessionId,
+    );
+    try {
+      await Navigator.of(context).push(
+        MaterialPageRoute<void>(
+          builder: (_) => ChatOutputsScreen(
+            chatTitle: chat.title,
+            initialOutput: output,
+            loadHistory: (offset) =>
+                controller.savedHistoryPage(chat, offset: offset),
+            download: ownedFiles.download,
+            readText: ownedFiles.readText,
           ),
         ),
       );
@@ -444,7 +471,10 @@ class _ProfileWorkspaceScreenState extends State<ProfileWorkspaceScreen>
             children: [
               Padding(
                 padding: const EdgeInsets.only(right: 40),
-                child: ProfileMessage(message: message),
+                child: ProfileMessage(
+                  message: message,
+                  onOpenRemoteFile: (output) => _openAnswerOutput(chat, output),
+                ),
               ),
               Positioned(
                 right: 0,
@@ -465,7 +495,10 @@ class _ProfileWorkspaceScreenState extends State<ProfileWorkspaceScreen>
             ],
           )
         else
-          ProfileMessage(message: message),
+          ProfileMessage(
+            message: message,
+            onOpenRemoteFile: (output) => _openAnswerOutput(chat, output),
+          ),
         if (savedAnswer)
           AnswerActions(
             key: ValueKey('answer-actions-${answerMessageId(message)}'),
@@ -678,6 +711,8 @@ class _ProfileWorkspaceScreenState extends State<ProfileWorkspaceScreen>
                 text: chat.reasoning,
                 running: chat.busy,
               ),
+            for (final notice in chat.reviewNotices)
+              ProfileReviewNoticeCard(notice: notice),
             if (chat.error != null)
               Text(
                 chat.error!,
@@ -1502,12 +1537,24 @@ class _ProfileWorkspaceScreenState extends State<ProfileWorkspaceScreen>
   }
 
   Future<void> _projectDialog() async {
+    final owner = controller.current;
+    if (owner == null) return;
     final name = await _textDialog('New project', 'Project name');
-    if (name == null || name.isEmpty || !mounted) return;
-    final path = await _textDialog(
-      'Project folder on Hermes host',
-      'Absolute path',
+    if (!mounted) return;
+    if (!identical(controller.current, owner)) {
+      throw StateError('Profile changed. Open Projects and try again.');
+    }
+    if (name == null || name.isEmpty) return;
+    final path = await showDialog<String>(
+      context: context,
+      builder: (_) => ProjectFolderPickerDialog(
+        discover: owner.gateway.discoverProjectFolders,
+      ),
     );
+    if (!mounted) return;
+    if (!identical(controller.current, owner)) {
+      throw StateError('Profile changed. Open Projects and try again.');
+    }
     if (path == null || path.isEmpty) return;
     await controller.createProject(name, path);
   }

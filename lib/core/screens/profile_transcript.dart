@@ -80,7 +80,9 @@ class _ProfileTranscriptState extends State<ProfileTranscript> {
     final distance = _scroll.offset;
     if (distance <= 24) _hasNewContent = false;
     final attention =
-        widget.chat.approval != null || widget.chat.pendingQuestion != null;
+        widget.chat.approval != null ||
+        widget.chat.pendingQuestion != null ||
+        widget.chat.sensitivePrompt != null;
     _jumpLabel.value =
         distance <= 24 || (distance <= 48 && !_hasNewContent && !attention)
         ? null

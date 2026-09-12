@@ -71,6 +71,26 @@ analyzer clean. Signed Personal 2.26.0 / 21772 passed native compilation and
 certificate/package checks. Phone installation remains deferred while the owner
 is away from home.
 
+## Direct file links and review summaries, 2.31.0
+
+F03/F06/T06 extends existing message links to explicit remote file targets.
+Relative paths, absolute paths and file references open through the same
+authenticated file readers and viewers used by Outputs. Requests keep their
+original profile and saved chat. Web links continue through the browser preview;
+unsupported URI schemes are rejected. This does not add a filesystem browser or
+scan a conversation before opening its linked file.
+
+T14 restores display of the existing `review.summary` event. The current chat
+shows a distinct Hermes review card using the existing bounded notice parser.
+Only string text is accepted, duplicates are suppressed, and the newest 20
+reviews remain in memory. Same-runtime reconnect retains received reviews;
+runtime replacement or app restart clears them. No recovery API or local review
+database is introduced.
+
+The T12/R08/R09 attention control also recognizes live sensitive requests while
+reading older history. Input needed returns to the latest content without
+answering or approving the request.
+
 ## Per-chat Outputs
 
 Outputs follows Desktop's transcript-derived approach. It finds assistant-delivered MEDIA tags, links/images and qualified paths, plus explicit producer-tool output fields. It recognizes common documents, archives and media; explicit references may use relative filenames. Passive tool cache/source paths are excluded where possible. Candidates are deduplicated within the one selected chat and remain disposable.

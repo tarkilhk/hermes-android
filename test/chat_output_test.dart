@@ -4,6 +4,63 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:hermes_android/core/models/chat_output.dart';
 
 void main() {
+  test('classifies only explicit remote file link targets', () {
+    for (final target in [
+      'report.pdf',
+      'config.yaml',
+      './lib/main.dart',
+      './build/report.pdf',
+      '../exports/report.pdf',
+      '/srv/output/report.pdf',
+      r'C:\exports\report.pdf',
+      r'\\server\share\report.pdf',
+      'file:///srv/output/report.pdf',
+      '/srv/output/Makefile',
+    ]) {
+      final output = explicitRemoteFileOutput(target);
+      expect(output?.kind, ChatOutputKind.file, reason: target);
+      expect(output?.path, isNotEmpty, reason: target);
+    }
+
+    for (final target in [
+      'https://example.test/report.pdf',
+      'javascript:report.pdf',
+      'intent://open/report.pdf',
+      'content://files/report.pdf',
+      '//example.test/report.pdf',
+      'notes-without-an-extension',
+    ]) {
+      expect(explicitRemoteFileOutput(target), isNull, reason: target);
+    }
+  });
+
+  test('decodes explicit Markdown paths without URI suffixes', () {
+    final spaced = explicitRemoteFileOutput('./my%20report.pdf#page=2');
+    expect(spaced?.path, './my report.pdf');
+    expect(spaced?.label, 'my report.pdf');
+    final escaped = explicitRemoteFileOutput(
+      './report%23final%25.pdf?download=1',
+    );
+    expect(escaped?.path, './report#final%.pdf');
+    expect(escaped?.label, 'report#final%.pdf');
+    final encodedPercent = explicitRemoteFileOutput('./literal%2520name.txt');
+    expect(encodedPercent?.path, './literal%20name.txt');
+    expect(encodedPercent?.label, 'literal%20name.txt');
+    final malformed = explicitRemoteFileOutput('./literal%2name.txt');
+    expect(malformed?.path, './literal%2name.txt');
+    expect(malformed?.label, 'literal%2name.txt');
+    expect(
+      explicitRemoteFileOutput(r'C:\exports\my%20report.dart#line=2')?.path,
+      r'C:\exports\my report.dart',
+    );
+    expect(
+      explicitRemoteFileOutput(
+        r'\\server\share\report%23final.pdf?download=1',
+      )?.path,
+      r'\\server\share\report#final.pdf',
+    );
+  });
+
   test('extracts and deduplicates assistant-delivered outputs', () {
     final outputs = extractChatOutputs([
       {

@@ -5,6 +5,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_markdown/flutter_markdown.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:hermes_android/core/models/chat_output.dart';
 import 'package:hermes_android/core/screens/chat_outputs_screen.dart';
 import 'package:hermes_android/core/services/connection_manager.dart';
 import 'package:hermes_android/core/services/remote_files_client.dart';
@@ -82,6 +83,169 @@ RemoteTextPreview _textPreview(String path) => RemoteTextPreview(
 );
 
 void main() {
+  testWidgets('initial output opens directly without loading other history', (
+    tester,
+  ) async {
+    var historyLoads = 0;
+    String? previewPath;
+    await tester.pumpWidget(
+      MaterialApp(
+        home: ChatOutputsScreen(
+          chatTitle: 'Owned chat',
+          initialOutput: const ChatOutput(
+            kind: ChatOutputKind.file,
+            path: '../exports/report.txt',
+            url: null,
+            label: 'report.txt',
+          ),
+          loadHistory: (_) async {
+            historyLoads++;
+            throw StateError('history must not load');
+          },
+          readText: (path) async {
+            previewPath = path;
+            return _textPreview(path);
+          },
+          download: (_) async => throw StateError('Unexpected download'),
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    expect(historyLoads, 0);
+    expect(previewPath, '../exports/report.txt');
+    expect(find.byType(MarkdownCodeBlock), findsOneWidget);
+  });
+
+  testWidgets('initial output retries the same unavailable target', (
+    tester,
+  ) async {
+    var attempts = 0;
+    await tester.pumpWidget(
+      MaterialApp(
+        home: ChatOutputsScreen(
+          chatTitle: 'Owned chat',
+          initialOutput: const ChatOutput(
+            kind: ChatOutputKind.file,
+            path: '/srv/removed/report.txt',
+            url: null,
+            label: 'report.txt',
+          ),
+          loadHistory: (_) async => throw StateError('Unexpected history'),
+          readText: (path) async {
+            attempts++;
+            if (attempts == 1) throw StateError('gone');
+            return _textPreview(path);
+          },
+          download: (_) async => throw StateError('Unexpected download'),
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    expect(
+      find.text(
+        'This file could not be opened. It may have moved or be unavailable on Hermes.',
+      ),
+      findsOneWidget,
+    );
+    await tester.tap(find.text('Try again'));
+    await tester.pumpAndSettle();
+
+    expect(attempts, 2);
+    expect(find.byType(MarkdownCodeBlock), findsOneWidget);
+  });
+
+  testWidgets('initial output Back to chat returns to its exact caller', (
+    tester,
+  ) async {
+    await tester.pumpWidget(
+      MaterialApp(
+        home: Builder(
+          builder: (context) => Scaffold(
+            body: TextButton(
+              onPressed: () => Navigator.of(context).push(
+                MaterialPageRoute<void>(
+                  builder: (_) => ChatOutputsScreen(
+                    chatTitle: 'Original chat',
+                    initialOutput: const ChatOutput(
+                      kind: ChatOutputKind.file,
+                      path: '/srv/removed/report.txt',
+                      url: null,
+                      label: 'report.txt',
+                    ),
+                    loadHistory: (_) async =>
+                        throw StateError('Unexpected history'),
+                    readText: (_) async => throw StateError('gone'),
+                    download: (_) async =>
+                        throw StateError('Unexpected download'),
+                  ),
+                ),
+              ),
+              child: const Text('Open owned output'),
+            ),
+          ),
+        ),
+      ),
+    );
+
+    await tester.tap(find.text('Open owned output'));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('Back to chat'));
+    await tester.pumpAndSettle();
+
+    expect(find.text('Open owned output'), findsOneWidget);
+    expect(find.text('Original chat'), findsNothing);
+  });
+
+  testWidgets('late initial response cannot open after returning to chat', (
+    tester,
+  ) async {
+    final pending = Completer<RemoteTextPreview>();
+    await tester.pumpWidget(
+      MaterialApp(
+        home: Builder(
+          builder: (context) => Scaffold(
+            body: TextButton(
+              onPressed: () => Navigator.of(context).push(
+                MaterialPageRoute<void>(
+                  builder: (_) => ChatOutputsScreen(
+                    chatTitle: 'Original chat',
+                    initialOutput: const ChatOutput(
+                      kind: ChatOutputKind.file,
+                      path: '/srv/output/report.txt',
+                      url: null,
+                      label: 'report.txt',
+                    ),
+                    loadHistory: (_) async =>
+                        throw StateError('Unexpected history'),
+                    readText: (_) => pending.future,
+                    download: (_) async =>
+                        throw StateError('Unexpected download'),
+                  ),
+                ),
+              ),
+              child: const Text('Open owned output'),
+            ),
+          ),
+        ),
+      ),
+    );
+
+    await tester.tap(find.text('Open owned output'));
+    await tester.pump();
+    await tester.pump(const Duration(milliseconds: 500));
+    expect(find.text('Back to chat'), findsOneWidget);
+    await tester.tap(find.text('Back to chat'));
+    await tester.pumpAndSettle();
+    pending.complete(_textPreview('/srv/output/report.txt'));
+    await tester.pumpAndSettle();
+
+    expect(find.text('Open owned output'), findsOneWidget);
+    expect(find.byType(MarkdownCodeBlock), findsNothing);
+    expect(tester.takeException(), isNull);
+  });
+
   testWidgets('Read PDF keeps its original path and returns to file options', (
     tester,
   ) async {

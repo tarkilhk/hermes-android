@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:shared_preferences/shared_preferences.dart';
+import 'package:hermes_android/core/models/gateway_sensitive_prompt.dart';
 import 'package:hermes_android/core/screens/profile_transcript.dart';
 import 'package:hermes_android/core/services/profile_workspace_controller.dart';
 import 'profile_connection_identity_test.dart' show identityTestConnection;
@@ -297,6 +298,35 @@ void main() {
       expect(host.calls.length, before);
     },
   );
+
+  for (final kind in GatewaySensitivePromptKind.values) {
+    testWidgets('older-history reading signals ${kind.name} input', (
+      tester,
+    ) async {
+      await show(tester);
+      await tester.drag(list, const Offset(0, 450));
+      await tester.pumpAndSettle();
+      final request = GatewaySensitivePromptRequest.fromEventData(
+        kind: kind,
+        data: {'request_id': 'reading-request', 'site': 'Fixture site'},
+      )!;
+      chat.sensitivePrompt = request;
+      await publish(tester);
+      expect(find.text('Input needed'), findsOneWidget);
+      chat.sensitivePrompt = null;
+      await publish(tester);
+      expect(find.text('Input needed'), findsNothing);
+      expect(find.text('Latest'), findsOneWidget);
+      chat.sensitivePrompt = request;
+      await publish(tester);
+      final before = host.calls.length;
+      await tester.tap(jump);
+      await tester.pumpAndSettle();
+      expect(chat.historyScrollOffset, 0);
+      expect(chat.sensitivePrompt, same(request));
+      expect(host.calls.length, before);
+    });
+  }
 
   testWidgets(
     'search context keeps its header visible and expands the matched tool result',

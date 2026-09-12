@@ -60,10 +60,17 @@ The owner clarified B15: selecting or activating profile A changes only that cli
 
 ## Work packages and progress
 
-Owner update, 2026-09-12: wireless debugging is unavailable while the owner is
-away from home for several hours. Continue implementation, verification and
-regular commits/pushes to main. Defer phone installation until the owner returns;
-do not let deployment pause the selected roadmap work.
+Changelog correction, 2026-09-12: keep `CHANGELOG.md` limited to added, changed
+and fixed product features. Remove personal information, work logs, test counts,
+deployment details and instructions from existing entries as well as new ones.
+Keep version/date labels for recorded feature changes. Omit releases with no
+independent user-facing change rather than inventing one. Verification belongs
+in the separate technical docs.
+The existing changelog has been rewritten accordingly in the 2.31 milestone.
+
+Continue implementation, verification and regular commits/pushes when wireless
+debugging is unavailable. Phone availability does not block emulator testing
+or other selected client work.
 
 The owner subsequently requested continuous work through the agreed roadmap,
 without requiring a new "continue" message after each milestone, followed by
@@ -81,13 +88,13 @@ Use these packages to avoid building the same requirement twice. Their order is 
 | --- | --- | --- | --- |
 | W00 App shell | Left drawer, B01 presentation, W09/W11 entry points, legacy UI retirement | Shared navigation and styling around existing behavior; read-only administration entry. No new backend features. See [shell delivery notes](APP_SHELL.md). | Done, deployed to the owner's phone as Personal 2.1.2 / 21452 on 2026-09-11 |
 | W01 Find and resume work | C02, C03, C07, C08 P1, C09 ongoing only, T11, T12, R02, R03, M01, M02, M04 | Authoritative history/status, useful search and filters, simple refresh/recovery and cross-profile Activity. | In progress: D02/D05/D18/D19 implemented; live QA remains; unread filtering is paginated |
-| W02 Protect drafts and control submission | Q02, Q03, Q07, Q09, Q10, Q11, Q12, M03 | Unsent work survives interruption; correct, branch, steer and queue without changing default send behavior. | In progress: drafts, Queue/Steer, Edit/Fork and side questions implemented; version/backend gaps remain |
+| W02 Protect drafts and control submission | Q02, Q03, Q07, Q09, Q10, Q11, Q12, M03 | Unsent work survives interruption; correct, branch, steer and queue without changing default send behavior. | Drafts, Queue/Steer, Edit/Fork and live side questions implemented; synchronized answer versions and cold side-task recovery are deferred without existing server APIs |
 | W03 Commands, model choice and context | Q16, T10, R06 | Correct session-scoped `/yolo`, real provider grouping with collapsible sections, minimal context indicator. Keep typing `/` as the command entry point. | D03/D04/D15 implemented; live QA pending |
-| W04 Projects | P03, P04, P06, P08 | Useful project creation/admin/context with server-owned metadata. | Implemented in D20; deployed write verification pending |
-| W05 Read and use results | T03 common content, T04, T05, T06, T07, T08, T09, T14, F03, F04, F05 per-chat only, F06, F07, G07 | Read media and tool progress; open, download and use generated results without a general filesystem browser. | Common content, diagrams, media, execution details and previews implemented; 2.24 adds paged Outputs and downloaded HTML. Live QA and documented format/contract limits remain |
-| W06 Unblock and supervise work | R04, R05, R07, R08, R09, R10, R11, R12, R13, R14, R15, R18 | Answer requests and inspect/control active agent work through supported server contracts. | In progress: D06/D07 and D23-D25 initial controls implemented; criteria editing implemented; live QA remains |
-| W07 Notifications | R16, R17, S12, M01, M09 | First, useful local notices and correct task opening. Later, server-triggered push delivery through Firebase Cloud Messaging while the app is absent. Both phases are selected; the first release may omit push. | Local controls, startup retry and tap routing implemented; live QA and Firebase delivery remain |
-| W08 Connections and operations | B01, B02, B04, B10, B11 all proposed, B14, B15, S01, S02 | Current-looking password setup and repair, understandable health/usage, scoped profile/admin actions and backend updates. | Diagnostics, profile editing, usage and one-host updates implemented; Custom access headers and selected-host updates implemented; live QA and remote TUI restart remain |
+| W04 Projects | P03, P04, P06, P08 | Useful project creation/admin/context with server-owned metadata. | Project management is implemented. The 2.31 release adds explicit discovery of configured repository roots while preserving manual absolute-path entry; its full suite, analysis, emulator and signed-build checks pass; live server acceptance remains |
+| W05 Read and use results | T03 common content, T04, T05, T06, T07, T08, T09, T14, F03, F04, F05 per-chat only, F06, F07, G07 | Read media and tool progress; open, download and use generated results without a general filesystem browser. | Common content, diagrams, media, execution details and previews implemented. The 2.31 release adds direct Markdown file links and transient review-summary notices; its full suite, analysis, emulator and signed-build checks pass; live server acceptance remains. Live-server and format limits remain |
+| W06 Unblock and supervise work | R04, R05, R07, R08, R09, R10, R11, R12, R13, R14, R15, R18 | Answer requests and inspect/control active agent work through supported server contracts. | Live request forms and D23-D25 controls are implemented. The 2.31 release labels sensitive input while reading older history; its full suite, analysis, emulator and signed-build checks pass; live server acceptance remains. Cold sensitive-request recovery remains unavailable without an existing server snapshot |
+| W07 Notifications | R16, R17, S12, M01, M09 | First, useful local notices and correct task opening. Later, server-triggered push delivery through Firebase Cloud Messaging while the app is absent. Both phases are selected; the first release may omit push. | Local controls, startup retry and tap routing implemented. Background delivery is deferred because no existing Hermes registration/sender integration has been verified |
+| W08 Connections and operations | B01, B02, B04, B10, B11 all proposed, B14, B15, S01, S02 | Current-looking password setup and repair, understandable health/usage, scoped profile/admin actions and backend updates. | Diagnostics, profile editing, usage, custom access headers and one-host/selected-host updates implemented. Remote TUI restart is deferred because existing Hermes exposes no authenticated restart API |
 | W09 App navigation and preferences | S08, S10, left drawer | Consistent navigation, version/build visibility and readable preferences. Server session restoration belongs to W01. | Navigation, preferences and Android/backend version visibility implemented; live QA remains |
 | W10 Phone capture | M06 plus Q03 | Share text, links, images or files into a reviewed draft; add camera/photo capture in the same flow. | Implemented; native capture/interruption QA remains |
 | W11 Small administration screen | Limited K-family seed described above, integrated with B11/B14/B15 | A low-priority administration flow with a few real functions that can grow later. | Initial health/version, model/provider readiness and profile/SOUL functions implemented; broad administration remains deferred and live QA remains |
@@ -114,7 +121,7 @@ Rows record selected work and explicit decisions to discard or merge a proposal.
 
 | ID | Selected scope and owner qualification |
 | --- | --- |
-| P03 | Create a project and choose its host working folder through a phone-appropriate flow. |
+| P03 | Create a project and choose its host working folder through a phone-appropriate flow. The 2.31 release offers an explicit `projects.discover_repos` scan plus manual absolute-path entry; unit/widget and emulator checks pass; live server acceptance remains. |
 | P04 | Rename and delete projects. Do not import unselected legacy project administration. |
 | P06 | Clear selected project and destination for new work. Distinguish UI selection from server defaults. |
 | P08 | Approved after the backend contract check. Read/write supported project icon/color metadata through Hermes; no phone-only appearance override database. Verify the deployed server supports the researched contract. Backend status is separate and remains server-owned too. |
@@ -144,14 +151,14 @@ The original source check found active-turn paths for `/steer`, `/btw`, `/bg` an
 | T03 | P1 common content only: readable Markdown, code, tables and large content. A separate advanced math project is not selected here. |
 | T04 | Readable diagrams and supported visual blocks with a useful fallback. On-demand Mermaid rendering is implemented in 2.19.0, with SVG blocks/files added in 2.23.0; other formats retain copyable source. See [diagram notes](DIAGRAM_PREVIEWS.md) for supported scope and verification. |
 | T05 | Images and other media, not images alone. |
-| T06 | Useful link/media previews and opening in the appropriate app/browser. |
+| T06 | Useful link/media previews and opening in the appropriate app/browser. The 2.31 release recognizes direct Markdown links to result files and routes them through the existing authenticated output viewer; unit/widget and emulator checks pass; live server acceptance remains. |
 | T07 | Structured, expandable tool status and results. |
 | T08 | Optional readable reasoning/time information where Hermes supplies it. |
 | T09 | Server-provided todo/progress summary. |
 | T10 | A very thin context-usage fuse integrated into an existing composer edge, with a mini dot at the current usage position. Owner screenshot feedback on 2026-09-12 accepts the message box top edge or model selector top edge; use the message box edge and remove the separate row. It changes color as context fills. Use server used/max values or a labelled server estimate; show unknown when absent. No large panel or decorative continuous animation. |
 | T11 | Find within a conversation. |
 | T12 | Stable reading position, older history and return/jump to latest. Do not treat a local scroll position as authoritative conversation state. |
-| T14 | Distinguish system/control notices, agent deliveries and linked task references. |
+| T14 | Distinguish system/control notices, agent deliveries and linked task references. The 2.31 release renders existing `review.summary` events as transient review notices; unit/widget and emulator checks pass; live server acceptance remains. |
 
 ### Running work and attention
 
@@ -163,8 +170,8 @@ The original source check found active-turn paths for `/steer`, `/btw`, `/bg` an
 | R05 | Other server-supported approval scopes and visible effective policy. |
 | R06 | Confirmed fix required. Make `/yolo` work through the correct current-session contract and display the server's effective state, including during a running turn where supported. Do not change global defaults or assume generic dispatch works. |
 | R07 | Structured clarification and multiple questions. |
-| R08 | Supported sudo/password/environment-secret requests through dedicated responses. |
-| R09 | Supported vault/login/verification-code requests. |
+| R08 | Supported sudo/password/environment-secret requests through dedicated responses. The 2.31 release labels their jump-to-latest state as **Input needed** while reading older history; unit/widget and emulator checks pass; live server acceptance remains. |
+| R09 | Supported vault/login/verification-code requests, with the same 2.31 jump-label behavior. |
 | R10 | Subagent roster and progress. |
 | R11 | Subagent details/transcript and targeted steer/interrupt. |
 | R12 | Goal status and pause/resume/clear controls. |
@@ -255,9 +262,9 @@ Server work can finish while Android is closed. Refresh on reopening retrieves t
 
 Background delivery is deferred until a suitable existing sender is available. The owner selected Firebase Cloud Messaging for this later milestone after reviewing its pricing. FCM is available at no cost, including on the Spark plan, according to [Firebase pricing](https://firebase.google.com/pricing), checked on 2026-09-11. Do not modify Hermes to supply a sender. The earlier proposed Firebase/server setup is withdrawn; client SDK configuration alone cannot enable delivery.
 
-The [FCM server environment documentation](https://firebase.google.com/docs/cloud-messaging/server-environment) describes the trusted sender and app-instance targeting. Its [Flutter receive documentation](https://firebase.google.com/docs/cloud-messaging/flutter/receive-messages) covers permission, background delivery and opening from a notification. The current Android source uses local notifications; deployed Hermes push/event support has not been verified. Inspect existing delivery support without modifying Hermes or adding a relay to its process.
+The [FCM server environment documentation](https://firebase.google.com/docs/cloud-messaging/server-environment) describes the trusted sender and app-instance targeting. Its [Flutter receive documentation](https://firebase.google.com/docs/cloud-messaging/flutter/receive-messages) covers permission, background delivery and opening from a notification. The Android source includes local notifications and a dormant optional FCM receiver, but unmodified Hermes push/event support has not been verified.
 
-The proposed boundary keeps all Hermes work on the server. The phone retains only installation/delivery configuration needed for notifications alongside existing device settings. A private Hermes gateway should remain private; assess whether a backend sender can use outbound push delivery and let the phone fetch details over its existing authenticated connection.
+The proposed boundary keeps all Hermes work on the server. The phone retains only installation/delivery configuration needed for notifications alongside existing device settings. A private Hermes gateway should remain private. Any future background delivery requires a compatible sender already supplied outside this Android project, followed by an authenticated server refresh for details.
 
 Verify completion and input requests across profiles with the phone locked, the app in the background, and the app process terminated by Android. Also verify token changes, logout/target removal, duplicate events, notification taps and offline recovery. The goal is seamless ordinary use, but permission denial, offline devices and Android force-stop remain delivery limits. Firebase documents that a settings-level force-quit requires reopening the app before messages work again. A missing notification must never lose the server's result or pending request.
 
@@ -292,69 +299,43 @@ For M06, Android's [sharing contract](https://developer.android.com/develop/ui/c
 | --- | --- | --- |
 | 2026-09-11 | Recorded owner selections and exclusions, left drawer, minimal local work state, simple refresh/notifications, technical-provider model grouping, optional one-shot long-press submit actions, context fuse, redesigned connections, backend update support and a small later administration screen. | Documentation only. No app features implemented in this update. |
 | 2026-09-11 | Follow-up approved P08, declined Q05 discoverability work and B03 OAuth, confirmed the R06 fix, merged S14 into server refresh, and committed later background notifications under M01/W07. B15 clarified: active-profile selection affects only that client; actual server-option edits are central and affect all clients using those options. | Documentation only. No application code or push infrastructure changed. |
-| 2026-09-11 | Selected Firebase Cloud Messaging as the transport for the later M01/W07 background-notification milestone, with sending from the existing Hermes backend and no planned paid Firebase services. | Roadmap update only. No Firebase project, credentials or integration created. |
+| 2026-09-11 | Selected Firebase Cloud Messaging as the transport for the later M01/W07 background-notification milestone. | Superseded in part by the no-backend-modifications correction. FCM remains a possible transport only if unmodified Hermes already supplies a compatible sender and registration contract. |
 | 2026-09-11 | Approved continuing through the delivery sequence using cheaper agents, regular progress reports and milestone commits/pushes. Prefer the smallest implementation and reuse; no backward compatibility required. | Shell `87ddb44`; conversation foundations `1d00123`, built and installed as Personal 2.1.3 / 21462. |
-| 2026-09-11 | After learning Desktop's composer queue is client-owned, explicitly approved implementing the same approach on Android and following Desktop's design in general. This supersedes Q11's prior server-queue prerequisite. | D09 in progress. Local queue entries are unsent drafts; submitted execution/history remain on Hermes. |
+| 2026-09-11 | After learning Desktop's composer queue is client-owned, explicitly approved implementing the same approach on Android and following Desktop's design in general. This supersedes Q11's prior server-queue prerequisite. | D09 was in progress at this decision point and is now implemented. Local queue entries are unsent drafts; submitted execution/history remain on Hermes. |
 | 2026-09-12 | Delivered cross-profile Activity discovery, sensitive-response forms, notification controls and client-owned Queue/Steer. | Personal 2.1.4 / 21472 installed in place; 921 tests passed, four opt-in skips; analyzer clean. See [delivery notes](SUPERVISION_AND_QUEUES.md) for remaining live checks. |
 | 2026-09-12 | Delivered saved-message Edit/Fork, identifiable side questions, phone table/code reading, tapped image previews and the context fuse. | Personal 2.1.5 / 21482 installed in place; 944 tests passed, four opt-in skips; analyzer clean. [Delivery notes](CONVERSATION_ACTIONS_AND_READING.md) retain incomplete diagram/media/version/background portions. |
 | 2026-09-12 | Delivered execution details, Find in chat and initial per-chat Outputs with authenticated previews and save/share. Adopted minor version bumps for features, patch bumps for fixes and major bumps for breaking changes; maintain the changelog and commit/push each milestone to main. | Personal 2.2.0 / 21492 installed and launched; 970 tests passed, four opt-in skips; analyzer and release-identity checks clean. [Delivery notes](EXECUTION_FIND_AND_OUTPUTS.md) retain live gateway and richer-media limitations. |
 | 2026-09-12 | Delivered paginated Unread only, Activity status filters and server project actions. Applied screenshot feedback to move the context fuse onto the message box top edge with a mini endpoint dot and no extra row. | Personal 2.3.0 / 21502 installed and launched; 984 tests passed, four opt-in skips; analyzer clean. See [filters and projects](FILTERS_AND_PROJECTS.md) and the [changelog](../CHANGELOG.md). |
-| 2026-09-12 | Delivered share review with explicit destinations, safe merge into existing drafts, exact pending acknowledgement and Photos/Files selection. | Personal 2.4.0 / 21512 installed and launched; 995 tests passed, four opt-in skips; analyzer clean. [Sharing notes](SHARING_AND_CAPTURE.md) retain Camera/intake interruption limits. D15's reported loading bug remains active. |
+| 2026-09-12 | Delivered share review with explicit destinations, safe merge into existing drafts, exact pending acknowledgement and Photos/Files selection. | Personal 2.4.0 / 21512 installed and launched; 995 tests passed, four opt-in skips; analyzer clean. [Sharing notes](SHARING_AND_CAPTURE.md) retain Camera/intake interruption limits. The D15 loading bug noted at this point was fixed in 2.5.0. |
 
 ## Active owner feedback
 
-Current correction, 2026-09-12: Personal 2.30.1 removes the invented answer-version
-API and restores the existing Branch/Regenerate path. Same-runtime reconnects
-retain live prompts and side-task cards when the server omits optional snapshots.
-No backend modifications are permitted. Live cross-client recovery beyond the
-existing APIs, synchronized answer versions and a new notification sender are
-not completed roadmap items. Verification is recorded in the changelog.
+Personal 2.30.1 / 21842 was the preceding verified baseline. It removed the
+unsupported answer-version requests and preserves live sensitive forms and
+side-task cards across same-runtime reconnects when optional fields are absent.
+All 53 focused checks and 1,257 full-suite tests pass, with four opt-in skips;
+analysis is clean. Detailed verification remains in the linked technical records,
+not the product changelog.
 
-Earlier milestone, 2026-09-12: Personal 2.30.0 added experimental synchronized
-answer versions and side-task recovery, plus app release links.
-The Android suite passes 1,256 tests with four opt-in skips; analysis is clean.
-The experimental server patch series passed 106 tests against a fresh pinned
-checkout, but was outside the owner's scope and was never deployed. Those tests
-do not establish support in unmodified Hermes. Patch deployment and a new restart
-supervisor are excluded. Recovery/version features requiring those experiments
-and background push without an existing sender remain deferred.
-Signed Personal 2.30.0 / 21832 is installed in place on the owner's phone and
-launches successfully. This verifies package/process metadata; live-server chat
-acceptance remains open. Full release and native QA results are recorded in
-the changelog and [emulator record](EMULATOR_ROADMAP_VERIFICATION.md). All other
-selected work and exclusions remain in the [delivery sequence](DELIVERY_SEQUENCE.md).
+The 2.31 release adds four client-only improvements through existing Hermes
+data and APIs: discovered repository roots during project creation, direct
+Markdown file links, transient `review.summary` notices, and an **Input needed**
+jump label for sensitive requests while reading older history. All 1,281 tests
+pass with four opt-in skips, and analysis is clean. All four emulator scenarios
+pass. The signed Personal build passed identity/certificate checks and is
+installed in place as 2.31.0 / 21852. See the
+[verification record](EMULATOR_ROADMAP_VERIFICATION.md) for evidence and limits.
 
+No Hermes patches were deployed. The 2.28-2.30 server-contract experiments are
+rejected history, not open deployment work. Background push, synchronized answer
+versions, cold sensitive/side-task recovery and remote TUI restart remain deferred
+because unmodified Hermes does not expose the required capabilities.
 
-Earlier verified implementation, 2026-09-12: Personal 2.29.0 adds server-backed sensitive
-request recovery on reconnect. All 1,245 tests pass with four opt-in skips and
-the analyzer is clean. The 28 focused checks cover current, expired, replaced
-and partial-update requests. Patch 0004 deployment and live verification remain
-open. See [request recovery](SENSITIVE_REQUEST_RECOVERY.md). The remaining
-answer-version, side-task, remote TUI restart and background-delivery work stays
-in the plan, along with the existing exclusions and device acceptance checks.
-
-
-Earlier verified release, 2026-09-12: Personal 2.28.0 / 21812 adds the Firebase
-client integration and coordinated backend patch. The owner's Firebase project
-configuration, sender deployment and real background delivery tests remain
-open. The full suite passed 1,237 tests with four opt-in skips; analyzer clean;
-21 final notification checks passed after cleanup review. The signed APK passed
-native compilation and release identity checks. Native emulator checks cover
-notification permission/display, share review and interruption, camera, photo
-and file selection, and draft/attachment recovery. The three larger chat
-scenarios completed with a separate Flutter runner failure still tracked. See
-[verification](EMULATOR_ROADMAP_VERIFICATION.md) and
-[background setup](BACKGROUND_NOTIFICATIONS.md). Phone installation remains
-deferred while the owner is away. Pending-request recovery, synchronized answer
-versions, side-task recovery and remote TUI restart remain in the global plan.
-
-- 2026-09-12, D16/F03-F05: owner screenshot reports Outputs failing on a large chat with "Use the paginated conversation view," an unexplained instruction and a Retry that repeats the failure. Integrated into the existing Outputs milestone and installed in 2.24.0: recent outputs first, **Load older outputs**, preserved results after page failures, and clear recovery actions. The exact error was reproduced through the actual chat menu with 10,000 saved messages; the regression now reaches the oldest output and recovers from a failed batch. See [fix details](EXECUTION_FIND_AND_OUTPUTS.md). The related Find limit is fixed in 2.24.1, pending phone installation. All other selections and exclusions remain intact.
-
-Earlier verified release, 2026-09-12: Personal 2.27.2 / 21802 fixes duplicate notification screens and obsolete opens during rapid target changes or cold startup. Later taps still refresh from Hermes, failed opens can be retried, and original connection ownership is checked. It includes 2.27.1 startup recovery/stable alert IDs, 2.27.0 attachment queues and the preceding Find, read-state and background-task improvements. All 33 focused notification checks and 1,224 full-suite tests pass, with four opt-in skips. Analyzer clean; the signed APK passed native compilation and certificate/package checks. Installation is deferred while the owner is away from home. Firebase configuration and the trusted backend sender remain necessary for delivery while the app is absent; see [background delivery](BACKGROUND_NOTIFICATIONS.md). The delivery sequence retains all other phone/live QA and backend-contract dependencies. All selected work and exclusions remain intact.
-
-Earlier phone delivery, 2026-09-12: Hermes Personal 2.24.0 / 21732 is installed and launched. It fixes large-chat Outputs and adds downloaded self-contained HTML previews. It includes all preceding milestones, thousands separators and the D15 context reopen fix. The full suite passed 1,173 tests with four opt-in skips, and the analyzer is clean. Real browser fixtures passed for HTML, SVG and Mermaid. The signed APK passed native compilation and certificate/package checks. Phone verification covers installed identity and process metadata; the owner's live Outputs chat, playback/reading/browser gestures and server feature QA remain. The documented Firebase/backend-contract dependencies remain tracked. Other unsupported visual formats retain source fallback.
-
-- 2026-09-12, D15/T10: the integrated fuse design is accepted. Opening an existing chat must load authoritative context fullness without requiring a new message. The owner reiterated that this must be fixed, so it moved ahead of Camera. The missing deferred-agent ready-event refresh was reproduced and fixed for 2.5.0; see [cause and regression evidence](CONTEXT_REOPEN_FIX.md). Final live-server phone verification remains outstanding. All other planned milestones and exclusions remain unchanged.
+Live phone/server acceptance remains open for context fullness on existing chats,
+large-chat Outputs and relative paths, older Find navigation, cross-client read
+state, queue/upload behavior, and Samsung-specific media and capture behavior.
+The [delivery sequence](DELIVERY_SEQUENCE.md) and technical feature notes record
+the precise limits and completed verification.
 
 ## Questions resolved now and details left for implementation
 
@@ -366,10 +347,10 @@ B15 is settled. Profile selection is navigation local to each client. Client 1 s
 
 S14 originally bundled return-to-last-chat and transcript display preferences too broadly. It adds no separate feature now. Reopening a session loads what Hermes knows about that session, including where its execution stood and any pending interaction. Any cross-device remembered reading location must also come from Hermes if supported. Temporary scroll/render state is disposable and does not become a local session record.
 
-Before implementing W02/W03, settle the Fork boundary and verify active-turn submission and `/yolo` target routing. Before Q09, determine where the server can store answer relationships. Before expanding local persistence, check it against the explicit storage boundary. These are concrete implementation questions, not reasons to start more infrastructure or to postpone unrelated selected work.
+The Fork boundary, active-turn submission and `/yolo` target routing have been implemented through existing contracts. Unmodified Hermes has no verified synchronized answer-version relationship API, so that portion of Q09 is deferred. Before expanding local persistence, check it against the explicit storage boundary.
 
 ### App shell implementation, 2026-09-11
 
-The owner requested the shell before new roadmap features, then requested phone deployment. This slice replaces primary navigation, exposes existing device settings, adds an administration entry using discovered profile metadata, and removes unreachable legacy screens/widgets. W01 through W11 retain their remaining feature scope. Activity still covers controller-observed chats, not all server work. See [delivery notes](APP_SHELL.md) for checks and limitations.
+This is a historical shell milestone. The owner requested the shell before new roadmap features, then requested phone deployment. The slice replaced primary navigation, exposed existing device settings, added an administration entry using discovered profile metadata, and removed unreachable legacy screens/widgets. At that milestone Activity covered only controller-observed chats; D05 later added server discovery across profiles. See [delivery notes](APP_SHELL.md) for its checks and limits.
 
 Delivery completed as Personal `2.1.2+2145`, ARM64 code `21452`, installed in place on the owner's phone. Static analysis and 873 tests passed, with four environment-dependent skips. The signed APK passed identity/certificate checks. Phone verification used installed version and process metadata; a live screenshot was blocked by automatic approval review. The shell implementation remains separate from the earlier research commit `acd8c40`.

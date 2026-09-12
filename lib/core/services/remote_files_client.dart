@@ -83,6 +83,31 @@ abstract class RemoteFilesDataSource {
   });
 }
 
+/// Binds remote file requests to the profile and saved chat that exposed them.
+class OwnedRemoteFiles {
+  final RemoteFilesDataSource source;
+  final String profileName;
+  final String storedSessionId;
+
+  const OwnedRemoteFiles({
+    required this.source,
+    required this.profileName,
+    required this.storedSessionId,
+  });
+
+  Future<RemoteTextPreview> readText(String path) => source.readText(
+    path,
+    profileName: profileName,
+    storedSessionId: storedSessionId,
+  );
+
+  Future<RemoteFileDownload> download(String path) => source.download(
+    path,
+    profileName: profileName,
+    storedSessionId: storedSessionId,
+  );
+}
+
 class RemoteFilesClient implements RemoteFilesDataSource {
   static const defaultMaxDownloadBytes = 32 * 1024 * 1024;
 

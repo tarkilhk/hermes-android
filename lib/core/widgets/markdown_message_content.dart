@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_markdown/flutter_markdown.dart';
 
+import '../models/chat_output.dart';
 import '../services/web_preview.dart';
 import '../theme/profile_markdown_style.dart';
 import 'chat_image_preview.dart';
@@ -10,11 +11,13 @@ import 'markdown_code_block.dart';
 class MarkdownMessageContent extends StatelessWidget {
   final String data;
   final bool streaming;
+  final Future<void> Function(ChatOutput output)? onOpenRemoteFile;
 
   const MarkdownMessageContent({
     super.key,
     required this.data,
     this.streaming = false,
+    this.onOpenRemoteFile,
   });
 
   Future<void> _open(BuildContext context, String href) async {
@@ -22,13 +25,32 @@ class MarkdownMessageContent extends StatelessWidget {
     var opened = false;
     if (uri != null) {
       opened = await openWebPreview(uri);
+    } else {
+      final output = explicitRemoteFileOutput(href);
+      if (output != null && onOpenRemoteFile != null) {
+        try {
+          await onOpenRemoteFile!(output);
+          return;
+        } catch (_) {
+          if (context.mounted) {
+            ScaffoldMessenger.of(context).showSnackBar(
+              const SnackBar(
+                content: Text(
+                  'This file could not be opened. It may have moved or be unavailable on Hermes.',
+                ),
+              ),
+            );
+          }
+          return;
+        }
+      }
     }
     if (!opened && context.mounted) {
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
           content: Text(
             uri == null
-                ? 'Only http and https web links can be opened here.'
+                ? 'Only web links and linked Hermes files can be opened here.'
                 : 'Could not open this link.',
           ),
         ),

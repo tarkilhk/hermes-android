@@ -1,5 +1,6 @@
-import 'dart:io';
+import 'dart:async';
 import 'dart:convert';
+import 'dart:io';
 
 import 'package:flutter/material.dart';
 import 'package:path_provider/path_provider.dart';
@@ -28,6 +29,7 @@ class ChatOutputsScreen extends StatefulWidget {
   final Future<void> Function(RemoteFileDownload)? deliver;
   final AndroidFileDeliveryService fileDelivery;
   final MediaPreviewService mediaPreview;
+  final ChatOutput? initialOutput;
 
   const ChatOutputsScreen({
     super.key,
@@ -38,6 +40,7 @@ class ChatOutputsScreen extends StatefulWidget {
     this.deliver,
     this.fileDelivery = const AndroidFileDeliveryService(),
     this.mediaPreview = const MediaPreviewService(),
+    this.initialOutput,
   });
 
   @override
@@ -49,13 +52,45 @@ class _ChatOutputsScreenState extends State<ChatOutputsScreen> {
   int? _nextOffset = 0;
   bool _loading = false;
   String? _loadError;
+  String? _initialError;
+  bool _initialOpening = false;
   bool _retryRefresh = false;
   bool _working = false;
 
   @override
   void initState() {
     super.initState();
-    _load();
+    final initialOutput = widget.initialOutput;
+    if (initialOutput == null) {
+      _load();
+    } else {
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        unawaited(_openInitial(initialOutput));
+      });
+    }
+  }
+
+  Future<void> _openInitial(ChatOutput output) async {
+    if (!mounted || _initialOpening) return;
+    setState(() {
+      _initialOpening = true;
+      _initialError = null;
+    });
+    try {
+      await _preview(output);
+      if (mounted && ModalRoute.of(context)?.isCurrent == true) {
+        Navigator.of(context).maybePop();
+      }
+    } catch (error) {
+      if (!mounted) return;
+      setState(() {
+        _initialError = error is DashboardResponseTooLargeException
+            ? 'This file exceeds the ${(error.maxBytes / (1024 * 1024)).round()} MiB download limit.'
+            : 'This file could not be opened. It may have moved or be unavailable on Hermes.';
+      });
+    } finally {
+      if (mounted) setState(() => _initialOpening = false);
+    }
   }
 
   void _error(BuildContext context, Object error) {
@@ -451,6 +486,37 @@ class _ChatOutputsScreenState extends State<ChatOutputsScreen> {
 
   @override
   Widget build(BuildContext context) {
+    if (widget.initialOutput != null) {
+      return Scaffold(
+        appBar: AppBar(title: Text(widget.initialOutput!.label)),
+        body: Center(
+          child: Padding(
+            padding: const EdgeInsets.all(24),
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                if (_initialError == null)
+                  const CircularProgressIndicator()
+                else ...[
+                  Text(_initialError!, textAlign: TextAlign.center),
+                  const SizedBox(height: 12),
+                  TextButton(
+                    onPressed: _initialOpening
+                        ? null
+                        : () => unawaited(_openInitial(widget.initialOutput!)),
+                    child: const Text('Try again'),
+                  ),
+                ],
+                TextButton(
+                  onPressed: () => Navigator.of(context).maybePop(),
+                  child: const Text('Back to chat'),
+                ),
+              ],
+            ),
+          ),
+        ),
+      );
+    }
     final outputs = _outputs.values.toList();
     return Scaffold(
       appBar: AppBar(

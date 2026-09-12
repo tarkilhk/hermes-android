@@ -44,10 +44,10 @@ The inventories describe their inspection dates and source commits. Do not silen
 - [App shell](APP_SHELL.md), navigation, cleanup boundary and verification.
 - [Conversation foundations](CONVERSATION_FOUNDATIONS.md), durable drafts, server refresh, provider selection, session YOLO and approval controls.
 - [Supervision and queues](SUPERVISION_AND_QUEUES.md), cross-profile Activity, sensitive responses, notification controls and client-owned follow-up queues.
-- [Sensitive request recovery](SENSITIVE_REQUEST_RECOVERY.md), server-owned pending forms, expiry and response privacy.
+- [Sensitive request recovery](SENSITIVE_REQUEST_RECOVERY.md), live pending forms, same-runtime preservation, response privacy and unavailable cold-recovery limits.
 - [Conversation actions and reading](CONVERSATION_ACTIONS_AND_READING.md), saved-message actions, side-question deliveries, phone reading improvements and the context fuse.
-- [Execution, Find and Outputs](EXECUTION_FIND_AND_OUTPUTS.md), live tool/todo/reasoning views, current-chat search and scoped output retrieval.
-- [Filters and projects](FILTERS_AND_PROJECTS.md), paginated unread filtering, Activity status filters and server project management.
+- [Execution, Find and Outputs](EXECUTION_FIND_AND_OUTPUTS.md), live tool/todo/reasoning views, transient review notices, current-chat search, direct file links and scoped output retrieval.
+- [Filters and projects](FILTERS_AND_PROJECTS.md), paginated unread filtering, Activity status filters, server project management and explicit repository-root discovery.
 - [Sharing and capture](SHARING_AND_CAPTURE.md), reviewed destinations, preserved drafts and Photos/Files choices, with intake recovery and Camera limits.
 - [Context fullness on reopen](CONTEXT_REOPEN_FIX.md), the deferred-agent ready-event fix and regression evidence.
 - [Subagent supervision](SUBAGENT_SUPERVISION.md), scoped live rosters, output and supported child controls.
@@ -73,7 +73,7 @@ The inventories describe their inspection dates and source commits. Do not silen
 - [Android release identity and signing](ANDROID_RELEASE_PLAN.md).
 - [Code quality and release checks](../CODE_QUALITY_CHECKLIST.md).
 - [Windows handoff](../WINDOWS_HANDOFF.md), [Windows verification](WINDOWS_VERIFICATION.md), [device verification](DEVICE_VERIFICATION_2026-09-07.md) and [model-picker verification](MODEL_PICKER_VERIFICATION_2026-09-07.md).
-- [Development log](HERMESAPK_DEVELOPMENT_LOG.md) and [changelog](../CHANGELOG.md) retain historical results. A previous passing test is not proof that a newer slice passed.
+- [Development log](HERMESAPK_DEVELOPMENT_LOG.md) retains historical technical results. The [changelog](../CHANGELOG.md) records product features and fixes only. A previous passing test is not proof that a newer slice passed.
 
 ## Historical plans and audits
 

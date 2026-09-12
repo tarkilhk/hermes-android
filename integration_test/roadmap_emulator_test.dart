@@ -248,6 +248,78 @@ void main() {
     expect(queuedSubmit.$3['text'], 'Queue this after the synthetic turn');
     expect(tester.takeException(), isNull);
   });
+
+  testWidgets('project discovery review delivery and input jump stay native', (
+    tester,
+  ) async {
+    await harness.launch(tester);
+
+    await tester.tap(find.byTooltip('Workspace options'));
+    await _settle(tester);
+    await tester.tap(find.text('New project'));
+    await _settle(tester);
+    await tester.enterText(
+      find.descendant(
+        of: find.byType(AlertDialog),
+        matching: find.byType(TextField),
+      ),
+      'Roadmap integration',
+    );
+    await tester.tap(find.text('Continue'));
+    await _settle(tester);
+    await tester.ensureVisible(
+      find.byKey(const ValueKey('project-folder-find')),
+    );
+    await tester.tap(find.byKey(const ValueKey('project-folder-find')));
+    await _settle(tester);
+    final discoveredFolder = find.byKey(
+      const ValueKey('project-folder-/srv/hermes-android'),
+    );
+    await tester.ensureVisible(discoveredFolder);
+    await tester.tap(discoveredFolder);
+    await tester.pump();
+    await tester.ensureVisible(
+      find.byKey(const ValueKey('project-folder-continue')),
+    );
+    await tester.tap(find.byKey(const ValueKey('project-folder-continue')));
+    await _settle(tester);
+
+    expect(harness.fixture.projectCreates.single, {
+      'name': 'Roadmap integration',
+      'folders': ['/srv/hermes-android'],
+      'primary_path': '/srv/hermes-android',
+      'profile': 'personal',
+    });
+    expect(find.text('Roadmap integration'), findsOneWidget);
+
+    await tester.tap(find.byKey(const ValueKey('chat-chat-0')));
+    await _settle(tester);
+    final chat = harness.controller.current!.chat!;
+    harness.fixture.deliverReview('personal', chat.runtimeId);
+    await tester.pump();
+    expect(find.text('Hermes review'), findsOneWidget);
+    expect(find.text('Roadmap review needs a human check.'), findsOneWidget);
+
+    final transcript = find.byKey(const ValueKey('profile-transcript'));
+    await tester.drag(transcript, const Offset(0, 550));
+    await _settle(tester);
+    expect(find.byKey(const ValueKey('jump-to-latest')), findsOneWidget);
+
+    harness.fixture.requestVaultUnlock('personal', chat.runtimeId);
+    await _settle(tester);
+    final inputJump = find.byKey(const ValueKey('jump-to-latest'));
+    expect(
+      find.descendant(of: inputJump, matching: find.text('Input needed')),
+      findsOneWidget,
+    );
+    await tester.tap(inputJump);
+    await _settle(tester);
+
+    expect(chat.historyScrollOffset, closeTo(0, 1));
+    expect(chat.sensitivePrompt?.requestId, 'roadmap-vault-unlock');
+    expect(find.text('Unlock Roadmap Vault'), findsOneWidget);
+    expect(tester.takeException(), isNull);
+  });
 }
 
 class _RoadmapHarness {

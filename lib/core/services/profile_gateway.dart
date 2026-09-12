@@ -62,6 +62,13 @@ class ProfileHistoryPage {
       !isComplete && rows.length == limit ? offset + rows.length : null;
 }
 
+class ProjectFolderSuggestion {
+  final String path;
+  final String label;
+
+  const ProjectFolderSuggestion({required this.path, required this.label});
+}
+
 /// The stock modern Hermes contract. All profile-owned traffic passes through
 /// this immutable scope. There is no unscoped or experimental-recovery fallback.
 class ProfileGateway {
@@ -526,6 +533,33 @@ class ProfileGateway {
       throw const FormatException('Missing project');
     }
     return Map<String, dynamic>.from(result['project']);
+  }
+
+  /// Asks the selected Hermes host to scan its configured repository roots.
+  Future<List<ProjectFolderSuggestion>> discoverProjectFolders() async {
+    await requireProfile();
+    final result = await call('projects.discover_repos', {'scan': true});
+    final repos = result['repos'];
+    if (repos is! List) {
+      throw const FormatException('Missing discovered repositories');
+    }
+
+    final suggestions = <String, ProjectFolderSuggestion>{};
+    for (final repo in repos) {
+      if (repo is! Map || repo['root'] is! String || repo['label'] is! String) {
+        throw const FormatException('Invalid discovered repository');
+      }
+      final path = (repo['root'] as String).trim();
+      final label = (repo['label'] as String).trim();
+      if (path.isEmpty || label.isEmpty) {
+        throw const FormatException('Invalid discovered repository');
+      }
+      suggestions.putIfAbsent(
+        path,
+        () => ProjectFolderSuggestion(path: path, label: label),
+      );
+    }
+    return List.unmodifiable(suggestions.values);
   }
 
   Future<Map<String, dynamic>> updateProject(

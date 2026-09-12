@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 
+import '../models/chat_output.dart';
 import '../services/web_preview.dart';
 import 'markdown_message_content.dart';
 import 'profile_tool_activity.dart';
@@ -10,10 +11,12 @@ import 'profile_tool_activity.dart';
 class ProfileMessage extends StatelessWidget {
   final Map<String, dynamic> message;
   final bool streaming;
+  final Future<void> Function(ChatOutput output)? onOpenRemoteFile;
   const ProfileMessage({
     super.key,
     required this.message,
     this.streaming = false,
+    this.onOpenRemoteFile,
   });
 
   static Uri? externalLink(String href) => externalWebLink(href);
@@ -120,6 +123,7 @@ class ProfileMessage extends StatelessWidget {
                       : MarkdownMessageContent(
                           data: content,
                           streaming: streaming,
+                          onOpenRemoteFile: onOpenRemoteFile,
                         ),
                 ),
               ),

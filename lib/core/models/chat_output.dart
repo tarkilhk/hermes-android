@@ -18,6 +18,72 @@ class ChatOutput {
   String get target => path ?? url!;
 }
 
+/// Returns a file output for an explicit Markdown target that Hermes can read.
+/// Web URLs and other URI schemes are left to their dedicated handlers.
+ChatOutput? explicitRemoteFileOutput(String target) {
+  final normalized = _normalizeExplicitMarkdownTarget(target);
+  if (normalized == null) return null;
+  if (_isUrl(normalized) ||
+      _hasUnsupportedScheme(normalized) ||
+      !_looksLikeExplicitFileTarget(normalized)) {
+    return null;
+  }
+  return ChatOutput(
+    kind: _imageExtension.hasMatch(normalized)
+        ? ChatOutputKind.image
+        : ChatOutputKind.file,
+    path: normalized,
+    url: null,
+    label: _decodedPathLabel(normalized),
+  );
+}
+
+String _decodedPathLabel(String path) =>
+    path.split(RegExp(r'[\\/]')).where((part) => part.isNotEmpty).lastOrNull ??
+    path;
+
+String? _normalizeExplicitMarkdownTarget(String target) {
+  final value = target.trim();
+  if (value.toLowerCase().startsWith('file:')) {
+    return _normalizeTarget(value);
+  }
+  if (RegExp(r'^[A-Za-z]:[\\/]').hasMatch(value) || value.startsWith(r'\\')) {
+    return _decodeExplicitPath(_withoutUriSuffix(value));
+  }
+  final uri = Uri.tryParse(value);
+  if (uri == null) return _decodeExplicitPath(_withoutUriSuffix(value));
+  if (uri.hasScheme || uri.host.isNotEmpty) return null;
+  return _decodeExplicitPath(_withoutUriSuffix(value));
+}
+
+String _withoutUriSuffix(String value) {
+  final query = value.indexOf('?');
+  final fragment = value.indexOf('#');
+  final end = [
+    if (query >= 0) query,
+    if (fragment >= 0) fragment,
+  ].fold(value.length, (current, index) => index < current ? index : current);
+  return value.substring(0, end);
+}
+
+String _decodeExplicitPath(String value) {
+  try {
+    return Uri.decodeComponent(value);
+  } on ArgumentError {
+    return value;
+  }
+}
+
+bool _looksLikeExplicitFileTarget(String value) {
+  if (_isFilePath(value)) return true;
+  final leaf = value.split(RegExp(r'[\\/]')).last;
+  return leaf.isNotEmpty &&
+      leaf != '.' &&
+      leaf != '..' &&
+      leaf.contains('.') &&
+      !leaf.startsWith('#');
+}
+
 final _markdownImage = RegExp(r'!\[([^\]]*)\]\(([^)\s]+)\)');
 final _markdownLink = RegExp(r'\[([^\]]+)\]\(([^)\s]+)\)');
 final _media = RegExp(
@@ -230,7 +296,7 @@ String _normalizeTarget(String value) {
   var path = uri.path;
   try {
     path = Uri.decodeComponent(path);
-  } on FormatException {
+  } on ArgumentError {
     // Keep the gateway path literal when its percent encoding is malformed.
   }
   if (uri.host.isNotEmpty) path = '//${uri.host}$path';
@@ -256,6 +322,11 @@ bool _isFilePath(String value) => RegExp(
 bool _isUrl(String value) =>
     value.startsWith('http://') || value.startsWith('https://');
 
+bool _hasUnsupportedScheme(String value) {
+  if (RegExp(r'^[A-Za-z]:[\\/]').hasMatch(value)) return false;
+  return RegExp(r'^[A-Za-z][A-Za-z0-9+.-]*:').hasMatch(value);
+}
+
 bool _looksLikeOutput(String value, {required bool explicit}) =>
     _isUrl(value) ||
     value.startsWith('data:image/') ||
@@ -277,7 +348,7 @@ String _label(String target) {
   }
   try {
     return Uri.decodeComponent(value);
-  } on FormatException {
+  } on ArgumentError {
     return value;
   }
 }

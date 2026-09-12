@@ -105,6 +105,7 @@ class ProfileChat {
   final List<GatewayToolActivity> toolActivities = [];
   String reasoning = '';
   bool reasoningVerbose = false;
+  final List<GatewayNotice> reviewNotices = [];
   List<GatewayTodo> todos = [];
   int? todoRevision;
   List<GatewaySubagentActivity> subagents = [];
@@ -234,6 +235,7 @@ typedef ProfileAttention =
 /// Owned by the application, not the workspace/chat widgets. A foreground
 /// switch never closes a socket, changes a chat owner, or cancels a turn.
 class ProfileWorkspaceController extends ChangeNotifier {
+  static const _maxReviewNotices = 20;
   static const _markReadFailureNotice =
       'This chat opened, but it could not be marked as read. '
       'Return to Chats and choose Mark as read.';
@@ -3728,6 +3730,19 @@ class ProfileWorkspaceController extends ChangeNotifier {
           chat.reasoning = update.applyTo(chat.reasoning);
           chat.reasoningVerbose = update.verbose;
         }
+      case 'review.summary':
+        final notice = event.data['text'] is String
+            ? GatewayNotice.fromGatewayEvent(event.type, event.data)
+            : null;
+        if (notice != null &&
+            !chat.reviewNotices.any(
+              (existing) => existing.identity == notice.identity,
+            )) {
+          chat.reviewNotices.add(notice);
+          if (chat.reviewNotices.length > _maxReviewNotices) {
+            chat.reviewNotices.removeAt(0);
+          }
+        }
       case 'btw.complete':
         _completeTaskDelivery(
           chat,
@@ -3982,6 +3997,7 @@ class ProfileWorkspaceController extends ChangeNotifier {
       chat.toolActivities.clear();
       chat.reasoning = '';
       chat.reasoningVerbose = false;
+      chat.reviewNotices.clear();
       chat.todos = [];
       chat.todoRevision = null;
       chat.subagents = [];

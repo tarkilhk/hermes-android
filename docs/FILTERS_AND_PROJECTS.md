@@ -85,6 +85,15 @@ All 32 chat-action tests pass, including the confirmed-delete widget test using
 the reused-runtime response. This reproduces the contract error locally; it
 does not claim a captured response from the owner's remote gateway.
 
+## Discovered project folders, 2.31.0
+
+P03 keeps manual absolute-path entry and adds an explicit Find folders action.
+The selected profile's existing `projects.discover_repos` call with `scan: true`
+returns repository roots and labels. Selecting a result fills the same path field
+used by `projects.create`; no general filesystem browser is added. Empty or failed
+discovery leaves manual entry available. The create flow retains its original
+workspace through both dialogs and rejects a changed profile before submitting.
+
 ## Verification
 
 The owner's 2026-09-12 screenshot feedback also refines D15 in this batch: the context fuse sits on the message box's existing top edge, with a small dot at the current usage position. It adds no separate row. Server-reported usage, thresholds, unknown/estimated states and accessibility labels remain unchanged.

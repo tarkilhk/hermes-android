@@ -46,6 +46,45 @@ void main() {
     client.close();
   });
 
+  test('owned file access keeps the original profile and saved chat', () async {
+    final requests = <http.Request>[];
+    final dashboard = dashboardWith((request) async {
+      requests.add(request);
+      if (request.url.path.endsWith('/read-text')) {
+        return http.Response(
+          jsonEncode({
+            'path': request.url.queryParameters['path'],
+            'text': 'contents',
+          }),
+          200,
+        );
+      }
+      return http.Response.bytes(
+        [1, 2, 3],
+        200,
+        headers: {'content-disposition': 'attachment; filename=report.txt'},
+      );
+    });
+    final client = RemoteFilesClient(dashboard: dashboard);
+    final owned = OwnedRemoteFiles(
+      source: client,
+      profileName: 'original-profile',
+      storedSessionId: 'original-chat',
+    );
+
+    await owned.readText('../exports/report.txt');
+    await owned.download('../exports/report.txt');
+
+    for (final request in requests) {
+      expect(request.url.queryParameters, {
+        'path': '../exports/report.txt',
+        'profile': 'original-profile',
+        'session_id': 'original-chat',
+      });
+    }
+    client.close();
+  });
+
   test('lists directories before files and preserves server paths', () async {
     final dashboard = dashboardWith((request) async {
       expect(request.url.path, '/api/fs/list');
@@ -135,10 +174,7 @@ void main() {
     final dashboard = dashboardWith(
       (_) async => http.Response.bytes([1, 2, 3], 200),
     );
-    final client = RemoteFilesClient(
-      dashboard: dashboard,
-      maxDownloadBytes: 2,
-    );
+    final client = RemoteFilesClient(dashboard: dashboard, maxDownloadBytes: 2);
 
     await expectLater(
       client.download(
@@ -158,10 +194,7 @@ void main() {
       proxied: true,
       httpClient: _StreamingClient(),
     );
-    final client = RemoteFilesClient(
-      dashboard: dashboard,
-      maxDownloadBytes: 2,
-    );
+    final client = RemoteFilesClient(dashboard: dashboard, maxDownloadBytes: 2);
 
     await expectLater(
       client.download(

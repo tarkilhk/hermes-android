@@ -4,6 +4,33 @@ The owner requested direct emulator testing after the selected implementation
 work. This record separates native Android checks, synthetic server scenarios
 and checks that still need a configured Hermes server or Firebase project.
 
+## Current milestone, 2.31.0
+
+The final unit and widget suite passes 1,281 tests with four opt-in skips.
+Static analysis is clean. Evidence is in `build/2.31.0-full-tests-final.log`
+and `build/2.31.0-analyze-final.log`.
+
+The suite covers discovered project selection, profile ownership, large text
+with the keyboard open, direct file preview retry and return navigation,
+once-decoded file paths, review-event ownership and the sensitive-input jump.
+An earlier file-path failure caught URI normalization removing a relative path
+prefix and a second decode of literal percent characters. Both regressions
+pass on this snapshot.
+
+The emulator suite adds a fourth scenario using existing Hermes contracts:
+discover and create a project, receive a review summary, then jump from older
+history to an unanswered vault request. All four scenarios passed and the direct
+driver exited 0. Evidence: `build/2.31.0-emulator-direct-driver-final.log`.
+The first run's new scenario checked the jump label before its post-frame update.
+The final scenario waits for rendering and preserves the same assertions.
+No backend changes or rejected recovery/version contracts are used.
+
+The signed Personal build passed certificate, package, non-debuggable and ARM64
+checks, then installed in place on the connected phone as 2.31.0 / 21852.
+Evidence: `build/2.31.0-release-build.log` and installed package metadata.
+This does not establish live acceptance of private chats or Samsung-specific
+interaction behavior. The emulator used the separate debug test package.
+
 Scope correction for 2.30.1: the owner prohibits Hermes backend modifications.
 The fourth 2.30.0 scenario relied on invented patch contracts and has been removed
 from the active suite. Its historical pass below is not evidence of support in

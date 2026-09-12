@@ -140,7 +140,59 @@ void main() {
     markdown.onTapLink!('Host file', 'file:///private/file', '');
     await tester.pump();
     expect(
-      find.text('Only http and https web links can be opened here.'),
+      find.text('Only web links and linked Hermes files can be opened here.'),
+      findsOneWidget,
+    );
+  });
+
+  testWidgets('assistant file links keep their exact remote target', (
+    tester,
+  ) async {
+    String? openedPath;
+    await tester.pumpWidget(
+      MaterialApp(
+        home: Scaffold(
+          body: ProfileMessage(
+            message: const {
+              'role': 'assistant',
+              'content': '[Open report](../exports/final-report.pdf)',
+            },
+            onOpenRemoteFile: (output) async => openedPath = output.path,
+          ),
+        ),
+      ),
+    );
+    final markdown = tester.widget<MarkdownBody>(find.byType(MarkdownBody));
+    markdown.onTapLink!('Open report', '../exports/final-report.pdf', '');
+    await tester.pump();
+
+    expect(openedPath, '../exports/final-report.pdf');
+  });
+
+  testWidgets('unavailable assistant file links report a scoped error', (
+    tester,
+  ) async {
+    await tester.pumpWidget(
+      MaterialApp(
+        home: Scaffold(
+          body: ProfileMessage(
+            message: const {
+              'role': 'assistant',
+              'content': '[Missing report](/srv/removed/report.pdf)',
+            },
+            onOpenRemoteFile: (_) async => throw StateError('gone'),
+          ),
+        ),
+      ),
+    );
+    final markdown = tester.widget<MarkdownBody>(find.byType(MarkdownBody));
+    markdown.onTapLink!('Missing report', '/srv/removed/report.pdf', '');
+    await tester.pump();
+
+    expect(
+      find.text(
+        'This file could not be opened. It may have moved or be unavailable on Hermes.',
+      ),
       findsOneWidget,
     );
   });
