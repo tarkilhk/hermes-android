@@ -52,6 +52,11 @@ The owner clarified B15: selecting or activating profile A changes only that cli
 
 ## Work packages and progress
 
+Owner update, 2026-09-12: wireless debugging is unavailable while the owner is
+away from home for several hours. Continue implementation, verification and
+regular commits/pushes to main. Defer phone installation until the owner returns;
+do not let deployment pause the selected roadmap work.
+
 The approved [delivery sequence](DELIVERY_SEQUENCE.md) breaks these themes into small implementation slices, with priority order, acceptance outcomes and verification status.
 
 Use these packages to avoid building the same requirement twice. Their order is a suggested dependency sequence, not a fixed schedule. The shell is tracked separately from the feature packages. Some underlying features already exist; Planned does not mean all code is missing.
@@ -284,7 +289,7 @@ For M06, Android's [sharing contract](https://developer.android.com/develop/ui/c
 
 - 2026-09-12, D16/F03-F05: owner screenshot reports Outputs failing on a large chat with "Use the paginated conversation view," an unexplained instruction and a Retry that repeats the failure. Integrated into the existing Outputs milestone and installed in 2.24.0: recent outputs first, **Load older outputs**, preserved results after page failures, and clear recovery actions. The exact error was reproduced through the actual chat menu with 10,000 saved messages; the regression now reaches the oldest output and recovers from a failed batch. See [fix details](EXECUTION_FIND_AND_OUTPUTS.md). The related Find limit is fixed in 2.24.1, pending phone installation. All other selections and exclusions remain intact.
 
-Next verified release, 2026-09-12: Personal 2.25.0 / 21752 adds correlated background-task cards and includes the 2.24.1 paged Find/compressed-history fixes. Full suite: 1,182 passed, four opt-in skips; analyzer clean; all 30 focused command/card checks passed. Dependencies were reviewed and retained. The signed APK passed native compilation and certificate/package checks. Installation is waiting for a new wireless-debugging endpoint because the phone refused 10.30.1.2:42969. C07 read lifecycle, Find result navigation and attachment queues are the next selected deliveries.
+Next verified release, 2026-09-12: Personal 2.25.1 / 21762 completes the C07 server-backed read lifecycle on successful explicit chat opens. It includes the background-task cards and paged Find/compressed-history fixes. Full suite: 1,188 passed, four opt-in skips; analyzer clean; all 38 focused read-state checks passed. The signed APK passed native compilation and certificate/package checks. Installation is deferred while the owner is away from home. Find result navigation and attachment queues are the next selected deliveries; all other planned work and documented dependencies remain intact.
 
 Latest phone delivery, 2026-09-12: Hermes Personal 2.24.0 / 21732 is installed and launched. It fixes large-chat Outputs and adds downloaded self-contained HTML previews. It includes all preceding milestones, thousands separators and the D15 context reopen fix. The full suite passed 1,173 tests with four opt-in skips, and the analyzer is clean. Real browser fixtures passed for HTML, SVG and Mermaid. The signed APK passed native compilation and certificate/package checks. Phone verification covers installed identity and process metadata; the owner's live Outputs chat, playback/reading/browser gestures and server feature QA remain. The documented Firebase/backend-contract dependencies remain tracked. Other unsupported visual formats retain source fallback.
 

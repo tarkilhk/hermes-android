@@ -8,6 +8,23 @@ Feature releases increment the minor version, fixes increment the patch version,
 and breaking changes increment the major version. The Android build number after
 `+` always increases. Update this changelog for every release milestone.
 
+## [2.25.1+2176] - 2026-09-12
+
+### Fixed
+
+- Complete the server-backed unread lifecycle when an unread chat is explicitly
+  opened and its history loads successfully. Reuse the existing acknowledged
+  read-state update, with original-profile and stale-response guards.
+- Keep the chat usable if marking it read fails, preserve its unread state and
+  explain how to retry manually. Reconnecting alone does not mark a chat read.
+
+### Verification
+
+- All 38 focused read-state checks passed. Full suite: 1,188 passed, four
+  opt-in skips; analyzer clean. Signed Personal 2.25.1 / 21762 passed native
+  compilation and certificate/package checks. Phone installation and live
+  server checks are deferred while the owner is away from home.
+
 ## [2.25.0+2175] - 2026-09-12
 
 ### Added

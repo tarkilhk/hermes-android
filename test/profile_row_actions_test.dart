@@ -57,6 +57,164 @@ void main() {
     await tester.pumpAndSettle();
   }
 
+  Future<void> loadNewestUnread() async {
+    host.changes.putIfAbsent('personal', () => {})['newest'] = {'unread': true};
+    await controller.refresh();
+    host.updates.clear();
+  }
+
+  test(
+    'opening an unread chat marks every loaded owner row read after history',
+    () async {
+      await loadNewestUnread();
+      final resource = controller.current!;
+      final row = resource.sessions.firstWhere((row) => row['id'] == 'newest');
+      resource.projectSessions = [
+        {...row},
+      ];
+      resource.searchResults = [
+        {...row},
+      ];
+
+      await controller.openSession(key());
+
+      expect(host.updates, hasLength(1));
+      expect(host.updates.single.$1, 'personal');
+      expect(host.updates.single.$2, 'sessions/newest');
+      expect(host.updates.single.$3, {'unread': false, 'profile': 'personal'});
+      for (final rows in [
+        resource.sessions,
+        resource.projectSessions,
+        resource.searchResults,
+      ]) {
+        expect(
+          rows.firstWhere((row) => row['id'] == 'newest')['unread'],
+          false,
+        );
+      }
+
+      host.updates.clear();
+      controller.showList();
+      await controller.openSession(key());
+      expect(host.updates, isEmpty);
+    },
+  );
+
+  test('failed history leaves an opened chat unread', () async {
+    await loadNewestUnread();
+    host.failHistory = true;
+
+    await controller.openSession(key());
+
+    expect(controller.current!.selectedSession, 'newest');
+    expect(controller.current!.chat!.historyError, isNotNull);
+    expect(
+      controller.current!.sessions.firstWhere(
+        (row) => row['id'] == 'newest',
+      )['unread'],
+      true,
+    );
+    expect(host.updates, isEmpty);
+  });
+
+  test('navigation during history prevents a stale mark-read write', () async {
+    await loadNewestUnread();
+    final delay = host.historyDelays[('newest', 0)] = Completer<void>();
+    host.reads.clear();
+    final opening = controller.openSession(key());
+    while (!host.reads.any((read) => read.$1.endsWith('/messages'))) {
+      await Future<void>.delayed(Duration.zero);
+    }
+
+    await controller.navigateProfile('work');
+    delay.complete();
+    await opening;
+
+    expect(controller.current!.scope.profileName, 'work');
+    expect(host.updates, isEmpty);
+  });
+
+  test(
+    'manual mark-unread during history prevents automatic clearing',
+    () async {
+      await loadNewestUnread();
+      final delay = host.historyDelays[('newest', 0)] = Completer<void>();
+      host.reads.clear();
+      final opening = controller.openSession(key());
+      while (!host.reads.any((read) => read.$1.endsWith('/messages'))) {
+        await Future<void>.delayed(Duration.zero);
+      }
+
+      await controller.mutateSession(key(), changes: {'unread': true});
+      delay.complete();
+      await opening;
+
+      expect(host.updates, hasLength(1));
+      expect(host.updates.single.$3['unread'], true);
+      expect(
+        controller.current!.sessions.firstWhere(
+          (row) => row['id'] == 'newest',
+        )['unread'],
+        true,
+      );
+    },
+  );
+
+  test(
+    'failed automatic mark-read keeps unread and allows manual retry',
+    () async {
+      await loadNewestUnread();
+      host.failMutation = true;
+
+      await controller.openSession(key());
+
+      final chat = controller.current!.chat!;
+      expect(controller.current!.selectedSession, 'newest');
+      expect(
+        controller.current!.sessions.firstWhere(
+          (row) => row['id'] == 'newest',
+        )['unread'],
+        true,
+      );
+      expect(controller.current!.mutatingSessions, isEmpty);
+      expect(chat.error, isNull);
+      expect(
+        chat.commandOutput,
+        contains(
+          'This chat opened, but it could not be marked as read. '
+          'Return to Chats and choose Mark as read.',
+        ),
+      );
+
+      host.failMutation = false;
+      await controller.mutateSession(key(), changes: {'unread': false});
+      expect(chat.commandOutput, isEmpty);
+      expect(
+        controller.current!.sessions.firstWhere(
+          (row) => row['id'] == 'newest',
+        )['unread'],
+        false,
+      );
+    },
+  );
+
+  test('manual mark-unread survives app reconnect', () async {
+    await loadNewestUnread();
+    await controller.openSession(key());
+    await controller.mutateSession(key(), changes: {'unread': true});
+    host.updates.clear();
+
+    await controller.reconnect(controller.current!.scope);
+
+    expect(host.updates, isEmpty);
+    expect(
+      controller.current!.sessions.firstWhere(
+        (row) => row['id'] == 'newest',
+      )['unread'],
+      true,
+    );
+  });
+
   test(
     'pin rename unread use body profile and update only owner rows',
     () async {

@@ -231,6 +231,10 @@ typedef ProfileAttention =
 /// Owned by the application, not the workspace/chat widgets. A foreground
 /// switch never closes a socket, changes a chat owner, or cancels a turn.
 class ProfileWorkspaceController extends ChangeNotifier {
+  static const _markReadFailureNotice =
+      'This chat opened, but it could not be marked as read. '
+      'Return to Chats and choose Mark as read.';
+
   final SavedConnection connection;
   final String connectionIdentity;
   final SharedPreferences preferences;
@@ -1418,6 +1422,12 @@ class ProfileWorkspaceController extends ChangeNotifier {
     if (resource.deletedSessions.contains(key.sessionId)) {
       throw StateError('Chat was deleted');
     }
+    final openedSessionGeneration = resource.sessionGeneration;
+    final openedUnread = <Map<String, dynamic>>[
+      ...resource.searchResults,
+      ...resource.visibleSessions,
+      ...resource.sessions,
+    ].any((row) => row['id'] == key.sessionId && row['unread'] == true);
     _cancelOlderLoads();
     var chat = resource.chats[key.sessionId];
     if (chat == null) {
@@ -1487,6 +1497,30 @@ class ProfileWorkspaceController extends ChangeNotifier {
       unawaited(refreshSessionControl(chat));
       if (chat.projectId == null) unawaited(_loadChatProject(resource, chat));
       await refreshHistory(chat);
+      if (openedUnread &&
+          chat.historyError == null &&
+          !chat.historyLoading &&
+          chat.historySessionId != null &&
+          !_closed &&
+          current == resource &&
+          identical(resource.chats[key.sessionId], chat) &&
+          resource.selectedSession == key.sessionId &&
+          navigation == _navigationGeneration &&
+          resource.sessionGeneration == openedSessionGeneration &&
+          !resource.mutatingSessions.contains(key.sessionId)) {
+        try {
+          await mutateSession(key, changes: const {'unread': false});
+        } catch (_) {
+          if (!_closed &&
+              current == resource &&
+              identical(resource.chats[key.sessionId], chat)) {
+            if (!chat.commandOutput.contains(_markReadFailureNotice)) {
+              chat.commandOutput.add(_markReadFailureNotice);
+            }
+            _changed();
+          }
+        }
+      }
       await _drainQueuedPrompts(chat);
     }
   }
@@ -1646,6 +1680,9 @@ class ProfileWorkspaceController extends ChangeNotifier {
         if (updated['title'] is String) chat.title = updated['title'] as String;
         if (updated['archived'] is bool) {
           chat.archived = updated['archived'] as bool;
+        }
+        if (updated['unread'] == false) {
+          chat.commandOutput.remove(_markReadFailureNotice);
         }
       }
       if (resource.selectedSession == id &&

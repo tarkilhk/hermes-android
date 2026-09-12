@@ -8,6 +8,31 @@ Activity offers All, Running and Needs input across the connected server's profi
 
 Chats offers Unread only under Workspace options. Unread flags come from server session rows. The current API has no unread query parameter, so this view filters loaded pages and explicitly says when older pages remain. Load more stays available even when no loaded row matches. Title search is limited to those loaded unread rows; it does not merge unrelated full-text results that lack unread metadata. Opening a project, switching profiles or returning to the normal view clears the temporary filter.
 
+## Read state on opening a chat, 2.25.1
+
+The selected C07 follow-up marks an unread chat read after an explicit open
+successfully loads its history. It reuses the existing profile-scoped session
+mutation, waits for server acknowledgement, updates all loaded row collections
+and invalidates older list reads. A failed history load or changed navigation
+must not clear the unread marker. A failed read-state write keeps the chat open
+and leaves unread intact with a manual recovery explanation.
+
+The backend stores a server-time read watermark through
+`PATCH /api/sessions/{id} {unread:false,profile}`. A later server activity
+timestamp makes the chat unread again. Android adds no local read-state store.
+This follows Desktop's explicit-open behavior; app foregrounding/reconnect does
+not independently mark work read, and manual Mark as unread remains available.
+
+The contract is implemented in the inspected backend's sessions PATCH handler
+and `SessionDB.set_session_read`; Desktop uses `clearUnreadOnOpen` in
+`apps/desktop/src/store/session-unread-remote.ts`. These establish the request
+and scope, not live-server verification. All 38 focused read-state checks passed,
+including failed history, navigation/profile changes, manual unread actions and
+failed writes with manual recovery. Full suite: 1,188 passed, four opt-in skips;
+analyzer clean. Signed Personal 2.25.1 / 21762 passed native compilation and
+certificate/package checks. Phone installation and live-server QA are deferred
+while the owner is away from home.
+
 ## Projects
 
 Project actions are reachable from each project row and the selected project's Workspace options. Rename and appearance changes use `projects.update`; deletion uses `projects.delete`. Requests retain the captured host/profile/project owner, and the browser refreshes the server's project list after acknowledgement.
