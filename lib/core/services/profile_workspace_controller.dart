@@ -103,6 +103,11 @@ class ProfileChat {
   bool reasoningVerbose = false;
   List<GatewayTodo> todos = [];
   int? todoRevision;
+  List<GatewaySubagentActivity> subagents = [];
+  int subagentsRevision = 0;
+  bool subagentsLoading = false;
+  String? subagentsError;
+  int _subagentsLoadGeneration = 0;
   String? error;
   bool changingAnswer = false;
   bool commandRunning = false;
@@ -717,6 +722,167 @@ class ProfileWorkspaceController extends ChangeNotifier {
     }
     chat.context = value;
     _changed();
+  }
+
+  Future<void> refreshSubagents(ProfileChat chat) async {
+    final resource = _owned(chat);
+    final runtime = chat.runtimeId;
+    final revision = chat.subagentsRevision;
+    final before = chat.subagents;
+    final loadGeneration = ++chat._subagentsLoadGeneration;
+    chat.subagentsLoading = true;
+    chat.subagentsError = null;
+    _changed();
+    try {
+      final response = await resource.gateway.call('subagent.list', {
+        'session_id': runtime,
+      });
+      if (!_subagentReadIsCurrent(resource, chat, runtime, revision, before)) {
+        return;
+      }
+      final raw = response['subagents'];
+      if (raw is! List) throw const FormatException('Missing subagent list');
+      final snapshot = raw
+          .whereType<Map>()
+          .map(
+            (value) => GatewaySubagentActivity.fromSnapshot(
+              Map<String, dynamic>.from(value),
+            ),
+          )
+          .whereType<GatewaySubagentActivity>()
+          .toList();
+      final ids = snapshot.map((item) => item.id).toSet();
+      final next = before
+          .where((item) => item.isTerminal || ids.contains(item.id))
+          .toList();
+      for (final item in snapshot) {
+        final index = next.indexWhere((existing) => existing.id == item.id);
+        if (index < 0) {
+          next.add(item);
+        } else if (!next[index].isTerminal) {
+          next[index] = next[index].merge(item);
+        }
+      }
+      chat.subagents = next;
+      chat.subagentsRevision++;
+    } catch (_) {
+      if (_subagentReadIsCurrent(resource, chat, runtime, revision, before)) {
+        chat.subagentsError = 'Subagents could not be refreshed. Retry.';
+      }
+    } finally {
+      if (!_closed &&
+          identical(_resources[chat.key.workspace], resource) &&
+          identical(resource.chats[chat.key.sessionId], chat) &&
+          chat.runtimeId == runtime &&
+          chat._subagentsLoadGeneration == loadGeneration) {
+        chat.subagentsLoading = false;
+        _changed();
+      }
+    }
+  }
+
+  Future<GatewaySubagentTail?> loadSubagentTail(
+    ProfileChat chat,
+    String id,
+  ) async {
+    final resource = _ownedSubagent(chat, id);
+    final runtime = chat.runtimeId;
+    final before = chat.subagents.firstWhere((item) => item.id == id);
+    final response = await resource.gateway.call('subagent.tail', {
+      'session_id': runtime,
+      'subagent_id': id,
+    });
+    if (!_subagentTailIsCurrent(resource, chat, runtime, before)) {
+      return null;
+    }
+    final tail = GatewaySubagentTail.fromJson(response);
+    return tail?.subagentId == id ? tail : null;
+  }
+
+  Future<bool> steerSubagent(ProfileChat chat, String id, String text) async {
+    final message = text.trim();
+    if (message.isEmpty) return false;
+    final resource = _ownedSubagent(chat, id, active: true);
+    final runtime = chat.runtimeId;
+    final response = await resource.gateway.call('subagent.steer', {
+      'session_id': runtime,
+      'subagent_id': id,
+      'text': message,
+    });
+    if (!_subagentTargetIsCurrent(resource, chat, runtime, id)) {
+      return false;
+    }
+    return response['status'] == 'queued' && response['subagent_id'] == id;
+  }
+
+  Future<bool> interruptSubagent(ProfileChat chat, String id) async {
+    final resource = _ownedSubagent(chat, id, active: true);
+    final runtime = chat.runtimeId;
+    final response = await resource.gateway.call('subagent.interrupt', {
+      'session_id': runtime,
+      'subagent_id': id,
+    });
+    if (!_subagentTargetIsCurrent(resource, chat, runtime, id)) {
+      return false;
+    }
+    return response['found'] == true && response['subagent_id'] == id;
+  }
+
+  ProfileWorkspaceData _ownedSubagent(
+    ProfileChat chat,
+    String id, {
+    bool active = false,
+  }) {
+    final resource = _owned(chat);
+    final item = chat.subagents.where((item) => item.id == id).firstOrNull;
+    if (id.trim().isEmpty || item == null || (active && item.isTerminal)) {
+      throw ArgumentError('Subagent does not belong to this chat');
+    }
+    return resource;
+  }
+
+  bool _subagentReadIsCurrent(
+    ProfileWorkspaceData resource,
+    ProfileChat chat,
+    String runtime,
+    int revision,
+    List<GatewaySubagentActivity> before,
+  ) =>
+      !_closed &&
+      identical(_resources[chat.key.workspace], resource) &&
+      identical(resource.chats[chat.key.sessionId], chat) &&
+      chat.runtimeId == runtime &&
+      chat.subagentsRevision == revision &&
+      identical(chat.subagents, before);
+
+  bool _subagentTargetIsCurrent(
+    ProfileWorkspaceData resource,
+    ProfileChat chat,
+    String runtime,
+    String id,
+  ) =>
+      !_closed &&
+      identical(_resources[chat.key.workspace], resource) &&
+      identical(resource.chats[chat.key.sessionId], chat) &&
+      chat.runtimeId == runtime &&
+      chat.subagents.any((item) => item.id == id);
+
+  bool _subagentTailIsCurrent(
+    ProfileWorkspaceData resource,
+    ProfileChat chat,
+    String runtime,
+    GatewaySubagentActivity before,
+  ) {
+    if (_closed ||
+        !identical(_resources[chat.key.workspace], resource) ||
+        !identical(resource.chats[chat.key.sessionId], chat) ||
+        chat.runtimeId != runtime) {
+      return false;
+    }
+    final current = chat.subagents
+        .where((item) => item.id == before.id)
+        .firstOrNull;
+    return current != null && (before.isTerminal || !current.isTerminal);
   }
 
   void _updateContext(ProfileChat chat, Map usage) {
@@ -2949,6 +3115,25 @@ class ProfileWorkspaceController extends ChangeNotifier {
     if (snapshot.revision != null) chat.todoRevision = snapshot.revision;
   }
 
+  void _upsertSubagent(
+    ProfileChat chat,
+    String eventType,
+    Map<String, dynamic> data,
+  ) {
+    final update = GatewaySubagentActivity.fromGatewayEvent(eventType, data);
+    if (update == null) return;
+    final next = List<GatewaySubagentActivity>.from(chat.subagents);
+    final index = next.indexWhere((item) => item.id == update.id);
+    if (index < 0) {
+      next.add(update);
+    } else {
+      next[index] = next[index].merge(update);
+    }
+    chat.subagents = next;
+    chat.subagentsRevision++;
+    chat.subagentsError = null;
+  }
+
   void _event(ProfileWorkspaceData resource, StreamEvent event) {
     if (_closed) return;
     final chat = resource.chats.values
@@ -2999,6 +3184,13 @@ class ProfileWorkspaceController extends ChangeNotifier {
         chat.tool = null;
       case 'todo.updated':
         _applyTodoSnapshot(chat, event.data);
+      case 'subagent.spawn_requested':
+      case 'subagent.start':
+      case 'subagent.thinking':
+      case 'subagent.tool':
+      case 'subagent.progress':
+      case 'subagent.complete':
+        _upsertSubagent(chat, event.type, event.data);
       case 'reasoning.delta':
       case 'reasoning.available':
         final update = GatewayReasoningUpdate.fromGatewayEvent(
@@ -3280,6 +3472,11 @@ class ProfileWorkspaceController extends ChangeNotifier {
       chat.reasoningVerbose = false;
       chat.todos = [];
       chat.todoRevision = null;
+      chat.subagents = [];
+      chat.subagentsRevision++;
+      chat.subagentsLoading = false;
+      chat.subagentsError = null;
+      chat._subagentsLoadGeneration++;
       chat.sensitivePrompt = null;
       chat.sensitivePromptResponding = false;
     }

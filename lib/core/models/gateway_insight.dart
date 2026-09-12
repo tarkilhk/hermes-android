@@ -175,36 +175,107 @@ class GatewayNotification {
 
 enum GatewaySubagentPhase { requested, running, thinking, tool, completed }
 
+enum GatewaySubagentStatus { queued, running, completed, failed, interrupted }
+
 class GatewaySubagentActivity {
   final String id;
+  final String? parentId;
+  final int? depth;
   final String goal;
+  final String? delegationId;
   final String? model;
   final String? detail;
   final GatewaySubagentPhase phase;
+  final GatewaySubagentStatus? _status;
+  final bool? _acceptingSteer;
   final int? taskIndex;
   final int? taskCount;
+  final double? startedAt;
+  final int? toolCount;
+  final String? lastTool;
 
   const GatewaySubagentActivity({
     required this.id,
     required this.goal,
     required this.phase,
+    this.parentId,
+    this.depth,
+    this.delegationId,
     this.model,
     this.detail,
+    this._status,
+    this._acceptingSteer,
     this.taskIndex,
     this.taskCount,
+    this.startedAt,
+    this.toolCount,
+    this.lastTool,
   });
 
-  bool get isComplete => phase == GatewaySubagentPhase.completed;
+  GatewaySubagentStatus get status =>
+      _status ??
+      switch (phase) {
+        GatewaySubagentPhase.requested => GatewaySubagentStatus.queued,
+        GatewaySubagentPhase.completed => GatewaySubagentStatus.completed,
+        _ => GatewaySubagentStatus.running,
+      };
+
+  bool get acceptingSteer => !isTerminal && (_acceptingSteer ?? false);
+  bool get isComplete => isTerminal;
+  bool get isTerminal => const {
+    GatewaySubagentStatus.completed,
+    GatewaySubagentStatus.failed,
+    GatewaySubagentStatus.interrupted,
+  }.contains(status);
 
   GatewaySubagentActivity merge(GatewaySubagentActivity next) {
+    if (isTerminal) return this;
     return GatewaySubagentActivity(
       id: id,
       goal: next.goal.isEmpty ? goal : next.goal,
       phase: next.phase,
+      status: next.status,
+      acceptingSteer: next._acceptingSteer ?? _acceptingSteer,
+      parentId: next.parentId ?? parentId,
+      depth: next.depth ?? depth,
+      delegationId: next.delegationId ?? delegationId,
       model: next.model ?? model,
       detail: next.detail ?? detail,
       taskIndex: next.taskIndex ?? taskIndex,
       taskCount: next.taskCount ?? taskCount,
+      startedAt: next.startedAt ?? startedAt,
+      toolCount: next.toolCount ?? toolCount,
+      lastTool: next.lastTool ?? lastTool,
+    );
+  }
+
+  static GatewaySubagentActivity? fromSnapshot(Map<String, dynamic> data) {
+    final id = _opaqueId(data['subagent_id']);
+    if (id == null) return null;
+    final lastTool = GatewayNotice.safeLine(data['last_tool']?.toString(), 160);
+    final status = _normalizeStatus(data['status']);
+    return GatewaySubagentActivity(
+      id: id,
+      parentId: GatewayNotice.safeLine(data['parent_id']?.toString(), 120),
+      depth: _integer(data['depth']),
+      goal: GatewayNotice.safeLine(data['goal']?.toString(), 500) ?? '',
+      delegationId: GatewayNotice.safeLine(
+        data['delegation_id']?.toString(),
+        120,
+      ),
+      model: GatewayNotice.safeLine(data['model']?.toString(), 120),
+      phase: status == GatewaySubagentStatus.queued
+          ? GatewaySubagentPhase.requested
+          : status == GatewaySubagentStatus.running && lastTool != null
+          ? GatewaySubagentPhase.tool
+          : status == GatewaySubagentStatus.running
+          ? GatewaySubagentPhase.running
+          : GatewaySubagentPhase.completed,
+      status: status,
+      acceptingSteer: data['accepting_steer'] == true,
+      startedAt: _number(data['started_at']),
+      toolCount: _integer(data['tool_count']),
+      lastTool: lastTool,
     );
   }
 
@@ -213,12 +284,9 @@ class GatewaySubagentActivity {
     Map<String, dynamic> data,
   ) {
     if (!eventType.startsWith('subagent.')) return null;
-    final id =
-        GatewayNotice.safeLine(data['subagent_id']?.toString(), 120) ??
-        'task-${data['task_index'] ?? 0}';
-    final goal =
-        GatewayNotice.safeLine(data['goal']?.toString(), 500) ??
-        'Delegated task';
+    final id = _opaqueId(data['subagent_id']);
+    if (id == null) return null;
+    final goal = GatewayNotice.safeLine(data['goal']?.toString(), 500) ?? '';
     final detail = GatewayNotice.safeLine(
       (data['summary'] ??
               data['text'] ??
@@ -227,13 +295,34 @@ class GatewaySubagentActivity {
           ?.toString(),
       1000,
     );
+    final status = eventType == 'subagent.complete'
+        ? _normalizeStatus(data['status'], terminalEvent: true)
+        : eventType == 'subagent.spawn_requested'
+        ? GatewaySubagentStatus.queued
+        : _normalizeStatus(data['status']);
     return GatewaySubagentActivity(
       id: id,
+      parentId: GatewayNotice.safeLine(data['parent_id']?.toString(), 120),
+      depth: _integer(data['depth']),
       goal: goal,
+      delegationId: GatewayNotice.safeLine(
+        data['delegation_id']?.toString(),
+        120,
+      ),
       model: GatewayNotice.safeLine(data['model']?.toString(), 120),
       detail: detail,
-      taskIndex: (data['task_index'] as num?)?.toInt(),
-      taskCount: (data['task_count'] as num?)?.toInt(),
+      status: status,
+      acceptingSteer: data['accepting_steer'] is bool
+          ? data['accepting_steer'] == true
+          : null,
+      taskIndex: _integer(data['task_index']),
+      taskCount: _integer(data['task_count']),
+      startedAt: _number(data['started_at']),
+      toolCount: _integer(data['tool_count']),
+      lastTool: GatewayNotice.safeLine(
+        (data['tool_name'] ?? data['last_tool'])?.toString(),
+        160,
+      ),
       phase: switch (eventType) {
         'subagent.spawn_requested' => GatewaySubagentPhase.requested,
         'subagent.thinking' => GatewaySubagentPhase.thinking,
@@ -241,6 +330,58 @@ class GatewaySubagentActivity {
         'subagent.complete' => GatewaySubagentPhase.completed,
         _ => GatewaySubagentPhase.running,
       },
+    );
+  }
+
+  static GatewaySubagentStatus _normalizeStatus(
+    dynamic value, {
+    bool terminalEvent = false,
+  }) => switch (value?.toString().toLowerCase()) {
+    'queued' when !terminalEvent => GatewaySubagentStatus.queued,
+    'completed' => GatewaySubagentStatus.completed,
+    'failed' || 'error' || 'timeout' => GatewaySubagentStatus.failed,
+    'interrupted' ||
+    'cancelled' ||
+    'canceled' => GatewaySubagentStatus.interrupted,
+    _ when terminalEvent => GatewaySubagentStatus.failed,
+    _ => GatewaySubagentStatus.running,
+  };
+
+  static int? _integer(dynamic value) => value is num ? value.toInt() : null;
+  static double? _number(dynamic value) =>
+      value is num ? value.toDouble() : null;
+  static String? _opaqueId(dynamic value) =>
+      value is String && value.trim().isNotEmpty ? value : null;
+}
+
+class GatewaySubagentTail {
+  static const maxTextLength = 16384;
+
+  final String subagentId;
+  final bool available;
+  final String text;
+  final bool truncated;
+
+  const GatewaySubagentTail({
+    required this.subagentId,
+    required this.available,
+    required this.text,
+    required this.truncated,
+  });
+
+  static GatewaySubagentTail? fromJson(Map<String, dynamic> data) {
+    final value = data['subagent_id'];
+    final id = value is String && value.trim().isNotEmpty ? value : null;
+    if (id == null || data['available'] is! bool) return null;
+    final raw = data['text']?.toString().replaceAll('\u0000', '') ?? '';
+    final clipped = raw.length > maxTextLength
+        ? raw.substring(raw.length - maxTextLength)
+        : raw;
+    return GatewaySubagentTail(
+      subagentId: id,
+      available: data['available'] == true,
+      text: clipped,
+      truncated: data['truncated'] == true || clipped.length != raw.length,
     );
   }
 }

@@ -8,6 +8,16 @@ Feature releases increment the minor version, fixes increment the patch version,
 and breaking changes increment the major version. The Android build number after
 `+` always increases. Update this changelog for every release milestone.
 
+## [2.7.0+2156] - 2026-09-12
+
+### Added
+
+- Subagents in the chat menu shows the server's active children. Live events
+  also display an expandable roster in the conversation.
+- Child details show selectable live output, supported Steer and Interrupt
+  controls, with exact chat ownership and server acknowledgements. Rejected
+  steering retains the typed guidance; failed refreshes offer Retry.
+
 ## [2.6.0+2155] - 2026-09-12
 
 ### Added
