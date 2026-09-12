@@ -4,6 +4,7 @@ import '../models/profile_live_activity.dart';
 import '../services/profile_workspace_controller.dart';
 import '../widgets/profile_diagnostics_panel.dart';
 import '../widgets/backend_version_card.dart';
+import '../widgets/profile_editor_sheet.dart';
 
 enum _ActivityFilter { all, running, needsInput }
 
@@ -150,7 +151,7 @@ class _WorkspaceActivityContentState extends State<WorkspaceActivityContent> {
   };
 }
 
-/// Read-only administration entry using already-discovered server information.
+/// Small administration surface for the selected connection and profile.
 class HermesAdministrationContent extends StatelessWidget {
   const HermesAdministrationContent({
     super.key,
@@ -160,6 +161,31 @@ class HermesAdministrationContent extends StatelessWidget {
 
   final ProfileWorkspaceController controller;
   final VoidCallback? onConnections;
+
+  Future<void> _editProfile(BuildContext context) async {
+    final workspace = controller.current;
+    if (workspace == null) return;
+    final changed = await showProfileEditorSheet(
+      context,
+      gateway: workspace.gateway,
+      connectionLabel: controller.connection.label,
+    );
+    if (!changed ||
+        !context.mounted ||
+        !identical(controller.current, workspace)) {
+      return;
+    }
+    await controller.refresh();
+    if (context.mounted && controller.error != null) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text(
+            'Saved changes, but profile information could not be refreshed.',
+          ),
+        ),
+      );
+    }
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -189,6 +215,13 @@ class HermesAdministrationContent extends StatelessWidget {
                   leading: const Icon(Icons.person_outline),
                   title: Text(profile.label),
                   subtitle: Text(profile.description ?? profile.name),
+                  trailing: IconButton(
+                    tooltip: 'Edit selected profile',
+                    icon: const Icon(Icons.edit_outlined),
+                    onPressed: controller.switching
+                        ? null
+                        : () => _editProfile(context),
+                  ),
                 ),
                 if (profile.model != null)
                   ListTile(

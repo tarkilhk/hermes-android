@@ -37,6 +37,7 @@ The inventories describe their inspection dates and source commits. Do not silen
 - [Subagent supervision](SUBAGENT_SUPERVISION.md), scoped live rosters, output and supported child controls.
 - [Session controls](SESSION_CONTROLS.md), server goal details/actions and the following heartbeat, loop and process slice.
 - [Connection diagnostics and versions](CONNECTION_DIAGNOSTICS_AND_VERSIONS.md), the initial access/provider checks and Android/backend version visibility, with remaining operations scope.
+- [Selected-profile editing](PROFILE_EDITING.md), central description/SOUL changes, partial-save handling and client-local profile selection.
 
 - [Slash commands](SLASH_COMMAND_SUPPORT.md).
 - [Answer actions and versions](ANSWER_VERSIONS.md). Its description of local version links is current implementation evidence; the product plan calls for server ownership as this feature evolves.

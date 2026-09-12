@@ -129,6 +129,26 @@ void main() {
     expect(tester.takeException(), isNull);
   });
 
+  testWidgets('administration opens the selected profile editor', (
+    tester,
+  ) async {
+    await show(tester);
+    await navigate(tester, AppDestination.administration);
+    final owner = controller.current!.scope.profileName;
+    await tester.tap(find.byTooltip('Edit selected profile'));
+    await tester.pumpAndSettle();
+    expect(find.text('Edit profile'), findsOneWidget);
+    final read = fixture.calls
+        .where((call) => call.$2 == 'profiles.describe')
+        .single;
+    expect(read.$1, owner);
+    expect(read.$3, {'name': owner, 'profile': owner});
+    expect(
+      fixture.calls.where((call) => call.$2 == 'profiles.configure'),
+      isEmpty,
+    );
+  });
+
   testWidgets('Back closes the drawer before leaving the chat', (tester) async {
     final chat = await controller.createChat();
     chat.draft = 'Still here';

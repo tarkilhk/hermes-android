@@ -8,6 +8,15 @@ Feature releases increment the minor version, fixes increment the patch version,
 and breaking changes increment the major version. The Android build number after
 `+` always increases. Update this changelog for every release milestone.
 
+## [2.11.0+2160] - 2026-09-12
+
+### Added
+
+- Edit the selected profile's description and SOUL from Hermes administration.
+  Save changes centrally on Hermes, preserve unapplied edits after a partial
+  response, and confirm before discarding unsaved text. Profile selection
+  remains local to each client.
+
 ## [2.10.0+2159] - 2026-09-12
 
 ### Added
