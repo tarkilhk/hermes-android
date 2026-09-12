@@ -1,0 +1,241 @@
+package com.hermesagent.hermes_android
+
+import android.annotation.SuppressLint
+import android.content.Context
+import android.content.res.AssetManager
+import android.graphics.Color
+import android.net.Uri
+import android.net.http.SslError
+import android.os.Build
+import android.os.Message
+import android.view.View
+import android.webkit.HttpAuthHandler
+import android.webkit.PermissionRequest
+import android.webkit.SslErrorHandler
+import android.webkit.ValueCallback
+import android.webkit.WebChromeClient
+import android.webkit.WebResourceRequest
+import android.webkit.WebResourceResponse
+import android.webkit.WebSettings
+import android.webkit.WebView
+import android.webkit.WebViewClient
+import io.flutter.plugin.common.StandardMessageCodec
+import io.flutter.plugin.platform.PlatformView
+import io.flutter.plugin.platform.PlatformViewFactory
+import org.json.JSONObject
+import java.io.ByteArrayInputStream
+
+internal class MermaidDiagramViewFactory : PlatformViewFactory(StandardMessageCodec.INSTANCE) {
+    override fun create(context: Context, viewId: Int, args: Any?): PlatformView =
+        MermaidDiagramView(context, args as? Map<*, *>)
+}
+
+private class MermaidDiagramView(
+    context: Context,
+    creationParams: Map<*, *>?,
+) : PlatformView {
+    private val assets: AssetManager = context.assets
+    private val webView = WebView(context)
+    private val dark = creationParams?.get("dark") as? Boolean ?: false
+    private val source = creationParams?.get("source") as? String
+    private val sourceError = when {
+        source == null -> "This diagram has no source."
+        source.length > MAX_SOURCE_CHARS -> "This diagram is too large to display."
+        else -> null
+    }
+
+    init {
+        configureWebView()
+        webView.loadUrl(ENTRY_URL)
+    }
+
+    override fun getView(): View = webView
+
+    override fun dispose() {
+        webView.stopLoading()
+        webView.webChromeClient = null
+        webView.webViewClient = WebViewClient()
+        webView.loadUrl("about:blank")
+        webView.clearHistory()
+        webView.removeAllViews()
+        webView.destroy()
+    }
+
+    @SuppressLint("SetJavaScriptEnabled")
+    @Suppress("DEPRECATION")
+    private fun configureWebView() {
+        webView.setBackgroundColor(if (dark) DARK_BACKGROUND else LIGHT_BACKGROUND)
+        webView.isVerticalScrollBarEnabled = true
+        webView.isHorizontalScrollBarEnabled = true
+        webView.setDownloadListener { _, _, _, _, _ -> }
+        webView.removeJavascriptInterface("searchBoxJavaBridge_")
+        webView.removeJavascriptInterface("accessibility")
+        webView.removeJavascriptInterface("accessibilityTraversal")
+
+        webView.settings.apply {
+            javaScriptEnabled = true
+            javaScriptCanOpenWindowsAutomatically = false
+            setSupportMultipleWindows(false)
+            allowFileAccess = false
+            allowContentAccess = false
+            blockNetworkLoads = true
+            blockNetworkImage = true
+            domStorageEnabled = false
+            databaseEnabled = false
+            setGeolocationEnabled(false)
+            cacheMode = WebSettings.LOAD_NO_CACHE
+            saveFormData = false
+            builtInZoomControls = true
+            displayZoomControls = false
+            setSupportZoom(true)
+            useWideViewPort = true
+            loadWithOverviewMode = true
+            mediaPlaybackRequiresUserGesture = true
+            mixedContentMode = WebSettings.MIXED_CONTENT_NEVER_ALLOW
+        }
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+            webView.settings.safeBrowsingEnabled = true
+        }
+
+        webView.webViewClient = object : WebViewClient() {
+            private var deliveredSource = false
+
+            override fun shouldInterceptRequest(
+                view: WebView,
+                request: WebResourceRequest,
+            ): WebResourceResponse = assetResponse(request)
+
+            override fun shouldOverrideUrlLoading(
+                view: WebView,
+                request: WebResourceRequest,
+            ): Boolean = true
+
+            override fun onPageFinished(view: WebView, url: String) {
+                if (deliveredSource || url != ENTRY_URL) return
+                deliveredSource = true
+                val script = sourceError?.let {
+                    "if (typeof window.showDiagramError === 'function') {" +
+                        "window.showDiagramError(${javascriptString(it)});" +
+                        "} else { ${viewerUnavailableScript()} }"
+                } ?: "if (typeof window.renderDiagram === 'function') {" +
+                    "window.renderDiagram(${javascriptString(source)}, $dark);" +
+                    "} else { ${viewerUnavailableScript()} }"
+                view.evaluateJavascript(script, null)
+            }
+
+            override fun onReceivedSslError(
+                view: WebView,
+                handler: SslErrorHandler,
+                error: SslError,
+            ) {
+                handler.cancel()
+            }
+
+            override fun onReceivedHttpAuthRequest(
+                view: WebView,
+                handler: HttpAuthHandler,
+                host: String,
+                realm: String,
+            ) {
+                handler.cancel()
+            }
+
+            override fun onFormResubmission(view: WebView, dontResend: Message, resend: Message) {
+                dontResend.sendToTarget()
+            }
+        }
+
+        webView.webChromeClient = object : WebChromeClient() {
+            override fun onPermissionRequest(request: PermissionRequest) {
+                request.deny()
+            }
+
+            override fun onGeolocationPermissionsShowPrompt(
+                origin: String,
+                callback: android.webkit.GeolocationPermissions.Callback,
+            ) {
+                callback.invoke(origin, false, false)
+            }
+
+            override fun onCreateWindow(
+                view: WebView,
+                isDialog: Boolean,
+                isUserGesture: Boolean,
+                resultMsg: Message,
+            ): Boolean = false
+
+            override fun onShowFileChooser(
+                webView: WebView,
+                filePathCallback: ValueCallback<Array<Uri>>,
+                fileChooserParams: FileChooserParams,
+            ): Boolean {
+                filePathCallback.onReceiveValue(null)
+                return true
+            }
+        }
+    }
+
+    private fun assetResponse(request: WebResourceRequest): WebResourceResponse {
+        if (request.method != "GET") return deniedResponse()
+        val asset = ASSETS[request.url.toString()] ?: return deniedResponse()
+        return try {
+            WebResourceResponse(
+                asset.mimeType,
+                "UTF-8",
+                200,
+                "OK",
+                mapOf(
+                    "Cache-Control" to "no-store",
+                    "X-Content-Type-Options" to "nosniff",
+                ),
+                assets.open("diagrams/${asset.filename}"),
+            )
+        } catch (_: Exception) {
+            WebResourceResponse(
+                "text/plain",
+                "UTF-8",
+                404,
+                "Not Found",
+                emptyMap(),
+                ByteArrayInputStream(ByteArray(0)),
+            )
+        }
+    }
+
+    private fun deniedResponse(): WebResourceResponse = WebResourceResponse(
+        "text/plain",
+        "UTF-8",
+        403,
+        "Forbidden",
+        emptyMap(),
+        ByteArrayInputStream(ByteArray(0)),
+    )
+
+    private fun javascriptString(value: String?): String = JSONObject.quote(value)
+        .replace("\u2028", "\\u2028")
+        .replace("\u2029", "\\u2029")
+
+    private fun viewerUnavailableScript(): String {
+        val foreground = if (dark) "#edf0f5" else "#272b33"
+        val background = if (dark) "#111318" else "#ffffff"
+        return "document.documentElement.style.background='$background';" +
+            "document.body.style.color='$foreground';" +
+            "document.body.style.background='$background';" +
+            "document.body.textContent='The diagram viewer could not load.';"
+    }
+
+    private data class Asset(val filename: String, val mimeType: String)
+
+    companion object {
+        private const val MAX_SOURCE_CHARS = 50_000
+        private const val ORIGIN = "https://hermes-diagrams.invalid"
+        private const val ENTRY_URL = "$ORIGIN/index.html"
+        private val DARK_BACKGROUND = Color.rgb(17, 19, 24)
+        private val LIGHT_BACKGROUND = Color.WHITE
+        private val ASSETS = mapOf(
+            ENTRY_URL to Asset("index.html", "text/html"),
+            "$ORIGIN/app.js" to Asset("app.js", "application/javascript"),
+            "$ORIGIN/mermaid.min.js" to Asset("mermaid.min.js", "application/javascript"),
+        )
+    }
+}

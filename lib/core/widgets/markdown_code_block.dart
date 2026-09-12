@@ -1,6 +1,8 @@
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 
+import 'mermaid_diagram_preview.dart';
+
 /// Splits raw markdown into text segments and fenced code blocks.
 ///
 /// Returns a list of [String] (regular markdown, rendered by MarkdownBody)
@@ -8,7 +10,7 @@ import 'package:flutter/services.dart';
 /// blocks are removed from the surrounding markdown so they render once,
 /// with full fidelity, instead of relying on flutter_markdown's `pre`
 /// builder (which leaves its internal inline state unbalanced).
-List<Object> splitMarkdownCodeBlocks(String content) {
+List<Object> splitMarkdownCodeBlocks(String content, {bool streaming = false}) {
   final result = <Object>[];
   final opening = RegExp(
     r'^ {0,3}(`{3,}|~{3,})([^\r\n]*)\r?$',
@@ -40,6 +42,7 @@ List<Object> splitMarkdownCodeBlocks(String content) {
       MarkdownCodeBlock(
         code: content.substring(codeStart, bodyEnd),
         language: info.isEmpty ? null : info.split(RegExp(r'\s+')).first,
+        previewEnabled: closing != null && !streaming,
       ),
     );
     cursor = closing == null ? content.length : bodyStart + closing.end;
@@ -55,8 +58,14 @@ List<Object> splitMarkdownCodeBlocks(String content) {
 class MarkdownCodeBlock extends StatefulWidget {
   final String code;
   final String? language;
+  final bool previewEnabled;
 
-  const MarkdownCodeBlock({super.key, required this.code, this.language});
+  const MarkdownCodeBlock({
+    super.key,
+    required this.code,
+    this.language,
+    this.previewEnabled = true,
+  });
 
   @override
   State<MarkdownCodeBlock> createState() => _MarkdownCodeBlockState();
@@ -144,6 +153,23 @@ class _MarkdownCodeBlockState extends State<MarkdownCodeBlock> {
                     overflow: TextOverflow.ellipsis,
                   ),
                 ),
+                if (widget.language?.toLowerCase() == 'mermaid' &&
+                    widget.previewEnabled &&
+                    widget.code.length <= MermaidDiagramPreview.maxSourceLength)
+                  IconButton(
+                    tooltip: 'Open diagram',
+                    icon: const Icon(Icons.account_tree_outlined, size: 18),
+                    constraints: const BoxConstraints.tightFor(
+                      width: 48,
+                      height: 48,
+                    ),
+                    onPressed: () => Navigator.of(context).push(
+                      MaterialPageRoute<void>(
+                        builder: (_) =>
+                            MermaidDiagramPreview(source: widget.code),
+                      ),
+                    ),
+                  ),
                 Tooltip(
                   message: _wrap ? 'Scroll horizontally' : 'Wrap lines',
                   child: IconButton(

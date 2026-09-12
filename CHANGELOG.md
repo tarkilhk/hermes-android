@@ -8,6 +8,15 @@ Feature releases increment the minor version, fixes increment the patch version,
 and breaking changes increment the major version. The Android build number after
 `+` always increases. Update this changelog for every release milestone.
 
+## [2.19.0+2168] - 2026-09-12
+
+### Added
+
+- Open Mermaid diagrams from completed chat code blocks in a zoomable view,
+  with source/copy access and normal Back navigation. Rendering uses bundled
+  assets without a network service. Invalid or unsupported diagrams keep their
+  source available.
+
 ## [2.18.0+2167] - 2026-09-12
 
 ### Added

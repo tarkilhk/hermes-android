@@ -174,6 +174,7 @@ class ProfileMessage extends StatelessWidget {
                           children: [
                             for (final segment in splitMarkdownCodeBlocks(
                               content,
+                              streaming: streaming,
                             ))
                               if (segment is MarkdownCodeBlock)
                                 segment

@@ -11,6 +11,9 @@ The approved [delivery sequence](DELIVERY_SEQUENCE.md) tracks implementation in 
 [Server chat relationships](SERVER_CHAT_RELATIONSHIPS.md) records server-backed
 parent navigation and the remaining answer-version metadata dependency.
 
+[Diagram previews](DIAGRAM_PREVIEWS.md) records the on-demand Mermaid viewer,
+vendored renderer and remaining visual-block scope.
+
 ## Research preserved for future work
 
 | Document | Purpose |

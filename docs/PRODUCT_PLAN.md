@@ -121,7 +121,7 @@ Source check confirms `/steer`, `/btw`, `/bg` and `/background` already have act
 | ID | Selected scope and owner qualification |
 | --- | --- |
 | T03 | P1 common content only: readable Markdown, code, tables and large content. A separate advanced math project is not selected here. |
-| T04 | Readable diagrams and supported visual blocks with a useful fallback. |
+| T04 | Readable diagrams and supported visual blocks with a useful fallback. On-demand Mermaid rendering is implemented in 2.19.0; other formats retain copyable source. See [diagram notes](DIAGRAM_PREVIEWS.md) for supported scope and verification. |
 | T05 | Images and other media, not images alone. |
 | T06 | Useful link/media previews and opening in the appropriate app/browser. |
 | T07 | Structured, expandable tool status and results. |
@@ -282,7 +282,7 @@ For M06, Android's [sharing contract](https://developer.android.com/develop/ui/c
 
 ## Active owner feedback
 
-Latest phone delivery, 2026-09-12: Hermes Personal 2.18.0 / 21672 is installed and launched. It includes thousands separators in usage displays, PDF/audio/video output handoff and server-backed Parent chat navigation, along with all preceding milestones and the D15 context reopen fix. The obsolete phone-only answer-version index is removed. The release passed 1,143 tests with four opt-in skips and a clean analyzer; the signed APK passed certificate/package checks. Phone verification covers installed identity and process metadata; live feature QA remains. Rich diagrams and interactive HTML/integrated media previews remain selected Android work. Firebase setup, synchronized answer-version metadata, task/prompt recovery and remote TUI restart contracts remain dependencies recorded in the delivery sequence.
+Latest phone delivery, 2026-09-12: Hermes Personal 2.19.0 / 21682 is installed and launched. It adds on-demand Mermaid previews with zoom/source access and includes all preceding milestones, thousands separators and the D15 context reopen fix. The release passed 1,147 tests with four opt-in skips and a clean analyzer. Actual browser checks rendered flowchart, sequence and pie diagrams; rejected links/configuration and parse errors retained source fallback. The signed APK passed certificate/package checks. Phone verification covers installed identity and process metadata; live preview/zoom QA remains. Other diagram formats, interactive HTML and integrated media/PDF views remain selected, along with the documented Firebase and backend-contract dependencies.
 
 - 2026-09-12, D15/T10: the integrated fuse design is accepted. Opening an existing chat must load authoritative context fullness without requiring a new message. The owner reiterated that this must be fixed, so it moved ahead of Camera. The missing deferred-agent ready-event refresh was reproduced and fixed for 2.5.0; see [cause and regression evidence](CONTEXT_REOPEN_FIX.md). Final live-server phone verification remains outstanding. All other planned milestones and exclusions remain unchanged.
 

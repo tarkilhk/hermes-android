@@ -22,7 +22,7 @@ The current connection flow opens `ProfileWorkspaceScreen`, which owns the drawe
 - Chat-menu supervision of subagents, goal details and background work. Supported controls include targeted subagent Steer/Interrupt, goal Pause/Resume/Clear, loop/heartbeat controls and background-process Stop. Goal criteria can be added, removed or cleared; actions wait for server acknowledgement.
 - Projects with rename, server appearance and delete controls; recent and pinned chats, paginated unread filtering, Running/Needs input Activity filters, full-text conversation search, Find within the current chat, and an option to include automated chats.
 - Rename, pin/unpin, explicit read/unread, archive/unarchive, delete and move-to-project actions with server-side constraints.
-- Streaming conversations, horizontally scrollable tables, selectable fenced code with copy/wrap controls, expandable tool activity, server todo snapshots, collapsed reasoning and Stop. Tapped web images open in a zoomable preview with a browser fallback.
+- Streaming conversations, horizontally scrollable tables, selectable fenced code with copy/wrap controls, expandable tool activity, server todo snapshots, collapsed reasoning and Stop. Tapped web images open in a zoomable preview with a browser fallback. Completed Mermaid blocks offer an offline diagram view with zoom and source access.
 - A thin context fuse displays server-reported usage, with estimated/unknown states and live updates.
 - Per-chat model and reasoning selection, with searchable, expandable technical-provider groups. Server session settings take precedence over former local model overrides.
 - Unsent text and staged attachments survive app restart, scoped to their original connection/profile/chat. An uncertain send retains its draft for checking against server history; it is never resent automatically.
@@ -55,12 +55,12 @@ The app's current slash/profile contracts and any separately maintained backend 
 
 ## Version and application identity
 
-Source version on 2026-09-12 is `2.18.0+2167` in [pubspec.yaml](pubspec.yaml). This is the checked-out version, not a claim that a matching public release has been published. Each release is recorded in the [changelog](CHANGELOG.md), with semantic versions and an increasing Android build number.
+Source version on 2026-09-12 is `2.19.0+2168` in [pubspec.yaml](pubspec.yaml). This is the checked-out version, not a claim that a matching public release has been published. Each release is recorded in the [changelog](CHANGELOG.md), with semantic versions and an increasing Android build number.
 
 - Personal release package: `com.tarkilhk.hermes.android`, labelled Hermes Personal.
 - Development package: `com.hermesagent.hermes_android.dev`.
 - The inherited upstream package is separate and is not this fork's release identity.
-- ABI-split codes derive from the base build number; the current ARM64 split uses `21672`.
+- ABI-split codes derive from the base build number; the current ARM64 split uses `21682`.
 
 The [release plan](docs/ANDROID_RELEASE_PLAN.md) and [build configuration](android/app/build.gradle.kts) document identity, signing and version-code rules. The selected S08 work will expose this client's version/build and update information in the app, separately from the backend version.
 
