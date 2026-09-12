@@ -242,6 +242,7 @@ class HermesAdministrationContent extends StatelessWidget {
           BackendVersionCard(
             key: ValueKey(controller.current!.gateway),
             gateway: controller.current!.gateway,
+            connectionLabel: controller.connection.label,
           ),
         ],
         if (controller.current != null && onConnections != null) ...[

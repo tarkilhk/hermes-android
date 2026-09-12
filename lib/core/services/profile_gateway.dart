@@ -27,6 +27,8 @@ typedef ScopedPatch =
       String endpoint,
       Map<String, dynamic> body,
     );
+
+typedef ScopedPost = ScopedPatch;
 typedef ScopedDelete =
     Future<void> Function(String endpoint, Map<String, String> query);
 
@@ -69,6 +71,7 @@ class ProfileGateway {
   final ScopedGet _get;
   final ScopedRpc _rpc;
   final ScopedPatch? _patch;
+  final ScopedPost? _post;
   final ScopedDelete? _delete;
   final Future<void> Function() _connect;
   final void Function() _close;
@@ -81,6 +84,7 @@ class ProfileGateway {
     required ScopedGet get,
     required ScopedRpc rpc,
     ScopedPatch? patch,
+    ScopedPost? post,
     ScopedDelete? delete,
     required this.discover,
     Future<void> Function()? connect,
@@ -88,6 +92,7 @@ class ProfileGateway {
   }) : _get = get,
        _rpc = rpc,
        _patch = patch,
+       _post = post,
        _delete = delete,
        _connect = connect ?? _nothing,
        _close = close ?? _noop;
@@ -145,6 +150,9 @@ class ProfileGateway {
       patch: (endpoint, body) => dashboard
           .apiPatch(endpoint, body: body)
           .timeout(const Duration(seconds: 20)),
+      post: (endpoint, body) => dashboard
+          .apiPost(endpoint, body: body)
+          .timeout(const Duration(seconds: 30)),
       delete: (endpoint, query) => dashboard
           .apiDelete(
             Uri.parse(endpoint).replace(queryParameters: query).toString(),
@@ -221,6 +229,26 @@ class ProfileGateway {
     String method, [
     Map<String, dynamic> params = const {},
   ]) => _rpc(method, {...params, 'profile': scope.profileName});
+
+  Future<Map<String, dynamic>> post(
+    String endpoint, [
+    Map<String, dynamic> body = const {},
+  ]) {
+    final send = _post;
+    if (send == null) throw StateError('Dashboard writes are unavailable');
+    final uri = Uri.parse(endpoint);
+    return send(
+      uri
+          .replace(
+            queryParameters: {
+              ...uri.queryParameters,
+              'profile': scope.profileName,
+            },
+          )
+          .toString(),
+      body,
+    );
+  }
 
   static const sessionPageSize = 50;
   static const projectSessionScanLimit = 5000;

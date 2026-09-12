@@ -1,132 +1,210 @@
 import 'package:flutter/material.dart';
 
+import '../models/backend_update.dart';
+import '../services/backend_update_controller.dart';
 import '../services/profile_gateway.dart';
 
-/// Read-only backend identity and update information for one captured scope.
-/// The parent supplies the already-scoped gateway operation; this widget never
-/// constructs a connection or executes an update command.
+/// Backend identity and host-wide update controls for one captured connection.
 class BackendVersionCard extends StatefulWidget {
   final ProfileGateway gateway;
+  final String? connectionLabel;
 
-  const BackendVersionCard({super.key, required this.gateway});
+  const BackendVersionCard({
+    super.key,
+    required this.gateway,
+    this.connectionLabel,
+  });
 
   @override
   State<BackendVersionCard> createState() => _BackendVersionCardState();
 }
 
 class _BackendVersionCardState extends State<BackendVersionCard> {
-  Map<String, dynamic>? _info;
-  Object? _error;
-  bool _checking = false;
-  int _requestGeneration = 0;
+  late BackendUpdateController _controller;
+
+  @override
+  void initState() {
+    super.initState();
+    _controller = BackendUpdateController(widget.gateway);
+  }
 
   @override
   void didUpdateWidget(covariant BackendVersionCard oldWidget) {
     super.didUpdateWidget(oldWidget);
-    if (!identical(oldWidget.gateway, widget.gateway)) {
-      _requestGeneration++;
-      setState(() {
-        _info = null;
-        _error = null;
-        _checking = false;
-      });
+    if (identical(oldWidget.gateway, widget.gateway)) {
+      return;
     }
-  }
-
-  Future<void> _check() async {
-    if (_checking) return;
-    final gateway = widget.gateway;
-    final generation = ++_requestGeneration;
-    setState(() {
-      _checking = true;
-      _error = null;
-    });
-    try {
-      final info = await gateway.read('hermes/update/check', {'force': 'true'});
-      if (!mounted ||
-          generation != _requestGeneration ||
-          !identical(widget.gateway, gateway)) {
-        return;
-      }
-      setState(() => _info = info);
-    } catch (error) {
-      if (!mounted ||
-          generation != _requestGeneration ||
-          !identical(widget.gateway, gateway)) {
-        return;
-      }
-      setState(() => _error = error);
-    } finally {
-      if (mounted &&
-          generation == _requestGeneration &&
-          identical(widget.gateway, gateway)) {
-        setState(() => _checking = false);
-      }
-    }
-  }
-
-  String _status(Map<String, dynamic>? info) {
-    if (info == null) return 'Update status unavailable.';
-    final advertised = info['update_available'];
-    final behind = info['behind'];
-    final validBehind = behind is num && behind.isFinite && behind >= 0;
-    if (advertised is! bool || !validBehind && advertised == false) {
-      return 'Update status unavailable.';
-    }
-    if (advertised) {
-      if (validBehind && behind > 0) {
-        return 'Update available · ${behind.toInt()} commits behind';
-      }
-      return 'Update available';
-    }
-    return validBehind && behind == 0
-        ? 'Up to date'
-        : 'Update status unavailable.';
+    final oldController = _controller;
+    _controller = BackendUpdateController(widget.gateway);
+    oldController.dispose();
   }
 
   @override
-  Widget build(BuildContext context) {
-    final info = _info;
-    final rawVersion = info?['current_version'];
-    final rawMethod = info?['install_method'];
-    final version = rawVersion is String ? rawVersion.trim() : '';
-    final method = rawMethod is String ? rawMethod.trim() : '';
-    final status = _error == null
-        ? _status(info)
-        : 'Could not check for updates.';
-    final guidance = info?['can_apply'] == false
-        ? 'Updates must be applied from the server host.'
-        : null;
-    return Card(
-      child: Padding(
-        padding: const EdgeInsets.fromLTRB(16, 12, 16, 8),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            const Row(
-              children: [
-                Icon(Icons.cloud_outlined),
-                SizedBox(width: 12),
-                Expanded(child: Text('Backend version')),
-              ],
-            ),
-            Align(
-              alignment: Alignment.centerLeft,
-              child: TextButton(
-                onPressed: _checking ? null : _check,
-                child: Text(_checking ? 'Checking…' : 'Check for updates'),
-              ),
-            ),
-            Text(version.isEmpty ? 'Current version unavailable' : version),
-            if (method.isNotEmpty) Text('Install method: $method'),
-            const SizedBox(height: 4),
-            Text(status),
-            if (guidance != null) Text(guidance),
-            if (_error != null)
-              const Text('Try again to request fresh server information.'),
-          ],
+  void dispose() {
+    _controller.dispose();
+    super.dispose();
+  }
+
+  Future<void> _confirmAndStart() async {
+    final controller = _controller;
+    if (!controller.canStart) {
+      return;
+    }
+    final label = widget.connectionLabel?.trim();
+    final host = label == null || label.isEmpty ? 'this server' : label;
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (context) => AlertDialog(
+        scrollable: true,
+        title: Text('Update backend on $host?'),
+        content: Text(
+          'This updates the whole Hermes host. All profiles on $host may disconnect while the backend restarts.',
         ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(context, false),
+            child: const Text('Cancel'),
+          ),
+          FilledButton(
+            onPressed: () => Navigator.pop(context, true),
+            child: const Text('Update backend'),
+          ),
+        ],
       ),
     );
+    if (confirmed != true || !mounted || !identical(controller, _controller)) {
+      return;
+    }
+    await controller.startUpdate();
   }
+
+  @override
+  Widget build(BuildContext context) => ListenableBuilder(
+    listenable: _controller,
+    builder: (context, _) {
+      final controller = _controller;
+      final check = controller.check;
+      final status = controller.status;
+      final busy =
+          controller.checking ||
+          controller.starting ||
+          controller.statusLoading;
+      return Card(
+        child: Padding(
+          padding: const EdgeInsets.fromLTRB(16, 12, 16, 8),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              const Row(
+                children: [
+                  Icon(Icons.cloud_outlined),
+                  SizedBox(width: 12),
+                  Expanded(child: Text('Backend version')),
+                ],
+              ),
+              const SizedBox(height: 4),
+              Text(check?.currentVersion ?? 'Current version unavailable'),
+              if (check?.installMethod case final method?)
+                Text('Install method: $method'),
+              const SizedBox(height: 4),
+              Text(_checkStatus(check, controller.phase)),
+              if (check?.canApply == false)
+                const Text('Updates must be applied from the server host.'),
+              if (controller.phase != BackendUpdatePhase.idle &&
+                  controller.phase != BackendUpdatePhase.ready &&
+                  controller.message == null)
+                Text(_phaseLabel(controller.phase)),
+              if (controller.message case final message?) Text(message),
+              if (status?.lines case final lines? when lines.isNotEmpty)
+                ExpansionTile(
+                  tilePadding: EdgeInsets.zero,
+                  childrenPadding: const EdgeInsets.only(bottom: 8),
+                  shape: const Border(),
+                  collapsedShape: const Border(),
+                  title: const Text('Recent update output'),
+                  subtitle: Text('${lines.length} lines'),
+                  children: [
+                    Container(
+                      width: double.infinity,
+                      padding: const EdgeInsets.all(8),
+                      color: Theme.of(
+                        context,
+                      ).colorScheme.surfaceContainerHighest,
+                      child: SelectableText(lines.join('\n')),
+                    ),
+                  ],
+                ),
+              Wrap(
+                spacing: 8,
+                runSpacing: 4,
+                children: [
+                  TextButton.icon(
+                    onPressed: busy || controller.requestOutstanding
+                        ? null
+                        : controller.checkForUpdate,
+                    icon: controller.checking
+                        ? const SizedBox.square(
+                            dimension: 16,
+                            child: CircularProgressIndicator(strokeWidth: 2),
+                          )
+                        : const Icon(Icons.search, size: 18),
+                    label: Text(
+                      controller.checking ? 'Checking…' : 'Check for updates',
+                    ),
+                  ),
+                  if (controller.canStart)
+                    FilledButton.icon(
+                      onPressed: _confirmAndStart,
+                      icon: const Icon(Icons.system_update_alt, size: 18),
+                      label: const Text('Update backend'),
+                    ),
+                  TextButton.icon(
+                    onPressed: controller.statusLoading || controller.starting
+                        ? null
+                        : controller.refreshStatus,
+                    icon: controller.statusLoading
+                        ? const SizedBox.square(
+                            dimension: 16,
+                            child: CircularProgressIndicator(strokeWidth: 2),
+                          )
+                        : const Icon(Icons.refresh, size: 18),
+                    label: const Text('Refresh update status'),
+                  ),
+                ],
+              ),
+            ],
+          ),
+        ),
+      );
+    },
+  );
 }
+
+String _checkStatus(BackendUpdateCheck? check, BackendUpdatePhase phase) {
+  if (check == null) {
+    return phase == BackendUpdatePhase.unknown
+        ? 'Could not check for updates.'
+        : 'Update status unavailable.';
+  }
+  if (check.updateAvailable == true) {
+    final behind = check.behind;
+    return behind != null && behind > 0
+        ? 'Update available · $behind commits behind'
+        : 'Update available';
+  }
+  return check.updateAvailable == false && check.behind == 0
+      ? 'Up to date'
+      : 'Update status unavailable.';
+}
+
+String _phaseLabel(BackendUpdatePhase phase) => switch (phase) {
+  BackendUpdatePhase.idle => 'Update status unavailable.',
+  BackendUpdatePhase.ready => 'Update check complete',
+  BackendUpdatePhase.starting => 'Starting backend update…',
+  BackendUpdatePhase.running => 'Backend update running',
+  BackendUpdatePhase.succeeded => 'Backend update succeeded',
+  BackendUpdatePhase.partial => 'Backend update partially completed',
+  BackendUpdatePhase.refused => 'Backend update refused',
+  BackendUpdatePhase.failed => 'Backend update failed',
+  BackendUpdatePhase.unknown => 'Backend update state unknown',
+};

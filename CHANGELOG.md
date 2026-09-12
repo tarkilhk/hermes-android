@@ -8,6 +8,15 @@ Feature releases increment the minor version, fixes increment the patch version,
 and breaking changes increment the major version. The Android build number after
 `+` always increases. Update this changelog for every release milestone.
 
+## [2.12.0+2161] - 2026-09-12
+
+### Added
+
+- Start an eligible update on one Hermes host from administration after
+  confirmation. Check eligibility again before submitting, follow the
+  acknowledged update's status and distinguish incomplete or unconfirmed
+  outcomes. Backend restart and multi-host operations remain separate work.
+
 ## [2.11.0+2160] - 2026-09-12
 
 ### Added
