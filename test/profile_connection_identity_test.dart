@@ -84,12 +84,46 @@ void main() {
         connection.copyWith(dashboardPassword: 'another-password'),
         connection.copyWith(clearDashboardPassword: true),
         connection.copyWith(apiKey: 'another-api-key'),
+        connection.copyWith(
+          gatewayHeaders: const {'X-Access-Secret': 'another-secret'},
+        ),
       ];
       for (final changed in changes) {
         expect(await identities.resolve(changed), isNot(original));
       }
     },
   );
+
+  test('gateway header identity is case and order stable', () async {
+    final identities = ProfileConnectionIdentity(
+      credentialStore: MemoryIdentityStore(),
+    );
+    final first = identityTestConnection().copyWith(
+      gatewayHeaders: const {
+        'X-Access-Client': 'mobile',
+        'X-Access-Secret': 'private-secret',
+      },
+    );
+    final reordered = identityTestConnection().copyWith(
+      gatewayHeaders: const {
+        'x-access-secret': 'private-secret',
+        'x-access-client': 'mobile',
+      },
+    );
+
+    expect(await identities.resolve(reordered), await identities.resolve(first));
+    expect(
+      await identities.resolve(
+        reordered.copyWith(
+          gatewayHeaders: const {
+            'x-access-secret': 'rotated',
+            'x-access-client': 'mobile',
+          },
+        ),
+      ),
+      isNot(await identities.resolve(first)),
+    );
+  });
 
   test('concurrent first resolution creates only one secure key', () async {
     final store = MemoryIdentityStore();

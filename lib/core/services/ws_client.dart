@@ -6,7 +6,31 @@
 // a JSON-RPC response with the same id.
 import 'dart:async';
 import 'dart:convert';
+import 'dart:io';
 import 'package:web_socket_channel/io.dart';
+
+import '../models/connection.dart';
+
+final HttpClient _noRedirectWebSocketClient = _NoRedirectWebSocketHttpClient();
+
+/// `WebSocket.connect` only calls `openUrl` on its custom client. The SDK
+/// otherwise follows redirects and forwards arbitrary headers to the new
+/// origin, so header-authenticated gateways use this narrow fail-closed seam.
+class _NoRedirectWebSocketHttpClient implements HttpClient {
+  final HttpClient _inner = HttpClient();
+
+  @override
+  Future<HttpClientRequest> openUrl(String method, Uri url) async {
+    final request = await _inner.openUrl(method, url);
+    request.followRedirects = false;
+    return request;
+  }
+
+  @override
+  dynamic noSuchMethod(Invocation invocation) => throw UnsupportedError(
+    'WebSocket transport used an unsupported HttpClient operation.',
+  );
+}
 
 Object? _deepFreezeJson(Object? value) {
   if (value is Map) {
@@ -153,6 +177,7 @@ class WsClient {
   final String baseUrl;
   final String? _token;
   final String? _ticket;
+  final Map<String, String> _gatewayHeaders;
   IOWebSocketChannel? _channel;
   bool _connected = false;
   int _nextId = 1;
@@ -180,11 +205,26 @@ class WsClient {
   ConnectionCallback? onConnectionChanged;
   GatewayReadyCallback? onGatewayReady;
 
-  factory WsClient(String baseUrl, {String? token, String? ticket}) {
-    return WsClient._(baseUrl, token, ticket);
+  factory WsClient(
+    String baseUrl, {
+    String? token,
+    String? ticket,
+    Map<String, String> gatewayHeaders = const {},
+  }) {
+    return WsClient._(
+      baseUrl,
+      token,
+      ticket,
+      validateGatewayHeaders(gatewayHeaders),
+    );
   }
 
-  WsClient._(this.baseUrl, this._token, this._ticket);
+  WsClient._(
+    this.baseUrl,
+    this._token,
+    this._ticket,
+    this._gatewayHeaders,
+  );
 
   /// Connect to the WebSocket gateway.
   Future<void> connect() async {
@@ -202,7 +242,11 @@ class WsClient {
     // Observe that error future immediately; the waiter still receives it.
     readyCompleter.future.ignore();
     final wsUrl = buildWebSocketUrl(baseUrl, token: _token, ticket: _ticket);
-    final channel = IOWebSocketChannel.connect(Uri.parse(wsUrl));
+    final channel = IOWebSocketChannel.connect(
+      Uri.parse(wsUrl),
+      headers: _gatewayHeaders,
+      customClient: _gatewayHeaders.isEmpty ? null : _noRedirectWebSocketClient,
+    );
     _channel = channel;
     channel.stream.listen(
       (message) => _handleMessage(message, generation),

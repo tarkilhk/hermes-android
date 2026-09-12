@@ -264,6 +264,78 @@ void main() {
     expect(store.values, isEmpty);
   });
 
+  test('gateway headers stay secure and update as one verified set', () async {
+    final prefs = await SharedPreferences.getInstance();
+    final store = _FaultInjectingCredentialStore();
+    final manager = await ConnectionManager.create(
+      prefs,
+      credentialStore: store,
+    );
+
+    await manager.saveConnection(
+      'Proxy',
+      'proxy.example.test',
+      443,
+      '',
+      gatewayHeaders: <String, String>{
+        'X-Access-Client': 'mobile',
+        'X-Access-Secret': 'private-old',
+      },
+    );
+    final original = manager.getConnections().single;
+    expect(original.gatewayHeaders['X-Access-Secret'], 'private-old');
+    expect(jsonEncode(_storedMetadata(prefs)), isNot(contains('private-old')));
+    expect(store.values.values.single, contains('private-old'));
+
+    await manager.updateConnection(
+      original.id,
+      original.label,
+      original.host,
+      original.port,
+      original.apiKey,
+      gatewayHeaders: <String, String?>{
+        'x-access-secret': null,
+        'X-Access-Zone': 'edge',
+      },
+    );
+    final updated = manager.getConnections().single;
+    expect(updated.gatewayHeaders, <String, String>{
+      'X-Access-Secret': 'private-old',
+      'X-Access-Zone': 'edge',
+    });
+    expect(jsonEncode(_storedMetadata(prefs)), isNot(contains('private-old')));
+    expect(jsonEncode(_storedMetadata(prefs)), isNot(contains('edge')));
+
+    final recreated = await ConnectionManager.create(
+      prefs,
+      credentialStore: store,
+    );
+    expect(
+      recreated.getConnections().single.gatewayHeaders,
+      updated.gatewayHeaders,
+    );
+
+    store.failNextRead = true;
+    await expectLater(
+      recreated.updateConnection(
+        original.id,
+        original.label,
+        original.host,
+        original.port,
+        original.apiKey,
+        gatewayHeaders: <String, String?>{
+          'X-Access-Secret': 'private-rejected',
+        },
+      ),
+      throwsA(isA<CredentialStorageException>()),
+    );
+    expect(
+      recreated.getConnections().single.gatewayHeaders,
+      updated.gatewayHeaders,
+    );
+    expect(jsonEncode(_storedMetadata(prefs)), isNot(contains('private')));
+  });
+
   test('failed update read-back restores the prior credentials', () async {
     final prefs = await SharedPreferences.getInstance();
     final store = _FaultInjectingCredentialStore();

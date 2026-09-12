@@ -23,6 +23,7 @@ void main() {
           dashboardPortOverride: 9119,
           dashboardUsername: 'carlos',
           dashboardPassword: 'dash-secret',
+          gatewayHeaders: {'CF-Access-Client-Secret': 'proxy-secret'},
         ),
       ],
       preferences: const <String, Object>{
@@ -50,6 +51,7 @@ void main() {
       expect(conn.apiKey, 'sk-secret-key');
       expect(conn.dashboardUsername, 'carlos');
       expect(conn.dashboardPassword, 'dash-secret');
+      expect(conn.gatewayHeaders, {'CF-Access-Client-Secret': 'proxy-secret'});
       expect(conn.dashboardPortOverride, 9119);
     });
 
@@ -117,6 +119,7 @@ void main() {
 
       expect(armored, isNot(contains('sk-secret-key')));
       expect(armored, isNot(contains('dash-secret')));
+      expect(armored, isNot(contains('proxy-secret')));
       expect(armored, isNot(contains('carlos-miniserver')));
 
       final envelope = jsonDecode(armored) as Map<String, dynamic>;
@@ -141,6 +144,9 @@ void main() {
 
         expect(restored.connections.single.apiKey, 'sk-secret-key');
         expect(restored.connections.single.dashboardPassword, 'dash-secret');
+        expect(restored.connections.single.gatewayHeaders, {
+          'CF-Access-Client-Secret': 'proxy-secret',
+        });
         expect(restored.preferences['verbose_mode'], true);
         expect(restored.appVersion, '2.0.1+2131');
       },

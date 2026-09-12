@@ -75,6 +75,7 @@ class ProfilesRepository {
         proxied: connection.dashboardProxied,
         username: connection.dashboardUsername,
         password: connection.dashboardPassword,
+        gatewayHeaders: connection.gatewayHeaders,
       ),
     );
   }

@@ -209,10 +209,14 @@ class _CoordinatorGatewayTurnApplicationSession
 }
 
 String _connectionScopeKey(SavedConnection connection) {
+  final headerSuffix = connection.gatewayHeaders.isEmpty
+      ? ''
+      : '\u0000${jsonEncode(canonicalGatewayHeaders(connection.gatewayHeaders))}';
   final credentialDigest = sha256
       .convert(
         utf8.encode(
-          '${connection.apiKey}\u0000${connection.dashboardPassword ?? ''}',
+          '${connection.apiKey}\u0000${connection.dashboardPassword ?? ''}'
+          '$headerSuffix',
         ),
       )
       .toString();

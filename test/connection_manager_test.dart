@@ -400,6 +400,40 @@ void main() {
       expect(cleared.id, '1');
       expect(cleared.apiKey, 'key');
     });
+
+    test('validates and resolves authoritative gateway header edits', () {
+      final existing = <String, String>{
+        'X-Access-Client': 'mobile',
+        'X-Access-Secret': 'private-secret',
+      };
+
+      expect(resolveGatewayHeaderUpdate(existing, null), existing);
+      expect(
+        resolveGatewayHeaderUpdate(existing, <String, String?>{
+          'x-access-secret': null,
+          'X-New-Proxy': 'new-secret',
+        }),
+        <String, String>{
+          'X-Access-Secret': 'private-secret',
+          'X-New-Proxy': 'new-secret',
+        },
+      );
+      expect(
+        () => resolveGatewayHeaderUpdate(existing, <String, String?>{
+          'X-Missing': null,
+        }),
+        throwsFormatException,
+      );
+      for (final invalid in <Map<String, String>>[
+        <String, String>{'Bad Header': 'value'},
+        <String, String>{'X-Blank': '   '},
+        <String, String>{'X-Line': 'first\r\nsecond'},
+        <String, String>{'Authorization': 'secret'},
+        <String, String>{'X-Test': 'one', 'x-test': 'two'},
+      ]) {
+        expect(() => validateGatewayHeaders(invalid), throwsFormatException);
+      }
+    });
   });
 
   group('ApiClient', () {

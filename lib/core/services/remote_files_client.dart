@@ -106,6 +106,7 @@ class RemoteFilesClient implements RemoteFilesDataSource {
         pathPrefix: baseUri.path == '/' ? '' : baseUri.path,
         username: connection.dashboardUsername,
         password: connection.dashboardPassword,
+        gatewayHeaders: connection.gatewayHeaders,
       ),
     );
   }

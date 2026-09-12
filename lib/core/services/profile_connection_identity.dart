@@ -66,6 +66,8 @@ class ProfileConnectionIdentity {
       connection.dashboardUsername ?? '',
       connection.dashboardPassword ?? '',
       connection.apiKey,
+      if (connection.gatewayHeaders.isNotEmpty)
+        canonicalGatewayHeaders(connection.gatewayHeaders),
     ]);
     return Hmac(sha256, key).convert(utf8.encode(settings)).toString();
   }

@@ -364,6 +364,43 @@ void main() {
     expect(ConfigImportMode.values, hasLength(2));
   });
 
+  testWidgets(
+    'connection header validation survives collapsing advanced settings',
+    (tester) async {
+      final manager = await buildManager();
+      await pumpHome(tester, manager);
+      await tester.tap(find.text('Add connection'));
+      await tester.pumpAndSettle();
+      await tester.enterText(
+        find.widgetWithText(TextField, 'Host'),
+        'localhost',
+      );
+      await tester.tap(find.text('Custom proxy and dashboard details'));
+      await tester.pumpAndSettle();
+      await tester.ensureVisible(find.text('Add header'));
+      await tester.tap(find.text('Add header'));
+      await tester.pump();
+      await tester.enterText(
+        find.widgetWithText(TextFormField, 'Header name'),
+        'Authorization',
+      );
+      await tester.enterText(
+        find.widgetWithText(TextFormField, 'Value'),
+        'do-not-send',
+      );
+      await tester.ensureVisible(
+        find.text('Custom proxy and dashboard details'),
+      );
+      await tester.tap(find.text('Custom proxy and dashboard details'));
+      await tester.pumpAndSettle();
+      await tester.tap(find.text('Connect'));
+      await tester.pumpAndSettle();
+      expect(find.textContaining('managed by Hermes'), findsOneWidget);
+      expect(manager.getConnections(), isEmpty);
+      expect(find.text('Extra gateway headers'), findsOneWidget);
+    },
+  );
+
   testWidgets('a new connection never pre-fills a Desktop Gateway URL', (
     tester,
   ) async {

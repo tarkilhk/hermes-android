@@ -24,6 +24,7 @@ import 'core/theme/profile_workspace_theme.dart';
 import 'core/widgets/app_drawer.dart';
 import 'core/screens/app_settings_content.dart';
 import 'core/widgets/config_backup_card.dart';
+import 'core/widgets/gateway_headers_editor.dart';
 
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
@@ -668,6 +669,7 @@ class HomeScreenState extends State<HomeScreen> {
               dashboardPort,
               dashboardUsername,
               dashboardPassword,
+              gatewayHeaders,
             }) async {
               if (existing == null) {
                 await widget.connManager.saveConnection(
@@ -682,6 +684,10 @@ class HomeScreenState extends State<HomeScreen> {
                   dashboardPort: dashboardPort,
                   dashboardUsername: dashboardUsername,
                   dashboardPassword: dashboardPassword,
+                  gatewayHeaders: resolveGatewayHeaderUpdate(
+                    const {},
+                    gatewayHeaders,
+                  ),
                 );
               } else {
                 await widget.connManager.updateConnection(
@@ -697,6 +703,7 @@ class HomeScreenState extends State<HomeScreen> {
                   dashboardPort: dashboardPort,
                   dashboardUsername: dashboardUsername,
                   dashboardPassword: dashboardPassword,
+                  gatewayHeaders: gatewayHeaders,
                 );
               }
               _refresh();
@@ -934,6 +941,7 @@ class _AddDialog extends StatefulWidget {
     int? dashboardPort,
     String? dashboardUsername,
     String? dashboardPassword,
+    Map<String, String?>? gatewayHeaders,
   })
   onSave;
   const _AddDialog({required this.onSave, this.initialConnection});
@@ -943,6 +951,8 @@ class _AddDialog extends StatefulWidget {
 }
 
 class _AddDialogState extends State<_AddDialog> {
+  final _formKey = GlobalKey<FormState>();
+  late Map<String, String?> _gatewayHeaderEdits;
   late final TextEditingController _label;
   late final TextEditingController _host;
   late final TextEditingController _port;
@@ -962,6 +972,10 @@ class _AddDialogState extends State<_AddDialog> {
   void initState() {
     super.initState();
     final conn = widget.initialConnection;
+    _gatewayHeaderEdits = {
+      for (final name in conn?.gatewayHeaders.keys ?? const <String>[])
+        name: null,
+    };
     _label = TextEditingController(text: conn?.label ?? 'Home');
     _host = TextEditingController(
       text: conn == null
@@ -993,10 +1007,15 @@ class _AddDialogState extends State<_AddDialog> {
         conn?.dashboardUsername?.isNotEmpty == true ||
         conn?.dashboardPassword?.isNotEmpty == true ||
         _dashboardProxied ||
+        conn?.gatewayHeaders.isNotEmpty == true ||
         conn?.desktopGatewayUrl?.isNotEmpty == true;
   }
 
   Future<void> _validateAndSave() async {
+    if (!_formKey.currentState!.validate()) {
+      setState(() => _showDashboard = true);
+      return;
+    }
     final label = _label.text.trim();
     final host = _host.text.trim();
     final port = int.tryParse(_port.text.trim()) ?? 9119;
@@ -1016,6 +1035,10 @@ class _AddDialogState extends State<_AddDialog> {
       final dashUser = _dashUser.text.trim();
       final dashPass = _dashPass.text.trim();
       final gatewayUrl = _desktopGatewayUrl.text.trim();
+      final gatewayHeaders = resolveGatewayHeaderUpdate(
+        widget.initialConnection?.gatewayHeaders ?? const {},
+        _gatewayHeaderEdits,
+      );
       final candidate = SavedConnection(
         id: 'connection-probe',
         label: label,
@@ -1029,6 +1052,7 @@ class _AddDialogState extends State<_AddDialog> {
         dashboardPassword: dashPass.isEmpty ? null : dashPass,
         dashboardProxied: _dashboardProxied,
         desktopGatewayUrl: gatewayUrl.isEmpty ? null : gatewayUrl,
+        gatewayHeaders: gatewayHeaders,
       );
       final repository = ProfilesRepository.forConnection(candidate);
       late final ProfilesProbeResult discovery;
@@ -1061,12 +1085,14 @@ class _AddDialogState extends State<_AddDialog> {
         dashboardPort: dashPort,
         dashboardUsername: dashUser.isEmpty ? null : dashUser,
         dashboardPassword: dashPass.isEmpty ? null : dashPass,
+        gatewayHeaders: _gatewayHeaderEdits,
       );
       if (mounted) Navigator.pop(context);
-    } catch (error) {
+    } catch (_) {
       if (mounted) {
         setState(() {
-          _error = 'Could not connect to the modern Hermes gateway. $error';
+          _error =
+              'Could not connect to Hermes. Check the address, password and proxy settings, then try again.';
           _validating = false;
         });
       }
@@ -1080,156 +1106,178 @@ class _AddDialogState extends State<_AddDialog> {
     return AlertDialog(
       title: Text(_isEditing ? 'Edit connection' : 'Add connection'),
       content: SingleChildScrollView(
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            if (_error != null) ...[
-              Container(
-                width: double.infinity,
-                padding: const EdgeInsets.all(10),
-                margin: const EdgeInsets.only(bottom: 12),
-                decoration: BoxDecoration(
-                  color: Colors.red.withValues(alpha: 0.1),
-                  borderRadius: BorderRadius.circular(8),
-                  border: Border.all(color: Colors.red.withValues(alpha: 0.3)),
-                ),
-                child: Row(
-                  children: [
-                    const Icon(
-                      Icons.error_outline,
-                      color: Colors.red,
-                      size: 18,
+        child: Form(
+          key: _formKey,
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              if (_error != null) ...[
+                Container(
+                  width: double.infinity,
+                  padding: const EdgeInsets.all(10),
+                  margin: const EdgeInsets.only(bottom: 12),
+                  decoration: BoxDecoration(
+                    color: Colors.red.withValues(alpha: 0.1),
+                    borderRadius: BorderRadius.circular(8),
+                    border: Border.all(
+                      color: Colors.red.withValues(alpha: 0.3),
                     ),
-                    const SizedBox(width: 8),
-                    Expanded(
-                      child: Text(
-                        _error!,
-                        style: const TextStyle(color: Colors.red, fontSize: 13),
+                  ),
+                  child: Row(
+                    children: [
+                      const Icon(
+                        Icons.error_outline,
+                        color: Colors.red,
+                        size: 18,
                       ),
-                    ),
-                  ],
-                ),
-              ),
-            ],
-            TextField(
-              controller: _label,
-              decoration: const InputDecoration(labelText: 'Label'),
-            ),
-            const SizedBox(height: 12),
-            TextField(
-              controller: _host,
-              decoration: const InputDecoration(
-                labelText: 'Host',
-                hintText:
-                    '192.168.1.50, 100.x.y.z, or hermes-machine.tailnet.ts.net',
-              ),
-              keyboardType: TextInputType.text,
-              autocorrect: false,
-            ),
-            const SizedBox(height: 12),
-            TextField(
-              controller: _port,
-              decoration: const InputDecoration(
-                labelText: 'Port',
-                hintText: 'Hermes dashboard port',
-              ),
-              keyboardType: TextInputType.number,
-            ),
-            const SizedBox(height: 12),
-            TextField(
-              controller: _dashUser,
-              decoration: const InputDecoration(
-                labelText: 'Username (optional)',
-              ),
-              autocorrect: false,
-            ),
-            const SizedBox(height: 12),
-            TextField(
-              controller: _dashPass,
-              decoration: const InputDecoration(
-                labelText: 'Password (optional)',
-              ),
-              obscureText: true,
-            ),
-            const SizedBox(height: 12),
-            const SizedBox(height: 4),
-            InkWell(
-              onTap: _validating
-                  ? null
-                  : () => setState(() => _showDashboard = !_showDashboard),
-              child: Padding(
-                padding: const EdgeInsets.symmetric(vertical: 8),
-                child: Row(
-                  children: [
-                    Icon(
-                      _showDashboard ? Icons.expand_less : Icons.expand_more,
-                      size: 20,
-                      color: Theme.of(context).colorScheme.onSurfaceVariant,
-                    ),
-                    const SizedBox(width: 4),
-                    Expanded(
-                      child: Text(
-                        'Custom proxy and dashboard details',
-                        style: TextStyle(
-                          color: Theme.of(context).colorScheme.onSurfaceVariant,
+                      const SizedBox(width: 8),
+                      Expanded(
+                        child: Text(
+                          _error!,
+                          style: const TextStyle(
+                            color: Colors.red,
+                            fontSize: 13,
+                          ),
                         ),
                       ),
-                    ),
-                  ],
-                ),
-              ),
-            ),
-            if (_showDashboard) ...[
-              const SizedBox(height: 8),
-              const SizedBox(height: 12),
-              TextField(
-                controller: _dashboardPrefix,
-                decoration: const InputDecoration(
-                  labelText: 'Dashboard path prefix',
-                  hintText: 'e.g. /dashboard (proxy path before /api/)',
-                ),
-                autocorrect: false,
-              ),
-              const SizedBox(height: 8),
-              SwitchListTile(
-                value: _dashboardProxied,
-                contentPadding: EdgeInsets.zero,
-                title: const Text('Dashboard behind proxy'),
-                subtitle: const Text('The proxy supplies authentication.'),
-                onChanged: (v) => setState(() => _dashboardProxied = v),
-              ),
-              Padding(
-                padding: const EdgeInsets.only(bottom: 4),
-                child: Text(
-                  'Use the gateway address and authentication configured on your Hermes host.',
-                  style: TextStyle(
-                    color: Theme.of(context).colorScheme.onSurfaceVariant,
-                    fontSize: 12,
+                    ],
                   ),
                 ),
-              ),
+              ],
               TextField(
-                controller: _dashPort,
+                controller: _label,
+                decoration: const InputDecoration(labelText: 'Label'),
+              ),
+              const SizedBox(height: 12),
+              TextField(
+                controller: _host,
                 decoration: const InputDecoration(
-                  labelText: 'Dashboard Port',
-                  hintText: 'Leave blank to use the gateway port',
+                  labelText: 'Host',
+                  hintText:
+                      '192.168.1.50, 100.x.y.z, or hermes-machine.tailnet.ts.net',
+                ),
+                keyboardType: TextInputType.text,
+                autocorrect: false,
+              ),
+              const SizedBox(height: 12),
+              TextField(
+                controller: _port,
+                decoration: const InputDecoration(
+                  labelText: 'Port',
+                  hintText: 'Hermes dashboard port',
                 ),
                 keyboardType: TextInputType.number,
               ),
               const SizedBox(height: 12),
               TextField(
-                controller: _desktopGatewayUrl,
+                controller: _dashUser,
                 decoration: const InputDecoration(
-                  labelText: 'Desktop Gateway URL (optional)',
-                  hintText: 'https://hermes-desktop.example.lan',
-                  helperText:
-                      'Override the gateway address supplied by the dashboard.',
+                  labelText: 'Username (optional)',
                 ),
-                keyboardType: TextInputType.url,
                 autocorrect: false,
               ),
+              const SizedBox(height: 12),
+              TextField(
+                controller: _dashPass,
+                decoration: const InputDecoration(
+                  labelText: 'Password (optional)',
+                ),
+                obscureText: true,
+              ),
+              const SizedBox(height: 12),
+              const SizedBox(height: 4),
+              InkWell(
+                onTap: _validating
+                    ? null
+                    : () => setState(() => _showDashboard = !_showDashboard),
+                child: Padding(
+                  padding: const EdgeInsets.symmetric(vertical: 8),
+                  child: Row(
+                    children: [
+                      Icon(
+                        _showDashboard ? Icons.expand_less : Icons.expand_more,
+                        size: 20,
+                        color: Theme.of(context).colorScheme.onSurfaceVariant,
+                      ),
+                      const SizedBox(width: 4),
+                      Expanded(
+                        child: Text(
+                          'Custom proxy and dashboard details',
+                          style: TextStyle(
+                            color: Theme.of(
+                              context,
+                            ).colorScheme.onSurfaceVariant,
+                          ),
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+              ),
+              if (_showDashboard) ...[
+                const SizedBox(height: 8),
+                const SizedBox(height: 12),
+                TextField(
+                  controller: _dashboardPrefix,
+                  decoration: const InputDecoration(
+                    labelText: 'Dashboard path prefix',
+                    hintText: 'e.g. /dashboard (proxy path before /api/)',
+                  ),
+                  autocorrect: false,
+                ),
+                const SizedBox(height: 8),
+                SwitchListTile(
+                  value: _dashboardProxied,
+                  contentPadding: EdgeInsets.zero,
+                  title: const Text('Dashboard behind proxy'),
+                  subtitle: const Text('The proxy supplies authentication.'),
+                  onChanged: (v) => setState(() => _dashboardProxied = v),
+                ),
+                Padding(
+                  padding: const EdgeInsets.only(bottom: 4),
+                  child: Text(
+                    'Use the gateway address and authentication configured on your Hermes host.',
+                    style: TextStyle(
+                      color: Theme.of(context).colorScheme.onSurfaceVariant,
+                      fontSize: 12,
+                    ),
+                  ),
+                ),
+                TextField(
+                  controller: _dashPort,
+                  decoration: const InputDecoration(
+                    labelText: 'Dashboard Port',
+                    hintText: 'Leave blank to use the gateway port',
+                  ),
+                  keyboardType: TextInputType.number,
+                ),
+                const SizedBox(height: 12),
+                TextField(
+                  controller: _desktopGatewayUrl,
+                  decoration: const InputDecoration(
+                    labelText: 'Desktop Gateway URL (optional)',
+                    hintText: 'https://hermes-desktop.example.lan',
+                    helperText:
+                        'Override the gateway address supplied by the dashboard.',
+                  ),
+                  keyboardType: TextInputType.url,
+                  autocorrect: false,
+                ),
+                const SizedBox(height: 12),
+              ],
+              Visibility(
+                visible: _showDashboard,
+                maintainState: true,
+                child: GatewayHeadersEditor(
+                  savedNames:
+                      widget.initialConnection?.gatewayHeaders.keys.toSet() ??
+                      const {},
+                  enabled: !_validating,
+                  onChanged: (values) => _gatewayHeaderEdits = values,
+                ),
+              ),
             ],
-          ],
+          ),
         ),
       ),
       actions: [

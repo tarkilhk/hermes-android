@@ -11,6 +11,103 @@ class NormalizedConnectionHost {
   });
 }
 
+final RegExp _gatewayHeaderToken = RegExp(
+  r"^[!#$%&'*+\-.^_`|~0-9A-Za-z]+$",
+);
+
+const Set<String> _managedGatewayHeaders = <String>{
+  'authorization',
+  'connection',
+  'content-length',
+  'content-type',
+  'cookie',
+  'host',
+  'origin',
+  'referer',
+  'te',
+  'trailer',
+  'transfer-encoding',
+  'upgrade',
+  'x-hermes-session-token',
+};
+
+/// Validates user-supplied access-proxy headers without changing their display
+/// spelling or secret values.
+Map<String, String> validateGatewayHeaders(Map<String, String> headers) {
+  final validated = <String, String>{};
+  final seen = <String>{};
+  for (final entry in headers.entries) {
+    final canonicalName = entry.key.toLowerCase();
+    if (!_gatewayHeaderToken.hasMatch(entry.key)) {
+      throw const FormatException('Header names must use valid HTTP tokens.');
+    }
+    if (!seen.add(canonicalName)) {
+      throw const FormatException('Header names must be unique.');
+    }
+    if (_managedGatewayHeaders.contains(canonicalName)) {
+      throw FormatException('${entry.key} is managed by Hermes.');
+    }
+    if (entry.value.trim().isEmpty ||
+        entry.value.contains('\r') ||
+        entry.value.contains('\n')) {
+      throw const FormatException(
+        'Header values must be non-empty single-line text.',
+      );
+    }
+    validated[entry.key] = entry.value;
+  }
+  return Map<String, String>.unmodifiable(validated);
+}
+
+/// Resolves an authoritative editor snapshot against existing secret values.
+///
+/// A null update keeps the complete set. Within a present update, a null value
+/// keeps the existing case-insensitive row; omitted rows are deleted.
+Map<String, String> resolveGatewayHeaderUpdate(
+  Map<String, String> existing,
+  Map<String, String?>? update,
+) {
+  final current = validateGatewayHeaders(existing);
+  if (update == null) {
+    return current;
+  }
+  final next = <String, String>{};
+  final seen = <String>{};
+  for (final entry in update.entries) {
+    final canonicalName = entry.key.toLowerCase();
+    if (!seen.add(canonicalName)) {
+      throw const FormatException('Header names must be unique.');
+    }
+    if (entry.value case final value?) {
+      next[entry.key] = value;
+      continue;
+    }
+    final retained = current.entries.where(
+      (candidate) => candidate.key.toLowerCase() == canonicalName,
+    );
+    if (retained.isEmpty) {
+      throw const FormatException('New headers require a value.');
+    }
+    final existingEntry = retained.single;
+    next[existingEntry.key] = existingEntry.value;
+  }
+  return validateGatewayHeaders(next);
+}
+
+/// Canonical stable representation used only as input to keyed/digested local
+/// connection identities.
+List<List<String>> canonicalGatewayHeaders(Map<String, String> headers) {
+  final entries = validateGatewayHeaders(headers).entries.toList()
+    ..sort(
+      (first, second) => first.key.toLowerCase().compareTo(
+        second.key.toLowerCase(),
+      ),
+    );
+  return entries
+      .map((entry) => <String>[entry.key.toLowerCase(), entry.value])
+      .toList(growable: false);
+}
+
 class SavedConnection {
   final String id;
   final String label;
@@ -21,6 +118,7 @@ class SavedConnection {
   final String? gatewayPrefix;
   final String? dashboardPrefix;
   final bool dashboardProxied;
+  final Map<String, String> gatewayHeaders;
 
   /// Optional Hermes Desktop remote-gateway origin. This is intentionally
   /// separate from the mobile OpenAI-compatible API and admin dashboard.
@@ -49,11 +147,12 @@ class SavedConnection {
     this.gatewayPrefix,
     this.dashboardPrefix,
     this.dashboardProxied = false,
+    Map<String, String> gatewayHeaders = const <String, String>{},
     this.desktopGatewayUrl,
     this.dashboardPortOverride,
     this.dashboardUsername,
     this.dashboardPassword,
-  });
+  }) : gatewayHeaders = validateGatewayHeaders(gatewayHeaders);
 
   String get baseUrl {
     final scheme = useHttps ? 'https' : 'http';
@@ -199,6 +298,7 @@ class SavedConnection {
     int? dashboardPortOverride,
     String? dashboardUsername,
     String? dashboardPassword,
+    Map<String, String>? gatewayHeaders,
     bool clearGatewayPrefix = false,
     bool clearDashboardPrefix = false,
     bool clearDashboardPort = false,
@@ -220,6 +320,7 @@ class SavedConnection {
           ? null
           : (dashboardPrefix ?? this.dashboardPrefix),
       dashboardProxied: dashboardProxied ?? this.dashboardProxied,
+      gatewayHeaders: gatewayHeaders ?? this.gatewayHeaders,
       desktopGatewayUrl: clearDesktopGatewayUrl
           ? null
           : (desktopGatewayUrl ?? this.desktopGatewayUrl),

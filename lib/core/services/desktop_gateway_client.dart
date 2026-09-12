@@ -32,6 +32,7 @@ class DesktopGatewayClient {
   final String _baseUrl;
   final DashboardClient _dashboard;
   final String _documentProfile;
+  final Map<String, String> _gatewayHeaders;
   WsClient? _ws;
   final Map<String, String> _gatewaySessionIds = {};
   DesktopAsyncEventCallback? _asyncEventListener;
@@ -59,6 +60,7 @@ class DesktopGatewayClient {
     required this._baseUrl,
     required this._dashboard,
     required this._documentProfile,
+    required this._gatewayHeaders,
   });
 
   /// The canonical gateway origin for [connection].
@@ -135,6 +137,7 @@ class DesktopGatewayClient {
     return DesktopGatewayClient._(
       connectionId: connection.id,
       baseUrl: baseUrl,
+      gatewayHeaders: connection.gatewayHeaders,
       dashboard: DashboardClient(
         host: baseUri.host,
         // The normalized base URL always carries an explicit port, so this
@@ -144,6 +147,7 @@ class DesktopGatewayClient {
         pathPrefix: pathPrefix,
         username: connection.dashboardUsername,
         password: connection.dashboardPassword,
+        gatewayHeaders: connection.gatewayHeaders,
       ),
       documentProfile: documentIntakeProfileForConnection(connection),
     );
@@ -169,7 +173,11 @@ class DesktopGatewayClient {
     existing?.close();
     _gatewaySessionIds.clear();
     final ticket = await _dashboard.mintWebSocketTicket();
-    final client = WsClient(_baseUrl, ticket: ticket);
+    final client = WsClient(
+      _baseUrl,
+      ticket: ticket,
+      gatewayHeaders: _gatewayHeaders,
+    );
     _installAsyncEventBridge(client);
     client.onConnectionChanged = (connected) {
       if (connected) {
@@ -248,7 +256,11 @@ class DesktopGatewayClient {
     existing?.close();
     _gatewaySessionIds.clear();
     final ticket = await _dashboard.mintWebSocketTicket();
-    final client = WsClient(_baseUrl, ticket: ticket);
+    final client = WsClient(
+      _baseUrl,
+      ticket: ticket,
+      gatewayHeaders: _gatewayHeaders,
+    );
     _installAsyncEventBridge(client);
     client.onConnectionChanged = (connected) {
       if (connected) {
@@ -281,7 +293,11 @@ class DesktopGatewayClient {
       journal: journal ?? GatewayTurnJournal(),
       freshSocketFactory: () async {
         final ticket = await _dashboard.mintWebSocketTicket();
-        return WsClient(_baseUrl, ticket: ticket);
+        return WsClient(
+          _baseUrl,
+          ticket: ticket,
+          gatewayHeaders: _gatewayHeaders,
+        );
       },
     );
   }

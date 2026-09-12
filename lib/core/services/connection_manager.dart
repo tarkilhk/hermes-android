@@ -104,17 +104,21 @@ class DashboardResponseTooLargeException implements Exception {
 class _ConnectionCredentials {
   final String apiKey;
   final String? dashboardPassword;
+  final Map<String, String> gatewayHeaders;
 
   const _ConnectionCredentials({
     required this.apiKey,
     required this.dashboardPassword,
+    this.gatewayHeaders = const <String, String>{},
   });
 
-  bool get isEmpty => apiKey.isEmpty && dashboardPassword == null;
+  bool get isEmpty =>
+      apiKey.isEmpty && dashboardPassword == null && gatewayHeaders.isEmpty;
 
-  String encode() => jsonEncode(<String, String>{
+  String encode() => jsonEncode(<String, Object>{
     if (apiKey.isNotEmpty) 'api_key': apiKey,
     'dashboard_password': ?dashboardPassword,
+    if (gatewayHeaders.isNotEmpty) 'gateway_headers': gatewayHeaders,
   });
 
   static _ConnectionCredentials decode(String encoded) {
@@ -122,9 +126,20 @@ class _ConnectionCredentials {
       final map = jsonDecode(encoded) as Map<String, dynamic>;
       final apiKey = map['api_key'];
       final dashboardPassword = map['dashboard_password'];
+      final rawHeaders = map['gateway_headers'];
       if (apiKey != null && apiKey is! String ||
-          dashboardPassword != null && dashboardPassword is! String) {
+          dashboardPassword != null && dashboardPassword is! String ||
+          rawHeaders != null && rawHeaders is! Map<String, dynamic>) {
         throw const FormatException();
+      }
+      final headers = <String, String>{};
+      if (rawHeaders case final Map<String, dynamic> values) {
+        for (final entry in values.entries) {
+          if (entry.value is! String) {
+            throw const FormatException();
+          }
+          headers[entry.key] = entry.value as String;
+        }
       }
       final password = (dashboardPassword as String?)?.trim();
       return _ConnectionCredentials(
@@ -132,6 +147,7 @@ class _ConnectionCredentials {
         dashboardPassword: password == null || password.isEmpty
             ? null
             : password,
+        gatewayHeaders: validateGatewayHeaders(headers),
       );
     } catch (_) {
       throw const CredentialStorageException(
@@ -145,6 +161,7 @@ class _ConnectionCredentials {
     return _ConnectionCredentials(
       apiKey: connection.apiKey,
       dashboardPassword: password == null || password.isEmpty ? null : password,
+      gatewayHeaders: connection.gatewayHeaders,
     );
   }
 }
@@ -243,6 +260,7 @@ class ConnectionManager {
         connection.copyWith(
           apiKey: credentials.apiKey,
           dashboardPassword: credentials.dashboardPassword,
+          gatewayHeaders: credentials.gatewayHeaders,
           clearDashboardPassword: credentials.dashboardPassword == null,
         ),
       );
@@ -308,6 +326,7 @@ class ConnectionManager {
     int? dashboardPort,
     String? dashboardUsername,
     String? dashboardPassword,
+    Map<String, String> gatewayHeaders = const <String, String>{},
   }) async {
     final normalized = SavedConnection.normalizeHostAndPort(host, port);
     final conn = SavedConnection(
@@ -324,6 +343,7 @@ class ConnectionManager {
       dashboardPortOverride: dashboardPort,
       dashboardUsername: dashboardUsername,
       dashboardPassword: dashboardPassword,
+      gatewayHeaders: gatewayHeaders,
     );
     final current = getConnections();
     current.insert(0, conn);
@@ -353,6 +373,7 @@ class ConnectionManager {
     int? dashboardPort,
     String? dashboardUsername,
     String? dashboardPassword,
+    Map<String, String?>? gatewayHeaders,
   }) async {
     final current = getConnections();
     final idx = current.indexWhere((c) => c.id == connId);
@@ -368,6 +389,10 @@ class ConnectionManager {
     final dashUser = dashboardUsername?.trim();
     final dashPass = dashboardPassword?.trim();
     final desktopGateway = desktopGatewayUrl?.trim();
+    final resolvedGatewayHeaders = resolveGatewayHeaderUpdate(
+      current[idx].gatewayHeaders,
+      gatewayHeaders,
+    );
 
     current[idx] = current[idx].copyWith(
       label: label,
@@ -382,6 +407,7 @@ class ConnectionManager {
           : dashboard,
       clearDashboardPrefix: dashboard != null && dashboard.isEmpty,
       dashboardProxied: dashboardProxied,
+      gatewayHeaders: resolvedGatewayHeaders,
       desktopGatewayUrl: desktopGateway == null || desktopGateway.isEmpty
           ? null
           : desktopGateway,
@@ -510,6 +536,7 @@ class ConnectionManager {
     return connection.copyWith(
       apiKey: credentials.apiKey,
       dashboardPassword: credentials.dashboardPassword,
+      gatewayHeaders: credentials.gatewayHeaders,
       clearDashboardPassword: credentials.dashboardPassword == null,
     );
   }
@@ -1088,12 +1115,28 @@ class GatewayChatClient {
 ///    on a dashboard started with `--insecure`.
 ///
 /// Used for Dashboard-only features: cron, memory, skills, settings.
+class _NoRedirectClient extends http.BaseClient {
+  final http.Client _inner;
+
+  _NoRedirectClient(this._inner);
+
+  @override
+  Future<http.StreamedResponse> send(http.BaseRequest request) {
+    request.followRedirects = false;
+    return _inner.send(request);
+  }
+
+  @override
+  void close() => _inner.close();
+}
+
 class DashboardClient {
   final http.Client _http;
   final String _baseUrl;
   final bool _proxied;
   final String? _username;
   final String? _password;
+  final Map<String, String> _gatewayHeaders;
   String? _token;
   String? _cookie;
   // In-flight auth requests, shared so concurrent /api calls trigger a single
@@ -1115,15 +1158,24 @@ class DashboardClient {
     bool proxied = false,
     String? username,
     String? password,
+    Map<String, String> gatewayHeaders = const <String, String>{},
     http.Client? httpClient,
   }) : _proxied = proxied,
        _username = username,
        _password = password,
+       _gatewayHeaders = validateGatewayHeaders(gatewayHeaders),
        _baseUrl = SavedConnection.joinBaseUrl(
          '${useHttps ? 'https' : 'http'}://$host:$port',
          pathPrefix,
        ),
-       _http = httpClient ?? http.Client();
+       _http = gatewayHeaders.isEmpty
+           ? httpClient ?? http.Client()
+           : _NoRedirectClient(httpClient ?? http.Client());
+
+  Map<String, String> get _jsonHeaders => {
+    ..._gatewayHeaders,
+    'Content-Type': 'application/json',
+  };
 
   /// Clears any cached auth state so the next request re-authenticates.
   void _resetAuth() {
@@ -1146,7 +1198,7 @@ class DashboardClient {
     try {
       final res = await _http.post(
         Uri.parse('$_baseUrl/auth/password-login'),
-        headers: const {'Content-Type': 'application/json'},
+        headers: _jsonHeaders,
         body: jsonEncode({
           'provider': 'basic',
           'username': _username,
@@ -1189,7 +1241,10 @@ class DashboardClient {
 
   Future<String> _fetchToken() async {
     try {
-      final res = await _http.get(Uri.parse('$_baseUrl/'));
+      final res = await _http.get(
+        Uri.parse('$_baseUrl/'),
+        headers: _gatewayHeaders,
+      );
       if (res.statusCode != 200) throw Exception('Dashboard not reachable');
       final match = RegExp(
         r'window\.__HERMES_SESSION_TOKEN__="([^"]+)";',
@@ -1203,11 +1258,16 @@ class DashboardClient {
   }
 
   Future<Map<String, String>> _authHeaders() async {
-    if (_proxied) return {'Content-Type': 'application/json'};
+    if (_proxied) return _jsonHeaders;
     if (_usesPasswordAuth) {
-      return {'Cookie': await _getCookie(), 'Content-Type': 'application/json'};
+      return {
+        ..._gatewayHeaders,
+        'Cookie': await _getCookie(),
+        'Content-Type': 'application/json',
+      };
     }
     return {
+      ..._gatewayHeaders,
       'X-Hermes-Session-Token': await _getToken(),
       'Content-Type': 'application/json',
     };

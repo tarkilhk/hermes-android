@@ -115,6 +115,7 @@ class ProfileGateway {
       proxied: connection.dashboardProxied,
       username: connection.dashboardUsername,
       password: connection.dashboardPassword,
+      gatewayHeaders: connection.gatewayHeaders,
     );
     WsClient? socket;
     var connected = false;
@@ -126,6 +127,7 @@ class ProfileGateway {
         connection.desktopGatewayUrl ?? dashboard.baseUrl,
         token: credentials.token,
         ticket: credentials.ticket,
+        gatewayHeaders: connection.gatewayHeaders,
       );
       candidate.onStreamEvent = (event) => gateway.onEvent?.call(event);
       candidate.onConnectionChanged = (value) {

@@ -8,6 +8,15 @@ Feature releases increment the minor version, fixes increment the patch version,
 and breaking changes increment the major version. The Android build number after
 `+` always increases. Update this changelog for every release milestone.
 
+## [2.15.0+2164] - 2026-09-12
+
+### Added
+
+- Configure custom access-proxy headers in advanced connection settings.
+  Store values with existing secure credentials, preserve saved values when
+  editing, and use the headers for dashboard requests and WebSocket connections.
+  Header-bearing requests reject redirects; managed authentication stays intact.
+
 ## [2.14.0+2163] - 2026-09-12
 
 ### Added

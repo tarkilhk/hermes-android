@@ -49,6 +49,40 @@ void main() {
     await controller.close();
     expect(created.map((session) => session.closeCount), everyElement(1));
   });
+
+  test('gateway headers partition application scopes canonically', () async {
+    final controller = GatewayTurnApplicationController(
+      sessionFactory: (_) => _FakeApplicationSession(),
+    );
+    final first = controller.sessionFor(
+      _connection().copyWith(
+        gatewayHeaders: const {
+          'X-Access-Client': 'mobile',
+          'X-Access-Secret': 'secret',
+        },
+      ),
+    );
+    final same = controller.sessionFor(
+      _connection().copyWith(
+        gatewayHeaders: const {
+          'x-access-secret': 'secret',
+          'x-access-client': 'mobile',
+        },
+      ),
+    );
+    final changed = controller.sessionFor(
+      _connection().copyWith(
+        gatewayHeaders: const {
+          'X-Access-Client': 'mobile',
+          'X-Access-Secret': 'rotated',
+        },
+      ),
+    );
+
+    expect(identical(first, same), isTrue);
+    expect(identical(first, changed), isFalse);
+    await controller.close();
+  });
 }
 
 SavedConnection _connection({String apiKey = 'secret'}) => SavedConnection(
