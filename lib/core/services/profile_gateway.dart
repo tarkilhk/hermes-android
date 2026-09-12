@@ -469,13 +469,16 @@ class ProfileGateway {
   Future<ProfileHistoryPage> history(
     String id, {
     int offset = 0,
+    int limit = historyPageSize,
     String? runtimeId,
   }) async {
-    if (id.isEmpty || offset < 0) throw ArgumentError('Invalid history page');
+    if (id.isEmpty || offset < 0 || limit < 1 || limit > 500) {
+      throw ArgumentError('Invalid history page');
+    }
     final Map<String, dynamic> result;
     try {
       result = await read('sessions/${Uri.encodeComponent(id)}/messages', {
-        'limit': '$historyPageSize',
+        'limit': '$limit',
         'offset': '$offset',
         'order': 'latest',
         'include_compacted': 'true',
@@ -493,7 +496,7 @@ class ProfileGateway {
         id,
         await fullHistory(runtimeId),
         0,
-        historyPageSize,
+        limit,
         isComplete: true,
       );
     }
@@ -503,15 +506,15 @@ class ProfileGateway {
     if (resolved is! String ||
         resolved.isEmpty ||
         pagination is! Map ||
-        pagination['limit'] != historyPageSize ||
+        pagination['limit'] != limit ||
         pagination['offset'] != offset ||
         pagination['order'] != 'latest' ||
         pagination['returned'] != rows.length ||
-        rows.length > historyPageSize ||
+        rows.length > limit ||
         rows.any((row) => row['id'] is! int)) {
       throw const FormatException('Invalid history page');
     }
-    return ProfileHistoryPage(resolved, rows, offset, historyPageSize);
+    return ProfileHistoryPage(resolved, rows, offset, limit);
   }
 
   /// Stock search is profile-bound but does not stamp owners in its response.

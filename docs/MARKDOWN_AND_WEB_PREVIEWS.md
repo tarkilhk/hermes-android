@@ -21,9 +21,42 @@ A failure to open either displays an error. The helper rejects non-web schemes,
 missing hosts and URL user information, and passes no Hermes authentication
 headers. The browser may use its own existing website login state.
 
-This delivers the hosted web page portion of F07. Downloaded interactive HTML,
-integrated audio/video and other selected visual formats remain in the plan.
-There is no new browser engine, Markdown renderer or production dependency.
+This delivers the hosted web page portion of F07. Downloaded interactive HTML
+is added in 2.24.0 below; audio/video playback was added in 2.22.0. There is no
+new browser engine, Markdown renderer or production dependency.
+
+## Downloaded interactive HTML — 2.24.0
+
+For an HTML file in Outputs, **Open HTML** downloads the original file through
+the selected chat's authenticated connection and opens the shared web preview.
+The truncated text preview is never used as the interactive document. Source,
+Back and Save or share remain available. Files larger than 1 MiB or unreadable
+as UTF-8 receive an explanation with the Save or share alternative.
+
+Self-contained HTML can run inline JavaScript and CSS and display embedded
+images. A fresh iframe permits scripts but has an opaque origin, no parent
+document access, storage, native bridge or Hermes credentials. Parent and child
+content policies, plus native WebView interception, block external web
+resources, navigation, forms, workers and nested frames. Temporary frames are
+removed when replaced or closed. CDN-dependent pages should be opened through
+Save or share in an appropriate app; no authenticated resource proxy is added.
+
+This is a document sandbox, not a guarantee of complete network isolation:
+WebRTC ICE/data-channel networking is not covered reliably by the WebView
+request interception and content-policy controls. No server secrets or bridge
+are exposed to the document.
+
+Browser fixtures exercise a working counter, denied parent/storage access,
+external script/image/fetch blocking even with a permissive source meta policy,
+standards mode, size limits and replacement cleanup. Flutter checks verify full
+authenticated bytes, source access, duplicate/late download handling and size
+rejection. Native WebView interaction remains a live phone QA item.
+
+The 2.24.0 full suite passed 1,173 tests with four opt-in skips, and analysis was
+clean. Signed Personal 2.24.0 / 21732 compiled, passed certificate/package checks,
+installed in place wirelessly and launched. The phone check verified installed
+identity and process metadata; HTML interaction was exercised in the authored
+browser fixture, not in a private phone document.
 
 ## Verification
 

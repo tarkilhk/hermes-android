@@ -359,16 +359,17 @@ class ProfileWorkspaceController extends ChangeNotifier {
 
   Future<void> initialize() async {
     try {
-      for (final key in preferences
-          .getKeys()
-          .where((key) => key.startsWith('answer_versions_v1_'))
-          .toList()) {
+      for (final key
+          in preferences
+              .getKeys()
+              .where((key) => key.startsWith('answer_versions_v1_'))
+              .toList()) {
         try {
-        try {
-          await preferences.remove(key);
-        } catch (_) {
-          // Obsolete links are never read; cleanup must not block connection.
-        }
+          try {
+            await preferences.remove(key);
+          } catch (_) {
+            // Obsolete links are never read; cleanup must not block connection.
+          }
         } catch (_) {
           // Obsolete local links are never read; cleanup must not block Hermes.
         }
@@ -722,6 +723,21 @@ class ProfileWorkspaceController extends ChangeNotifier {
 
   Future<List<Map<String, dynamic>>> savedHistory(ProfileChat chat) =>
       _owned(chat).gateway.savedHistory(chat.key.sessionId);
+
+  Future<ProfileHistoryPage> outputHistoryPage(
+    ProfileChat chat, {
+    int offset = 0,
+  }) async {
+    final gateway = _owned(chat).gateway;
+    final sessionId = chat.key.sessionId;
+    final page = await gateway.history(sessionId, offset: offset, limit: 500);
+    if (page.sessionId != sessionId) {
+      throw const FormatException(
+        'The server returned a different chat history.',
+      );
+    }
+    return page;
+  }
 
   RemoteFilesClient outputFiles(ProfileChat chat) {
     _owned(chat);
@@ -1415,7 +1431,11 @@ class ProfileWorkspaceController extends ChangeNotifier {
         ...resource.sessions,
       ].where((row) => row['id'] == key.sessionId).firstOrNull;
       if (response.containsKey('parent_session_id')) {
-        _applyServerParentRows(resource, key.sessionId, response['parent_session_id']);
+        _applyServerParentRows(
+          resource,
+          key.sessionId,
+          response['parent_session_id'],
+        );
       }
       chat = ProfileChat(
         key: key,
@@ -1451,7 +1471,11 @@ class ProfileWorkspaceController extends ChangeNotifier {
           ? _serverParent(response['parent_session_id'], key.sessionId)
           : parentSessionId(chat);
       if (response.containsKey('parent_session_id')) {
-        _applyServerParentRows(resource, key.sessionId, response['parent_session_id']);
+        _applyServerParentRows(
+          resource,
+          key.sessionId,
+          response['parent_session_id'],
+        );
       }
       await _restoreDraft(chat);
     }

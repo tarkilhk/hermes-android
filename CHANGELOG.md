@@ -8,6 +8,39 @@ Feature releases increment the minor version, fixes increment the patch version,
 and breaking changes increment the major version. The Android build number after
 `+` always increases. Update this changelog for every release milestone.
 
+## [2.24.0+2173] - 2026-09-12
+
+### Fixed
+
+- Large chats now open Outputs from the first recent-history batch, with **Load
+  older outputs** to find earlier files. Outputs no longer downloads the whole
+  transcript and fails at 10,000 messages. A failed batch keeps existing results
+  and offers **Try again**; an initial failure also offers **Back to chat**.
+- Keep the fix in the existing D16 Outputs milestone and preserve all other
+  product selections, exclusions and outstanding work.
+
+### Added
+
+- Open downloaded, self-contained interactive HTML from file options, with
+  source access and Save or share. Reuse the existing preview and authenticated
+  download, with a 1 MiB HTML limit and a script sandbox that blocks external
+  web resources. No new renderer dependency or server resource proxy.
+
+### Verification
+
+- Reproduced the owner's exact large-chat error before the fix. Regression
+  checks now reach the oldest output in a 10,000-message chat and cover retry,
+  retained results and original profile/session ownership.
+- Real browser fixtures verify HTML interaction, isolated document/storage,
+  blocked external scripts/images/fetch, source limits and viewer replacement.
+  Existing Mermaid and SVG fixtures still pass.
+- Full suite: 1,173 passed, four opt-in skips. Analyzer clean. A separate
+  review found no defects in pagination ownership or retry/refresh handling.
+- Signed Personal 2.24.0 / 21732 passed native compilation and certificate/package
+  checks, installed in place wirelessly and launched. Phone checks cover version
+  and process metadata; the owner's live chat and native HTML interaction still
+  need device verification.
+
 ## [2.23.0+2172] - 2026-09-12
 
 ### Added

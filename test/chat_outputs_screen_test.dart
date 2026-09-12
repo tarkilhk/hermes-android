@@ -11,9 +11,10 @@ import 'package:hermes_android/core/services/remote_files_client.dart';
 import 'package:hermes_android/core/services/android_file_delivery_service.dart';
 import 'package:hermes_android/core/services/media_preview_service.dart';
 import 'package:hermes_android/core/services/pdf_preview_service.dart';
+import 'package:hermes_android/core/services/profile_gateway.dart';
 import 'package:hermes_android/core/widgets/markdown_code_block.dart';
 import 'package:hermes_android/core/widgets/markdown_message_content.dart';
-import 'package:hermes_android/core/widgets/diagram_preview.dart';
+import 'package:hermes_android/core/widgets/web_output_preview.dart';
 
 class _FileDelivery extends AndroidFileDeliveryService {
   final Future<bool> Function(RemoteFileDownload file, String? mimeType) open;
@@ -55,7 +56,13 @@ Widget _screen({
 }) => MaterialApp(
   home: ChatOutputsScreen(
     chatTitle: 'Only this chat',
-    loadHistory: loadHistory,
+    loadHistory: (offset) async => ProfileHistoryPage(
+      'chat',
+      await loadHistory(),
+      offset,
+      500,
+      isComplete: true,
+    ),
     download: download,
     readText: readText,
     deliver: deliver,
@@ -266,7 +273,10 @@ void main() {
         ),
         download: (path) async {
           downloadedPath = path;
-          return RemoteFileDownload(filename: 'server-clip.mp4', bytes: [1, 2, 3]);
+          return RemoteFileDownload(
+            filename: 'server-clip.mp4',
+            bytes: [1, 2, 3],
+          );
         },
         mediaPreview: _MediaPreview((file, value, type) async {
           played = file;
@@ -332,9 +342,7 @@ void main() {
     expect(downloads, 1);
     expect(
       tester
-          .widget<FilledButton>(
-            find.widgetWithText(FilledButton, 'Play media'),
-          )
+          .widget<FilledButton>(find.widgetWithText(FilledButton, 'Play media'))
           .onPressed,
       isNull,
     );
@@ -348,22 +356,165 @@ void main() {
     expect(plays, 0);
   });
 
-  testWidgets('authenticated SVG output uses its original path and shared viewer', (
+  testWidgets(
+    'authenticated SVG output uses its original path and shared viewer',
+    (tester) async {
+      String? downloadedPath;
+      const source =
+          '<svg xmlns="http://www.w3.org/2000/svg"><text>Hi</text></svg>';
+      final nativeCalls = <MethodCall>[];
+      tester.binding.defaultBinaryMessenger.setMockMethodCallHandler(
+        SystemChannels.platform_views,
+        (call) async {
+          nativeCalls.add(call);
+          if (call.method == 'create') return 1;
+          if (call.method == 'resize') {
+            final args = call.arguments as Map;
+            return {'width': args['width'], 'height': args['height']};
+          }
+          return null;
+        },
+      );
+      addTearDown(
+        () => tester.binding.defaultBinaryMessenger.setMockMethodCallHandler(
+          SystemChannels.platform_views,
+          null,
+        ),
+      );
+      await tester.pumpWidget(
+        _screen(
+          loadHistory: () async => [
+            {'role': 'assistant', 'content': 'Saved /srv/current/chart.svg'},
+          ],
+          readText: (_) async => throw StateError('Unexpected text preview'),
+          download: (path) async {
+            downloadedPath = path;
+            return RemoteFileDownload(
+              filename: 'server-chart.svg',
+              bytes: utf8.encode(source),
+            );
+          },
+        ),
+      );
+      await tester.pumpAndSettle();
+      await tester.tap(find.text('chart.svg'));
+      await tester.pumpAndSettle();
+
+      expect(downloadedPath, '/srv/current/chart.svg');
+      expect(find.byType(WebOutputPreview), findsOneWidget);
+      expect(find.byType(AndroidView), findsOneWidget);
+      expect(find.byTooltip('Save or share'), findsOneWidget);
+      await tester.tap(find.byTooltip('Show source'));
+      await tester.pumpAndSettle();
+      expect(
+        tester.widget<MarkdownCodeBlock>(find.byType(MarkdownCodeBlock)).code,
+        source,
+      );
+      await tester.pageBack();
+      await tester.pumpAndSettle();
+      expect(find.text('chart.svg'), findsOneWidget);
+      expect(tester.takeException(), isNull);
+    },
+  );
+
+  testWidgets(
+    'HTML preview downloads the full original into the shared viewer',
+    (tester) async {
+      tester.view.physicalSize = const Size(320, 760);
+      tester.view.devicePixelRatio = 1;
+      addTearDown(tester.view.reset);
+      String? downloadedPath;
+      const source =
+          '<!doctype html><style>p{color:red}</style><p>Full file</p>';
+      final nativeCalls = <MethodCall>[];
+      tester.binding.defaultBinaryMessenger.setMockMethodCallHandler(
+        SystemChannels.platform_views,
+        (call) async {
+          nativeCalls.add(call);
+          if (call.method == 'create') return 1;
+          if (call.method == 'resize') {
+            final args = call.arguments as Map;
+            return {'width': args['width'], 'height': args['height']};
+          }
+          return null;
+        },
+      );
+      addTearDown(
+        () => tester.binding.defaultBinaryMessenger.setMockMethodCallHandler(
+          SystemChannels.platform_views,
+          null,
+        ),
+      );
+      await tester.pumpWidget(
+        _screen(
+          loadHistory: () async => [
+            {'role': 'assistant', 'content': 'Saved /srv/current/page.txt'},
+          ],
+          readText: (path) async => RemoteTextPreview(
+            path: path,
+            text: '<p>short preview</p>',
+            language: 'html',
+            mimeType: 'text/html; charset=utf-8',
+            byteSize: source.length,
+            binary: false,
+            truncated: true,
+          ),
+          download: (path) async {
+            downloadedPath = path;
+            return RemoteFileDownload(
+              filename: 'page.html',
+              bytes: utf8.encode(source),
+            );
+          },
+        ),
+      );
+      await tester.pumpAndSettle();
+      await tester.tap(find.text('page.txt'));
+      await tester.pumpAndSettle();
+      expect(
+        find.text('Preview shortened by Hermes. Save the file to read it all.'),
+        findsOneWidget,
+      );
+      expect(find.text('Open HTML'), findsOneWidget);
+
+      await tester.tap(find.text('Open HTML'));
+      await tester.pumpAndSettle();
+      expect(downloadedPath, '/srv/current/page.txt');
+      expect(find.byType(WebOutputPreview), findsOneWidget);
+      final create = nativeCalls.singleWhere((call) => call.method == 'create');
+      final args = create.arguments as Map;
+      expect(
+        const StandardMessageCodec().decodeMessage(
+          ByteData.sublistView(args['params'] as Uint8List),
+        ),
+        {'source': source, 'dark': false, 'format': 'html'},
+      );
+      expect(find.byTooltip('Save or share'), findsOneWidget);
+      await tester.tap(find.byTooltip('Show source'));
+      await tester.pumpAndSettle();
+      expect(
+        tester.widget<MarkdownCodeBlock>(find.byType(MarkdownCodeBlock)).code,
+        source,
+      );
+      expect(find.byTooltip('Show HTML'), findsOneWidget);
+      await tester.pageBack();
+      await tester.pumpAndSettle();
+      expect(find.text('Open HTML'), findsOneWidget);
+      expect(tester.takeException(), isNull);
+    },
+  );
+
+  testWidgets('HTML preview guard blocks duplicate and closed downloads', (
     tester,
   ) async {
-    String? downloadedPath;
-    const source = '<svg xmlns="http://www.w3.org/2000/svg"><text>Hi</text></svg>';
+    var downloads = 0;
+    final pending = Completer<RemoteFileDownload>();
     final nativeCalls = <MethodCall>[];
     tester.binding.defaultBinaryMessenger.setMockMethodCallHandler(
       SystemChannels.platform_views,
       (call) async {
         nativeCalls.add(call);
-        if (call.method == 'create') return 1;
-        if (call.method == 'resize') {
-          final args = call.arguments as Map;
-          return {'width': args['width'], 'height': args['height']};
-        }
-        return null;
+        return call.method == 'create' ? 1 : null;
       },
     );
     addTearDown(
@@ -375,36 +526,86 @@ void main() {
     await tester.pumpWidget(
       _screen(
         loadHistory: () async => [
-          {'role': 'assistant', 'content': 'Saved /srv/current/chart.svg'},
+          {'role': 'assistant', 'content': 'Saved /srv/current/page.html'},
         ],
-        readText: (_) async => throw StateError('Unexpected text preview'),
-        download: (path) async {
-          downloadedPath = path;
-          return RemoteFileDownload(
-            filename: 'server-chart.svg',
-            bytes: utf8.encode(source),
-          );
+        readText: (path) async => RemoteTextPreview(
+          path: path,
+          text: '<p>preview</p>',
+          language: 'html',
+          mimeType: 'text/html',
+          byteSize: 14,
+          binary: false,
+          truncated: false,
+        ),
+        download: (_) {
+          downloads++;
+          return pending.future;
         },
       ),
     );
     await tester.pumpAndSettle();
-    await tester.tap(find.text('chart.svg'));
+    await tester.tap(find.text('page.html'));
     await tester.pumpAndSettle();
-
-    expect(downloadedPath, '/srv/current/chart.svg');
-    expect(find.byType(DiagramPreview), findsOneWidget);
-    expect(find.byType(AndroidView), findsOneWidget);
-    expect(find.byTooltip('Save or share'), findsOneWidget);
-    await tester.tap(find.byTooltip('Show source'));
-    await tester.pumpAndSettle();
+    final open = tester
+        .widget<FilledButton>(find.widgetWithText(FilledButton, 'Open HTML'))
+        .onPressed!;
+    open();
+    open();
+    await tester.pump();
+    expect(downloads, 1);
     expect(
-      tester.widget<MarkdownCodeBlock>(find.byType(MarkdownCodeBlock)).code,
-      source,
+      tester
+          .widget<FilledButton>(find.widgetWithText(FilledButton, 'Open HTML'))
+          .onPressed,
+      isNull,
     );
     await tester.pageBack();
     await tester.pumpAndSettle();
-    expect(find.text('chart.svg'), findsOneWidget);
+    pending.complete(
+      RemoteFileDownload(
+        filename: 'page.html',
+        bytes: utf8.encode('<p>full</p>'),
+      ),
+    );
+    await tester.pumpAndSettle();
+    expect(nativeCalls, isEmpty);
     expect(tester.takeException(), isNull);
+  });
+
+  testWidgets('oversized HTML reports its preview cap before decoding', (
+    tester,
+  ) async {
+    await tester.pumpWidget(
+      _screen(
+        loadHistory: () async => [
+          {'role': 'assistant', 'content': 'Saved /srv/current/page.htm'},
+        ],
+        readText: (path) async => RemoteTextPreview(
+          path: path,
+          text: '<p>preview</p>',
+          language: 'text',
+          mimeType: 'text/plain',
+          byteSize: WebOutputPreview.maxHtmlSourceLength + 1,
+          binary: false,
+          truncated: true,
+        ),
+        download: (_) async => RemoteFileDownload(
+          filename: 'page.htm',
+          bytes: List.filled(WebOutputPreview.maxHtmlSourceLength + 1, 0xff),
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('page.htm'));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('Open HTML'));
+    await tester.pumpAndSettle();
+
+    expect(
+      find.text('HTML preview is limited to 1 MiB. Use Save or share instead.'),
+      findsOneWidget,
+    );
+    expect(find.byType(WebOutputPreview), findsNothing);
   });
 
   testWidgets('shows supplied chat outputs and previews the original path', (
@@ -512,59 +713,64 @@ void main() {
     },
   );
 
-  testWidgets('markdown detection accepts language and MIME but excludes binary', (
-    tester,
-  ) async {
-    final cases = <({String language, String mimeType, bool binary})>[
-      (language: 'md', mimeType: 'text/plain', binary: false),
-      (language: 'text', mimeType: 'text/markdown; charset=utf-8', binary: false),
-      (language: 'markdown', mimeType: 'text/plain', binary: true),
-    ];
-    var index = 0;
-    await tester.pumpWidget(
-      _screen(
-        loadHistory: () async => [
-          {
-            'role': 'assistant',
-            'content': 'Saved /srv/current/notes-$index.txt',
+  testWidgets(
+    'markdown detection accepts language and MIME but excludes binary',
+    (tester) async {
+      final cases = <({String language, String mimeType, bool binary})>[
+        (language: 'md', mimeType: 'text/plain', binary: false),
+        (
+          language: 'text',
+          mimeType: 'text/markdown; charset=utf-8',
+          binary: false,
+        ),
+        (language: 'markdown', mimeType: 'text/plain', binary: true),
+      ];
+      var index = 0;
+      await tester.pumpWidget(
+        _screen(
+          loadHistory: () async => [
+            {
+              'role': 'assistant',
+              'content': 'Saved /srv/current/notes-$index.txt',
+            },
+          ],
+          readText: (path) async {
+            final current = cases[index];
+            return RemoteTextPreview(
+              path: path,
+              text: '# Heading',
+              language: current.language,
+              mimeType: current.mimeType,
+              byteSize: 9,
+              binary: current.binary,
+              truncated: false,
+            );
           },
-        ],
-        readText: (path) async {
-          final current = cases[index];
-          return RemoteTextPreview(
-            path: path,
-            text: '# Heading',
-            language: current.language,
-            mimeType: current.mimeType,
-            byteSize: 9,
-            binary: current.binary,
-            truncated: false,
-          );
-        },
-        download: (_) async => throw StateError('Unexpected download'),
-      ),
-    );
+          download: (_) async => throw StateError('Unexpected download'),
+        ),
+      );
 
-    for (index = 0; index < cases.length; index++) {
-      if (index > 0) {
-        await tester.tap(find.byTooltip('Refresh outputs'));
+      for (index = 0; index < cases.length; index++) {
+        if (index > 0) {
+          await tester.tap(find.byTooltip('Refresh outputs'));
+          await tester.pumpAndSettle();
+        } else {
+          await tester.pumpAndSettle();
+        }
+        await tester.tap(find.text('notes-$index.txt'));
         await tester.pumpAndSettle();
-      } else {
+        if (cases[index].binary) {
+          expect(find.byType(MarkdownMessageContent), findsNothing);
+          expect(find.byTooltip('Show source'), findsNothing);
+        } else {
+          expect(find.byType(MarkdownMessageContent), findsOneWidget);
+          expect(find.byTooltip('Show source'), findsOneWidget);
+        }
+        await tester.pageBack();
         await tester.pumpAndSettle();
       }
-      await tester.tap(find.text('notes-$index.txt'));
-      await tester.pumpAndSettle();
-      if (cases[index].binary) {
-        expect(find.byType(MarkdownMessageContent), findsNothing);
-        expect(find.byTooltip('Show source'), findsNothing);
-      } else {
-        expect(find.byType(MarkdownMessageContent), findsOneWidget);
-        expect(find.byTooltip('Show source'), findsOneWidget);
-      }
-      await tester.pageBack();
-      await tester.pumpAndSettle();
-    }
-  });
+    },
+  );
 
   testWidgets('delivers the downloaded filename and exact bytes', (
     tester,
@@ -623,10 +829,12 @@ void main() {
     await tester.pump();
     failedRefresh.completeError(StateError('Profile unavailable.'));
     await tester.pumpAndSettle();
-    expect(find.text('Profile unavailable.'), findsOneWidget);
-    expect(find.text('Retry'), findsOneWidget);
+    expect(find.text('Profile unavailable.'), findsNothing);
+    expect(find.textContaining('Check the Hermes connection'), findsOneWidget);
+    expect(find.text('Try again'), findsOneWidget);
+    expect(find.text('Back to chat'), findsOneWidget);
 
-    await tester.tap(find.text('Retry'));
+    await tester.tap(find.text('Try again'));
     await tester.pumpAndSettle();
     expect(find.text('No files or links found in this chat.'), findsOneWidget);
     expect(loads, 3);
@@ -646,12 +854,18 @@ void main() {
           data: const MediaQueryData(textScaler: TextScaler.linear(2)),
           child: ChatOutputsScreen(
             chatTitle: 'Only this chat',
-            loadHistory: () async => [
-              {
-                'role': 'assistant',
-                'content': 'Saved /srv/current/very-long-report-name.pdf',
-              },
-            ],
+            loadHistory: (offset) async => ProfileHistoryPage(
+              'chat',
+              [
+                {
+                  'role': 'assistant',
+                  'content': 'Saved /srv/current/very-long-report-name.pdf',
+                },
+              ],
+              offset,
+              500,
+              isComplete: true,
+            ),
             download: (_) async =>
                 throw const DashboardResponseTooLargeException(
                   32 * 1024 * 1024,

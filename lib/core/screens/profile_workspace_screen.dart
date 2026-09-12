@@ -318,7 +318,8 @@ class _ProfileWorkspaceScreenState extends State<ProfileWorkspaceScreen>
         MaterialPageRoute<void>(
           builder: (_) => ChatOutputsScreen(
             chatTitle: chat.title,
-            loadHistory: () => controller.savedHistory(chat),
+            loadHistory: (offset) =>
+                controller.outputHistoryPage(chat, offset: offset),
             download: (path) => files.download(
               path,
               profileName: owner.workspace.profileName,

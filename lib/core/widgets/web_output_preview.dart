@@ -4,21 +4,22 @@ import 'package:flutter/services.dart';
 
 import 'markdown_code_block.dart';
 
-enum DiagramFormat { mermaid, svg }
+enum WebOutputFormat { mermaid, svg, html }
 
-/// A disposable native view of a diagram, opened explicitly from its source.
-class DiagramPreview extends StatefulWidget {
+/// A disposable native preview opened explicitly from its source.
+class WebOutputPreview extends StatefulWidget {
   static const maxMermaidSourceLength = 50000;
   static const maxSvgSourceLength = 256 * 1024;
+  static const maxHtmlSourceLength = 1024 * 1024;
   static const viewType = 'com.hermesagent.hermes_android/mermaid_diagram';
 
   final String source;
-  final DiagramFormat format;
+  final WebOutputFormat format;
   final String? title;
   final String? actionLabel;
   final VoidCallback? onAction;
 
-  const DiagramPreview({
+  const WebOutputPreview({
     super.key,
     required this.source,
     required this.format,
@@ -28,27 +29,42 @@ class DiagramPreview extends StatefulWidget {
   });
 
   @override
-  State<DiagramPreview> createState() => _DiagramPreviewState();
+  State<WebOutputPreview> createState() => _WebOutputPreviewState();
 }
 
-class _DiagramPreviewState extends State<DiagramPreview> {
+class _WebOutputPreviewState extends State<WebOutputPreview> {
   bool _showSource = false;
 
   @override
   Widget build(BuildContext context) {
     final supported =
         !kIsWeb && defaultTargetPlatform == TargetPlatform.android;
-    final limit = widget.format == DiagramFormat.svg
-        ? DiagramPreview.maxSvgSourceLength
-        : DiagramPreview.maxMermaidSourceLength;
+    final limit = switch (widget.format) {
+      WebOutputFormat.mermaid => WebOutputPreview.maxMermaidSourceLength,
+      WebOutputFormat.svg => WebOutputPreview.maxSvgSourceLength,
+      WebOutputFormat.html => WebOutputPreview.maxHtmlSourceLength,
+    };
     final canRender =
         supported && widget.source.isNotEmpty && widget.source.length <= limit;
-    final svg = widget.format == DiagramFormat.svg;
+    final label = switch (widget.format) {
+      WebOutputFormat.mermaid => 'diagram',
+      WebOutputFormat.svg => 'SVG',
+      WebOutputFormat.html => 'HTML',
+    };
+    final language = widget.format.name;
+    final previewIcon = switch (widget.format) {
+      WebOutputFormat.mermaid => Icons.account_tree_outlined,
+      WebOutputFormat.svg => Icons.image_outlined,
+      WebOutputFormat.html => Icons.web_asset_outlined,
+    };
     final theme = Theme.of(context);
     return Scaffold(
       appBar: AppBar(
         title: Text(
-          widget.title ?? (svg ? 'SVG preview' : 'Diagram'),
+          widget.title ??
+              (widget.format == WebOutputFormat.mermaid
+                  ? 'Diagram'
+                  : '$label preview'),
           maxLines: 1,
           overflow: TextOverflow.ellipsis,
         ),
@@ -61,14 +77,8 @@ class _DiagramPreviewState extends State<DiagramPreview> {
             ),
           if (canRender)
             IconButton(
-              tooltip: _showSource
-                  ? (svg ? 'Show SVG' : 'Show diagram')
-                  : 'Show source',
-              icon: Icon(
-                _showSource
-                    ? (svg ? Icons.image_outlined : Icons.account_tree_outlined)
-                    : Icons.code,
-              ),
+              tooltip: _showSource ? 'Show $label' : 'Show source',
+              icon: Icon(_showSource ? previewIcon : Icons.code),
               onPressed: () => setState(() => _showSource = !_showSource),
             ),
         ],
@@ -81,14 +91,10 @@ class _DiagramPreviewState extends State<DiagramPreview> {
                   crossAxisAlignment: CrossAxisAlignment.stretch,
                   children: [
                     if (!canRender)
-                      Text(
-                        svg
-                            ? 'This SVG is available as source here.'
-                            : 'This diagram is available as source here.',
-                      ),
+                      Text('This $label is available as source here.'),
                     MarkdownCodeBlock(
                       code: widget.source,
-                      language: svg ? 'svg' : 'mermaid',
+                      language: language,
                       previewEnabled: false,
                     ),
                   ],
@@ -96,12 +102,12 @@ class _DiagramPreviewState extends State<DiagramPreview> {
               )
             : AndroidView(
                 key: ValueKey(theme.brightness),
-                viewType: DiagramPreview.viewType,
+                viewType: WebOutputPreview.viewType,
                 creationParamsCodec: const StandardMessageCodec(),
                 creationParams: {
                   'source': widget.source,
                   'dark': theme.brightness == Brightness.dark,
-                  'format': svg ? 'svg' : 'mermaid',
+                  'format': language,
                 },
               ),
       ),

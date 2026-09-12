@@ -9,19 +9,20 @@ import '../models/chat_output.dart';
 import '../services/connection_manager.dart';
 import '../services/android_file_delivery_service.dart';
 import '../services/media_preview_service.dart';
+import '../services/profile_gateway.dart';
 import '../services/remote_files_client.dart';
 import '../services/web_preview.dart';
 import '../widgets/chat_image_preview.dart';
-import '../widgets/diagram_preview.dart';
 import '../widgets/markdown_code_block.dart';
 import '../widgets/markdown_message_content.dart';
+import '../widgets/web_output_preview.dart';
 import 'pdf_preview_screen.dart';
 
-enum _FileAction { share, open, play }
+enum _FileAction { share, open, play, previewHtml }
 
 class ChatOutputsScreen extends StatefulWidget {
   final String chatTitle;
-  final Future<List<Map<String, dynamic>>> Function() loadHistory;
+  final Future<ProfileHistoryPage> Function(int offset) loadHistory;
   final Future<RemoteFileDownload> Function(String path) download;
   final Future<RemoteTextPreview> Function(String path) readText;
   final Future<void> Function(RemoteFileDownload)? deliver;
@@ -44,8 +45,18 @@ class ChatOutputsScreen extends StatefulWidget {
 }
 
 class _ChatOutputsScreenState extends State<ChatOutputsScreen> {
-  late Future<List<ChatOutput>> _outputs = _load();
+  final _outputs = <String, ChatOutput>{};
+  int? _nextOffset = 0;
+  bool _loading = false;
+  String? _loadError;
+  bool _retryRefresh = false;
   bool _working = false;
+
+  @override
+  void initState() {
+    super.initState();
+    _load();
+  }
 
   void _error(BuildContext context, Object error) {
     if (!context.mounted) return;
@@ -60,8 +71,36 @@ class _ChatOutputsScreenState extends State<ChatOutputsScreen> {
     );
   }
 
-  Future<List<ChatOutput>> _load() async =>
-      extractChatOutputs(await widget.loadHistory());
+  Future<void> _load({bool refresh = false}) async {
+    if (_loading || !refresh && _nextOffset == null) return;
+    final offset = refresh ? 0 : _nextOffset!;
+    setState(() {
+      _loading = true;
+      _loadError = null;
+    });
+    try {
+      final page = await widget.loadHistory(offset);
+      if (!mounted) return;
+      final outputs = extractChatOutputs(page.rows.reversed);
+      setState(() {
+        if (refresh) _outputs.clear();
+        for (final output in outputs) {
+          _outputs.putIfAbsent(output.target, () => output);
+        }
+        _nextOffset = page.nextOffset;
+      });
+    } catch (_) {
+      if (!mounted) return;
+      setState(() {
+        _retryRefresh = refresh;
+        _loadError = _outputs.isEmpty
+            ? "Couldn't load this chat's files and links. Check the Hermes connection, then try again."
+            : "Couldn't load more outputs. Your current results are still here. Check the Hermes connection, then try again.";
+      });
+    } finally {
+      if (mounted) setState(() => _loading = false);
+    }
+  }
 
   Future<void> _share(RemoteFileDownload download) async {
     if (widget.deliver != null) return widget.deliver!(download);
@@ -130,9 +169,9 @@ class _ChatOutputsScreenState extends State<ChatOutputsScreen> {
         final source = utf8.decode(imageFile.bytes);
         await Navigator.of(context).push(
           MaterialPageRoute<void>(
-            builder: (previewContext) => DiagramPreview(
+            builder: (previewContext) => WebOutputPreview(
               source: source,
-              format: DiagramFormat.svg,
+              format: WebOutputFormat.svg,
               title: output.label,
               actionLabel: 'Save or share',
               onAction: () async {
@@ -183,6 +222,7 @@ class _ChatOutputsScreenState extends State<ChatOutputsScreen> {
       output.label,
       mimeType: preview.mimeType,
     );
+    final canPreviewHtml = _isHtmlPreview(output, preview);
     final isPdf =
         preview.mimeType.split(';').first.trim().toLowerCase() ==
             'application/pdf' ||
@@ -232,6 +272,50 @@ class _ChatOutputsScreenState extends State<ChatOutputsScreen> {
                         ),
                       );
                     }
+                  case _FileAction.previewHtml:
+                    if (file.bytes.length >
+                        WebOutputPreview.maxHtmlSourceLength) {
+                      ScaffoldMessenger.of(previewContext).showSnackBar(
+                        const SnackBar(
+                          content: Text(
+                            'HTML preview is limited to 1 MiB. Use Save or share instead.',
+                          ),
+                        ),
+                      );
+                      break;
+                    }
+                    String source;
+                    try {
+                      source = utf8.decode(file.bytes);
+                    } on FormatException {
+                      ScaffoldMessenger.of(previewContext).showSnackBar(
+                        const SnackBar(
+                          content: Text(
+                            "This HTML file can't be read here. Use Save or share to open it in another app.",
+                          ),
+                        ),
+                      );
+                      break;
+                    }
+                    await Navigator.of(previewContext).push(
+                      MaterialPageRoute<void>(
+                        builder: (webContext) => WebOutputPreview(
+                          source: source,
+                          format: WebOutputFormat.html,
+                          title: output.label,
+                          actionLabel: 'Save or share',
+                          onAction: () async {
+                            try {
+                              await _share(file);
+                            } catch (error) {
+                              if (webContext.mounted) {
+                                _error(webContext, error);
+                              }
+                            }
+                          },
+                        ),
+                      ),
+                    );
                 }
               } catch (error) {
                 if (previewContext.mounted) {
@@ -325,6 +409,14 @@ class _ChatOutputsScreenState extends State<ChatOutputsScreen> {
                               }
                             },
                     ),
+                  if (canPreviewHtml)
+                    FilledButton.icon(
+                      icon: const Icon(Icons.web_asset_outlined),
+                      label: const Text('Open HTML'),
+                      onPressed: delivering
+                          ? null
+                          : () => deliverFile(_FileAction.previewHtml),
+                    ),
                   if (canPlay)
                     FilledButton.icon(
                       icon: const Icon(Icons.play_arrow),
@@ -358,114 +450,130 @@ class _ChatOutputsScreenState extends State<ChatOutputsScreen> {
   }
 
   @override
-  Widget build(BuildContext context) => Scaffold(
-    appBar: AppBar(
-      title: Text(
-        'Outputs · ${widget.chatTitle}',
-        maxLines: 1,
-        overflow: TextOverflow.ellipsis,
+  Widget build(BuildContext context) {
+    final outputs = _outputs.values.toList();
+    return Scaffold(
+      appBar: AppBar(
+        title: Text(
+          'Outputs · ${widget.chatTitle}',
+          maxLines: 1,
+          overflow: TextOverflow.ellipsis,
+        ),
+        actions: [
+          IconButton(
+            tooltip: 'Refresh outputs',
+            icon: const Icon(Icons.refresh),
+            onPressed: _working || _loading ? null : () => _load(refresh: true),
+          ),
+        ],
       ),
-      actions: [
-        IconButton(
-          tooltip: 'Refresh outputs',
-          icon: const Icon(Icons.refresh),
-          onPressed: _working
-              ? null
-              : () => setState(() {
-                  _outputs = _load();
-                }),
-        ),
-      ],
-    ),
-    body: Column(
-      children: [
-        if (_working) const LinearProgressIndicator(),
-        const Padding(
-          padding: EdgeInsets.all(16),
-          child: Text(
-            'Files and links found in this chat. Some paths may no longer exist.',
+      body: Column(
+        children: [
+          if (_working || _loading && outputs.isNotEmpty)
+            const LinearProgressIndicator(),
+          const Padding(
+            padding: EdgeInsets.all(16),
+            child: Text('Open a file or link shared in this chat.'),
           ),
-        ),
-        Expanded(
-          child: FutureBuilder<List<ChatOutput>>(
-            future: _outputs,
-            builder: (context, snapshot) {
-              if (snapshot.connectionState != ConnectionState.done) {
-                return const Center(child: CircularProgressIndicator());
-              }
-              if (snapshot.hasError) {
-                return Center(
-                  child: Padding(
-                    padding: const EdgeInsets.all(24),
-                    child: Column(
-                      mainAxisSize: MainAxisSize.min,
-                      children: [
-                        Text(
-                          snapshot.error is StateError
-                              ? (snapshot.error as StateError).message
-                                    .toString()
-                              : 'Outputs could not be loaded.',
-                        ),
-                        TextButton(
-                          onPressed: () => setState(() {
-                            _outputs = _load();
-                          }),
-                          child: const Text('Retry'),
-                        ),
-                      ],
+          Expanded(
+            child: _loading && outputs.isEmpty
+                ? const Center(child: CircularProgressIndicator())
+                : outputs.isEmpty
+                ? Center(
+                    child: SingleChildScrollView(
+                      padding: const EdgeInsets.all(24),
+                      child: Text(
+                        _loadError ??
+                            (_nextOffset == null
+                                ? 'No files or links found in this chat.'
+                                : 'No outputs found in the recent part of this chat. Load older outputs to look further back.'),
+                      ),
                     ),
+                  )
+                : ListView.builder(
+                    itemCount: outputs.length,
+                    itemBuilder: (context, index) {
+                      final output = outputs[index];
+                      return ListTile(
+                        leading: Icon(switch (output.kind) {
+                          ChatOutputKind.image => Icons.image_outlined,
+                          ChatOutputKind.file =>
+                            Icons.insert_drive_file_outlined,
+                          ChatOutputKind.link => Icons.link,
+                        }),
+                        title: Text(
+                          output.label,
+                          maxLines: 2,
+                          overflow: TextOverflow.ellipsis,
+                        ),
+                        subtitle: Text(
+                          output.target,
+                          maxLines: 2,
+                          overflow: TextOverflow.ellipsis,
+                        ),
+                        onTap: _working
+                            ? null
+                            : () => _run(() => _preview(output)),
+                        trailing: output.path == null
+                            ? null
+                            : IconButton(
+                                tooltip: 'Save or share ${output.label}',
+                                icon: const Icon(Icons.ios_share),
+                                onPressed: _working
+                                    ? null
+                                    : () => _run(
+                                        () async => _share(
+                                          await widget.download(output.path!),
+                                        ),
+                                      ),
+                              ),
+                      );
+                    },
                   ),
-                );
-              }
-              final outputs = snapshot.data ?? [];
-              if (outputs.isEmpty) {
-                return const Center(
-                  child: Text('No files or links found in this chat.'),
-                );
-              }
-              return ListView.builder(
-                itemCount: outputs.length,
-                itemBuilder: (context, index) {
-                  final output = outputs[index];
-                  return ListTile(
-                    leading: Icon(switch (output.kind) {
-                      ChatOutputKind.image => Icons.image_outlined,
-                      ChatOutputKind.file => Icons.insert_drive_file_outlined,
-                      ChatOutputKind.link => Icons.link,
-                    }),
-                    title: Text(
-                      output.label,
-                      maxLines: 2,
-                      overflow: TextOverflow.ellipsis,
-                    ),
-                    subtitle: Text(
-                      output.target,
-                      maxLines: 2,
-                      overflow: TextOverflow.ellipsis,
-                    ),
-                    onTap: _working ? null : () => _run(() => _preview(output)),
-                    trailing: output.path == null
-                        ? null
-                        : IconButton(
-                            tooltip: 'Save or share ${output.label}',
-                            icon: const Icon(Icons.ios_share),
-                            onPressed: _working
-                                ? null
-                                : () => _run(
-                                    () async => _share(
-                                      await widget.download(output.path!),
-                                    ),
-                                  ),
-                          ),
-                  );
-                },
-              );
-            },
           ),
-        ),
-      ],
-    ),
-  );
+          if (!_loading || outputs.isNotEmpty)
+            SafeArea(
+              top: false,
+              child: Padding(
+                padding: const EdgeInsets.fromLTRB(16, 8, 16, 12),
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    if (outputs.isNotEmpty &&
+                        (_loadError != null || _nextOffset != null))
+                      Text(
+                        _loadError ??
+                            'Recent outputs shown. Load older outputs to look further back.',
+                      ),
+                    if (_loadError != null)
+                      TextButton(
+                        onPressed: _working || _loading
+                            ? null
+                            : () => _load(refresh: _retryRefresh),
+                        child: const Text('Try again'),
+                      )
+                    else if (_nextOffset != null)
+                      TextButton(
+                        onPressed: _working || _loading ? null : () => _load(),
+                        child: Text(
+                          _loading
+                              ? 'Loading older outputs…'
+                              : 'Load older outputs',
+                        ),
+                      ),
+                    if (_loadError != null && outputs.isEmpty)
+                      TextButton(
+                        onPressed: () => Navigator.of(context).maybePop(),
+                        child: const Text('Back to chat'),
+                      ),
+                  ],
+                ),
+              ),
+            ),
+        ],
+      ),
+    );
+  }
 }
 
 bool _isMarkdownPreview(ChatOutput output, RemoteTextPreview preview) {
@@ -481,6 +589,18 @@ bool _isMarkdownPreview(ChatOutput output, RemoteTextPreview preview) {
       label.endsWith('.markdown') ||
       path.endsWith('.md') ||
       path.endsWith('.markdown');
+}
+
+bool _isHtmlPreview(ChatOutput output, RemoteTextPreview preview) {
+  if (preview.binary) return false;
+  final mimeType = preview.mimeType.split(';').first.trim().toLowerCase();
+  final label = output.label.toLowerCase();
+  final path = preview.path.toLowerCase();
+  return mimeType == 'text/html' ||
+      label.endsWith('.html') ||
+      label.endsWith('.htm') ||
+      path.endsWith('.html') ||
+      path.endsWith('.htm');
 }
 
 bool _isSvgName(String filename, String target) =>

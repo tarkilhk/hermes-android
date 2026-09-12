@@ -1,7 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
-import 'package:hermes_android/core/widgets/diagram_preview.dart';
+import 'package:hermes_android/core/widgets/web_output_preview.dart';
 import 'package:hermes_android/core/widgets/markdown_code_block.dart';
 import 'package:hermes_android/core/widgets/profile_message.dart';
 
@@ -34,7 +34,7 @@ void main() {
         home: Scaffold(
           body: MarkdownCodeBlock(
             language: 'mermaid',
-            code: 'A' * (DiagramPreview.maxMermaidSourceLength + 1),
+            code: 'A' * (WebOutputPreview.maxMermaidSourceLength + 1),
           ),
         ),
       ),
@@ -101,7 +101,7 @@ void main() {
           (call) => call.method == 'create',
         );
         final args = create.arguments as Map;
-        expect(args['viewType'], DiagramPreview.viewType);
+        expect(args['viewType'], WebOutputPreview.viewType);
         expect(
           const StandardMessageCodec().decodeMessage(
             ByteData.sublistView(args['params'] as Uint8List),
@@ -158,7 +158,7 @@ void main() {
 
     final create = nativeCalls.singleWhere((call) => call.method == 'create');
     final args = create.arguments as Map;
-    expect(args['viewType'], DiagramPreview.viewType);
+    expect(args['viewType'], WebOutputPreview.viewType);
     expect(
       const StandardMessageCodec().decodeMessage(
         ByteData.sublistView(args['params'] as Uint8List),
@@ -191,7 +191,7 @@ void main() {
             streaming,
             MarkdownCodeBlock(
               language: 'svg',
-              code: 'x' * (DiagramPreview.maxSvgSourceLength + 1),
+              code: 'x' * (WebOutputPreview.maxSvgSourceLength + 1),
             ),
           ],
         ),

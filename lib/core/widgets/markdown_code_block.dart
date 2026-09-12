@@ -1,7 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 
-import 'diagram_preview.dart';
+import 'web_output_preview.dart';
 
 /// Splits raw markdown into text segments and fenced code blocks.
 ///
@@ -98,13 +98,13 @@ class _MarkdownCodeBlockState extends State<MarkdownCodeBlock> {
     final foreground = isDark ? Colors.white70 : Colors.black87;
     final language = widget.language?.toLowerCase();
     final diagramFormat = switch (language) {
-      'mermaid' => DiagramFormat.mermaid,
-      'svg' => DiagramFormat.svg,
+      'mermaid' => WebOutputFormat.mermaid,
+      'svg' => WebOutputFormat.svg,
       _ => null,
     };
-    final diagramLimit = diagramFormat == DiagramFormat.svg
-        ? DiagramPreview.maxSvgSourceLength
-        : DiagramPreview.maxMermaidSourceLength;
+    final diagramLimit = diagramFormat == WebOutputFormat.svg
+        ? WebOutputPreview.maxSvgSourceLength
+        : WebOutputPreview.maxMermaidSourceLength;
 
     final body = _wrap
         ? SelectableText(
@@ -166,11 +166,11 @@ class _MarkdownCodeBlockState extends State<MarkdownCodeBlock> {
                     widget.previewEnabled &&
                     widget.code.length <= diagramLimit)
                   IconButton(
-                    tooltip: diagramFormat == DiagramFormat.svg
+                    tooltip: diagramFormat == WebOutputFormat.svg
                         ? 'Open SVG'
                         : 'Open diagram',
                     icon: Icon(
-                      diagramFormat == DiagramFormat.svg
+                      diagramFormat == WebOutputFormat.svg
                           ? Icons.image_outlined
                           : Icons.account_tree_outlined,
                       size: 18,
@@ -181,7 +181,7 @@ class _MarkdownCodeBlockState extends State<MarkdownCodeBlock> {
                     ),
                     onPressed: () => Navigator.of(context).push(
                       MaterialPageRoute<void>(
-                        builder: (_) => DiagramPreview(
+                        builder: (_) => WebOutputPreview(
                           source: widget.code,
                           format: diagramFormat,
                         ),

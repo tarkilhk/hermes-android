@@ -39,16 +39,20 @@ private class MermaidDiagramView(
     private val dark = creationParams?.get("dark") as? Boolean ?: false
     private val source = creationParams?.get("source") as? String
     private val format = (creationParams?.get("format") as? String)
-        ?.takeIf { it == SVG_FORMAT || it == MERMAID_FORMAT }
+        ?.takeIf { it == SVG_FORMAT || it == HTML_FORMAT || it == MERMAID_FORMAT }
         ?: MERMAID_FORMAT
     private val sourceError = when {
         source == null -> if (format == SVG_FORMAT) {
             "There is no SVG to preview."
+        } else if (format == HTML_FORMAT) {
+            "There is no HTML to preview."
         } else {
             "This diagram has no source."
         }
         source.length > maxSourceChars() -> if (format == SVG_FORMAT) {
             "This SVG is too large to preview."
+        } else if (format == HTML_FORMAT) {
+            "This HTML file is too large to preview."
         } else {
             "This diagram is too large to display."
         }
@@ -236,18 +240,28 @@ private class MermaidDiagramView(
     }
 
     private fun renderFunction(): String =
-        if (format == SVG_FORMAT) "renderSvg" else "renderDiagram"
+        when (format) {
+            SVG_FORMAT -> "renderSvg"
+            HTML_FORMAT -> "renderHtml"
+            else -> "renderDiagram"
+        }
 
     private fun maxSourceChars(): Int =
-        if (format == SVG_FORMAT) MAX_SVG_SOURCE_CHARS else MAX_SOURCE_CHARS
+        when (format) {
+            SVG_FORMAT -> MAX_SVG_SOURCE_CHARS
+            HTML_FORMAT -> MAX_HTML_SOURCE_CHARS
+            else -> MAX_SOURCE_CHARS
+        }
 
     private data class Asset(val filename: String, val mimeType: String)
 
     companion object {
         private const val MAX_SOURCE_CHARS = 50_000
         private const val MAX_SVG_SOURCE_CHARS = 256 * 1024
+        private const val MAX_HTML_SOURCE_CHARS = 1024 * 1024
         private const val MERMAID_FORMAT = "mermaid"
         private const val SVG_FORMAT = "svg"
+        private const val HTML_FORMAT = "html"
         private const val ORIGIN = "https://hermes-diagrams.invalid"
         private const val ENTRY_URL = "$ORIGIN/index.html"
         private val DARK_BACKGROUND = Color.rgb(17, 19, 24)

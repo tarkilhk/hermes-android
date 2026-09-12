@@ -163,6 +163,37 @@ try {
   )), true);
   await page.screenshot({ path: join(root, 'build', 'svg-preview.png'), fullPage: true });
   console.log('SVG image context blocks script execution and external content; errors, limits and replacement pass.');
+
+  const htmlSource = `<!doctype html><html><head>
+    <meta http-equiv="Content-Security-Policy" content="default-src * 'unsafe-inline'">
+    <style>body { font: 20px system-ui; padding: 16px; } button { font: inherit; padding: 12px; }</style>
+    <script src="${origin}/forbidden-html.js"></script>
+    </head><body><h1>Preview check</h1><button id="increment">Increment</button>
+    <p>Count: <output id="count">0</output></p><img src="${origin}/forbidden-html.png">
+    <script>
+      try { parent.document.body.dataset.escaped = 'yes'; } catch (_) { document.body.dataset.parentAccess = 'blocked'; }
+      try { localStorage.setItem('probe', 'yes'); } catch (_) { document.body.dataset.storage = 'blocked'; }
+      fetch('${origin}/forbidden-html-fetch').catch(() => {});
+      document.getElementById('increment').onclick = () => { document.getElementById('count').textContent++; };
+    </script></body></html>`;
+  assert.equal(await page.evaluate((source) => window.renderHtml(source), htmlSource), true);
+  const htmlFrame = page.frameLocator('#diagram iframe');
+  await htmlFrame.locator('#increment').click();
+  assert.equal(await htmlFrame.locator('#count').textContent(), '1');
+  assert.equal(await htmlFrame.locator('body').getAttribute('data-parent-access'), 'blocked');
+  assert.equal(await htmlFrame.locator('body').getAttribute('data-storage'), 'blocked');
+  assert.equal(await page.locator('#diagram iframe').getAttribute('sandbox'), 'allow-scripts');
+  assert.equal(await page.locator('body').getAttribute('data-escaped'), null);
+  assert.equal(await htmlFrame.locator('html').evaluate(() => document.compatMode), 'CSS1Compat');
+  assert.deepEqual(unexpectedRequests, [], 'HTML preview attempted an HTTP asset or fetch request');
+  await page.screenshot({ path: join(root, 'build', 'html-preview.png'), fullPage: true });
+  assert.equal(await page.evaluate(() => window.renderHtml('x'.repeat(1024 * 1024 + 1))), false);
+  assert.equal(await page.locator('#diagram iframe').count(), 0);
+  assert.equal(await page.evaluate(() => window.renderHtml('<button>Replacement</button>')), true);
+  await page.evaluate(() => window.showDiagramError('Closed'));
+  assert.equal(await page.locator('#diagram iframe').count(), 0);
+  assert.equal(page.url(), `${origin}/index.html`);
+  console.log('HTML controls work in an opaque sandbox; parent/storage access and HTTP resources are blocked.');
 } finally {
   await browser?.close();
   await new Promise((resolveClose) => server.close(resolveClose));
