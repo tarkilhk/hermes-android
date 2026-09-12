@@ -22,6 +22,7 @@ class Host {
   List<String> profiles = ['a', 'b'];
   bool running = true;
   bool promptSubmitFails = false;
+  bool fileAttachFails = false;
   bool approvalFails = false;
   Completer<void>? approvalDelay;
   Completer<void>? promptSubmitStarted;
@@ -80,8 +81,16 @@ class Host {
           ],
         };
       },
+      delete: (endpoint, query) async {
+        calls.add((name, 'DELETE $endpoint', query));
+      },
       rpc: (method, params) async {
         calls.add((name, method, params));
+        if (method == 'session.active_list') return {'sessions': []};
+        if (method == 'file.attach') {
+          if (fileAttachFails) throw StateError('Synthetic upload failure');
+          return {'ref_text': 'attached:${params['name']}'};
+        }
         if (method == 'prompt.submit') {
           promptSubmitStarted?.complete();
           await promptSubmitDelay?.future;

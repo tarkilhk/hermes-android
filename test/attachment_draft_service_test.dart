@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
 
@@ -404,6 +405,59 @@ void main() {
       expect(await File(first.cachedPath).exists(), isTrue);
       expect(await File(second.cachedPath).exists(), isTrue);
     });
+
+    test('attached state is saved before ordinary cache cleanup', () async {
+      final draft = await cachedDraft('ordered.txt');
+      final allowSave = Completer<void>();
+      var savingAttachedState = false;
+
+      final sending = AttachmentDraftSendCoordinator(service).uploadThenSubmit(
+        drafts: [draft],
+        upload: ({required draft, required dataUrl}) async =>
+            const AttachmentUploadReceipt(refText: '@file:ordered.txt'),
+        onChanged: (changed) async {
+          if (changed.status != AttachmentDraftStatus.attached) return;
+          savingAttachedState = true;
+          expect(await File(changed.cachedPath).exists(), isTrue);
+          await allowSave.future;
+        },
+        submitPrompt: (_) async {},
+      );
+      for (var i = 0; i < 100 && !savingAttachedState; i++) {
+        await Future<void>.delayed(const Duration(milliseconds: 1));
+      }
+      expect(savingAttachedState, isTrue);
+      expect(await File(draft.cachedPath).exists(), isTrue);
+
+      allowSave.complete();
+      await sending;
+      expect(await File(draft.cachedPath).exists(), isFalse);
+    });
+
+    test(
+      'failed attached-state save keeps the accepted upload reusable',
+      () async {
+        final draft = await cachedDraft('accepted.txt');
+
+        await expectLater(
+          service.uploadSequential(
+            drafts: [draft],
+            upload: ({required draft, required dataUrl}) async =>
+                const AttachmentUploadReceipt(refText: '@file:accepted.txt'),
+            onChanged: (changed) {
+              if (changed.status == AttachmentDraftStatus.attached) {
+                throw StateError('synthetic persistence failure');
+              }
+            },
+          ),
+          throwsStateError,
+        );
+
+        expect(draft.status, AttachmentDraftStatus.attached);
+        expect(draft.refText, '@file:accepted.txt');
+        expect(await File(draft.cachedPath).exists(), isTrue);
+      },
+    );
 
     test(
       'retry uploads only the failed item and never submits a prompt',

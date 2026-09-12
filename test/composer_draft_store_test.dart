@@ -1,7 +1,9 @@
+import 'dart:convert';
 import 'dart:io';
 
 import 'package:flutter_test/flutter_test.dart';
 import 'package:hermes_android/core/models/attachment_draft.dart';
+import 'package:hermes_android/core/models/queued_prompt_draft.dart';
 import 'package:hermes_android/core/services/composer_draft_store.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
@@ -137,5 +139,52 @@ void main() {
 
     final restored = await store.read(profileName: 'work', sessionId: 'chat');
     expect(restored!.submissionUncertain, isTrue);
+  });
+
+  test('round trips queued attachments and their paused state', () async {
+    final store = ComposerDraftStore(
+      preferences,
+      connectionIdentity: 'host-auth',
+    );
+    final file = await attachment('queued.txt');
+    await store.write(
+      profileName: 'work',
+      sessionId: 'chat',
+      text: '',
+      attachments: const [],
+      queuedPrompts: [
+        QueuedPromptDraft(text: '', attachments: [file]),
+      ],
+      queuePaused: true,
+    );
+
+    final restored = await store.read(profileName: 'work', sessionId: 'chat');
+    expect(restored!.queuePaused, isTrue);
+    expect(restored.queuedPrompts.single.text, isEmpty);
+    expect(restored.queuedPrompts.single.attachments.single.id, 'queued.txt');
+  });
+
+  test('restores existing string queue entries as text-only work', () async {
+    await preferences.setString(
+      'composer_drafts_v1_host-auth',
+      jsonEncode([
+        {
+          'profile': 'work',
+          'session': 'chat',
+          'text': '',
+          'attachments': <Object?>[],
+          'queue': ['existing unsent message'],
+          'queue_paused': true,
+        },
+      ]),
+    );
+    final store = ComposerDraftStore(
+      preferences,
+      connectionIdentity: 'host-auth',
+    );
+
+    final restored = await store.read(profileName: 'work', sessionId: 'chat');
+    expect(restored!.queuedPrompts.single.text, 'existing unsent message');
+    expect(restored.queuedPrompts.single.attachments, isEmpty);
   });
 }

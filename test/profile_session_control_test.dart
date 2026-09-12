@@ -6,6 +6,7 @@ import 'package:hermes_android/core/models/hermes_profile.dart';
 import 'package:hermes_android/core/models/session_control.dart';
 import 'package:hermes_android/core/services/profile_gateway.dart';
 import 'package:hermes_android/core/services/profile_workspace_controller.dart';
+import 'package:hermes_android/core/models/queued_prompt_draft.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
 import 'profile_connection_identity_test.dart' show identityTestConnection;
@@ -176,7 +177,7 @@ void main() {
         kind: AttachmentDraftKind.genericFile,
       );
       chat.attachments.add(attachment);
-      chat.queuedPrompts.add('Later prompt');
+      chat.queuedPrompts.add(QueuedPromptDraft(text: 'Later prompt'));
       host.actionResponse = _actionResponse(
         'continued',
         type: 'send',
@@ -190,7 +191,7 @@ void main() {
       );
       expect(chat.draft, 'Unrelated draft');
       expect(chat.attachments, [attachment]);
-      expect(chat.queuedPrompts, ['Later prompt']);
+      expect(chat.queuedPrompts.single.text, 'Later prompt');
       expect(host.calls.where((call) => call.$2 == 'file.attach'), isEmpty);
 
       chat.status = ProfileTurnStatus.running;

@@ -1,7 +1,9 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:shared_preferences/shared_preferences.dart';
+import 'package:hermes_android/core/models/attachment_draft.dart';
 import 'package:hermes_android/core/models/hermes_profile.dart';
+import 'package:hermes_android/core/models/queued_prompt_draft.dart';
 import 'package:hermes_android/core/services/profile_gateway.dart';
 import 'package:hermes_android/core/services/profile_workspace_controller.dart';
 import 'package:hermes_android/core/screens/profile_workspace_screen.dart';
@@ -55,12 +57,16 @@ void main() {
     ProfileTurnStatus status = ProfileTurnStatus.idle,
     String draft = '',
     List<String> queued = const [],
+    List<AttachmentDraft> attachments = const [],
     bool paused = false,
   }) async {
     final chat = await controller.createChat();
     chat.status = status;
     chat.draft = draft;
-    chat.queuedPrompts.addAll(queued);
+    chat.attachments.addAll(attachments);
+    chat.queuedPrompts.addAll(
+      queued.map((text) => QueuedPromptDraft(text: text)),
+    );
     chat.queuePaused = paused;
     tester.view.physicalSize = const Size(360, 760);
     tester.view.devicePixelRatio = 1;
@@ -100,8 +106,37 @@ void main() {
     await pumpFrames(tester, count: 4);
     await tester.tap(find.text('Queue for the next turn'));
     await pumpFrames(tester, count: 4);
-    expect(chat.queuedPrompts, ['follow up after this turn']);
+    expect(chat.queuedPrompts.single.text, 'follow up after this turn');
     expect(chat.draft, isEmpty);
+  });
+
+  testWidgets('Message actions queues an attachment-only draft by filename', (
+    tester,
+  ) async {
+    final file = AttachmentDraft(
+      id: 'report',
+      cachedPath: 'report.pdf',
+      name: 'report.pdf',
+      byteLength: 10,
+      mediaType: 'application/pdf',
+      kind: AttachmentDraftKind.genericFile,
+    );
+    final chat = await show(
+      tester,
+      status: ProfileTurnStatus.running,
+      attachments: [file],
+    );
+    await tester.tap(find.byTooltip('Message actions'));
+    await pumpFrames(tester, count: 4);
+    await tester.tap(find.text('Queue for the next turn'));
+    await pumpFrames(tester, count: 4);
+    expect(chat.queuedPrompts.single.attachments, [same(file)]);
+    expect(chat.attachments, isEmpty);
+
+    await tester.tap(find.byTooltip('Message actions'));
+    await pumpFrames(tester, count: 4);
+    expect(find.text('Remove queued: Attachment'), findsOneWidget);
+    expect(find.text('1 attachment: report.pdf'), findsOneWidget);
   });
 
   testWidgets(

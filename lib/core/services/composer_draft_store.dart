@@ -4,12 +4,13 @@ import 'dart:io';
 import 'package:shared_preferences/shared_preferences.dart';
 
 import '../models/attachment_draft.dart';
+import '../models/queued_prompt_draft.dart';
 
 class ComposerDraftSnapshot {
   final String text;
   final List<AttachmentDraft> attachments;
   final bool submissionUncertain;
-  final List<String> queuedPrompts;
+  final List<QueuedPromptDraft> queuedPrompts;
   final bool queuePaused;
 
   const ComposerDraftSnapshot({
@@ -47,35 +48,12 @@ class ComposerDraftStore {
     final text = record['text'];
     final rawAttachments = record['attachments'];
     if (text is! String || rawAttachments is! List) return null;
-    final attachments = <AttachmentDraft>[];
-    for (final value in rawAttachments) {
-      try {
-        final draft = _decodeAttachment(
-          Map<String, dynamic>.from(value as Map),
-        );
-        final hasReusableReference =
-            draft.status == AttachmentDraftStatus.attached &&
-            draft.refText?.isNotEmpty == true;
-        if (!hasReusableReference && !await File(draft.cachedPath).exists()) {
-          draft
-            ..status = AttachmentDraftStatus.failed
-            ..error =
-                'This staged file is no longer available. Remove it and attach it again.';
-        } else if (draft.status == AttachmentDraftStatus.uploading) {
-          draft.status = AttachmentDraftStatus.ready;
-        }
-        attachments.add(draft);
-      } catch (_) {
-        // One damaged attachment record must not discard the user's text.
-      }
-    }
+    final attachments = await _decodeAttachments(rawAttachments);
     return ComposerDraftSnapshot(
       text: text,
       attachments: attachments,
       submissionUncertain: record['submission_uncertain'] == true,
-      queuedPrompts: (record['queue'] as List? ?? const [])
-          .whereType<String>()
-          .toList(),
+      queuedPrompts: await _decodeQueue(record['queue']),
       queuePaused: record['queue_paused'] == true,
     );
   }
@@ -86,7 +64,7 @@ class ComposerDraftStore {
     required String text,
     required Iterable<AttachmentDraft> attachments,
     bool submissionUncertain = false,
-    List<String> queuedPrompts = const [],
+    Iterable<QueuedPromptDraft> queuedPrompts = const [],
     bool queuePaused = false,
   }) async {
     final records = _readRecords()
@@ -95,13 +73,14 @@ class ComposerDraftStore {
             value['profile'] == profileName && value['session'] == sessionId,
       );
     final files = attachments.toList(growable: false);
-    if (text.isNotEmpty || files.isNotEmpty || queuedPrompts.isNotEmpty) {
+    final queue = queuedPrompts.toList(growable: false);
+    if (text.isNotEmpty || files.isNotEmpty || queue.isNotEmpty) {
       records.add({
         'profile': profileName,
         'session': sessionId,
         'text': text,
         'submission_uncertain': submissionUncertain,
-        'queue': queuedPrompts,
+        'queue': queue.map(_encodeQueuedPrompt).toList(),
         'queue_paused': queuePaused,
         'attachments': files.map(_encodeAttachment).toList(),
       });
@@ -141,6 +120,63 @@ class ComposerDraftStore {
     'error': draft.error,
     'atlas_intake_accepted': draft.atlasIntakeAccepted,
   };
+
+  Map<String, dynamic> _encodeQueuedPrompt(QueuedPromptDraft prompt) => {
+    'text': prompt.text,
+    'attachments': prompt.attachments.map(_encodeAttachment).toList(),
+  };
+
+  Future<List<QueuedPromptDraft>> _decodeQueue(Object? value) async {
+    if (value is! List) return [];
+    final queued = <QueuedPromptDraft>[];
+    for (final entry in value) {
+      if (entry is String) {
+        queued.add(QueuedPromptDraft(text: entry));
+        continue;
+      }
+      try {
+        final record = Map<String, dynamic>.from(entry as Map);
+        final text = record['text'];
+        final rawAttachments = record['attachments'];
+        if (text is! String || rawAttachments is! List) {
+          throw const FormatException('Invalid queued prompt');
+        }
+        final attachments = await _decodeAttachments(rawAttachments);
+        if (text.trim().isNotEmpty || attachments.isNotEmpty) {
+          queued.add(QueuedPromptDraft(text: text, attachments: attachments));
+        }
+      } catch (_) {
+        // One damaged queue entry must not discard the other unsent work.
+      }
+    }
+    return queued;
+  }
+
+  Future<List<AttachmentDraft>> _decodeAttachments(List<dynamic> values) async {
+    final attachments = <AttachmentDraft>[];
+    for (final value in values) {
+      try {
+        final draft = _decodeAttachment(
+          Map<String, dynamic>.from(value as Map),
+        );
+        final hasReusableReference =
+            draft.status == AttachmentDraftStatus.attached &&
+            draft.refText?.isNotEmpty == true;
+        if (!hasReusableReference && !await File(draft.cachedPath).exists()) {
+          draft
+            ..status = AttachmentDraftStatus.failed
+            ..error =
+                'This staged file is no longer available. Remove it and attach it again.';
+        } else if (draft.status == AttachmentDraftStatus.uploading) {
+          draft.status = AttachmentDraftStatus.ready;
+        }
+        attachments.add(draft);
+      } catch (_) {
+        // One damaged attachment record must not discard the user's text.
+      }
+    }
+    return attachments;
+  }
 
   AttachmentDraft _decodeAttachment(Map<String, dynamic> value) {
     T enumValue<T extends Enum>(List<T> values, Object? name) =>

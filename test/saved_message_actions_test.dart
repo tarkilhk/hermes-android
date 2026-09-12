@@ -6,6 +6,7 @@ import 'package:hermes_android/core/models/answer_versions.dart';
 import 'package:hermes_android/core/screens/profile_workspace_screen.dart';
 import 'package:hermes_android/core/services/connection_manager.dart';
 import 'package:hermes_android/core/services/profile_workspace_controller.dart';
+import 'package:hermes_android/core/models/queued_prompt_draft.dart';
 import 'package:hermes_android/core/services/ws_client.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
@@ -43,7 +44,7 @@ void main() {
 
   test('edit rewinds the addressed row and pauses queued followups', () async {
     await controller.updateDraft(original, 'Unrelated composer draft');
-    original.queuedPrompts.add('Queued followup');
+    original.queuedPrompts.add(QueuedPromptDraft(text: 'Queued followup'));
 
     final accepted = await controller.editSavedPrompt(
       original,
@@ -61,14 +62,16 @@ void main() {
       'confirm_empty_truncate': true,
     });
     expect(original.draft, 'Unrelated composer draft');
-    expect(original.queuedPrompts, ['Queued followup']);
+    expect(original.queuedPrompts.single.text, 'Queued followup');
     expect(original.queuePaused, isTrue);
     expect(original.messages.map(answerMessageText), ['Corrected prompt']);
   });
 
   test('rejected edit restores history and keeps local work paused', () async {
     await controller.updateDraft(original, 'Keep this draft');
-    original.queuedPrompts.add('Keep this queued message');
+    original.queuedPrompts.add(
+      QueuedPromptDraft(text: 'Keep this queued message'),
+    );
     final before = List<Map<String, dynamic>>.of(original.messages);
     final statusBefore = original.status;
     host.submitError = JsonRpcError('prompt.submit', 'Session busy');
@@ -82,7 +85,7 @@ void main() {
     expect(accepted, isFalse);
     expect(original.messages, before);
     expect(original.draft, 'Keep this draft');
-    expect(original.queuedPrompts, ['Keep this queued message']);
+    expect(original.queuedPrompts.single.text, 'Keep this queued message');
     expect(original.queuePaused, isTrue);
     expect(original.status, statusBefore);
   });

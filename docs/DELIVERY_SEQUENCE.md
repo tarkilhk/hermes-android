@@ -130,14 +130,32 @@ Deliver and verify each before adding the next layer.
    Failed loads, changed navigation and reconnects preserve unread state.
 4. D18 / C03, T11: implemented and verified in 2.26.0; phone installation deferred. **View in chat**
    opens an older Find match with nearby messages and **Back to latest**.
-5. D09 / Q11 with Q03: queue attachment-bearing drafts using the existing
-   attachment/upload pipeline. Desktop queues text and attachments together;
-   Android's text-only queue was an initial slice limit, not a scope exclusion.
-   Preserve queued drafts and explicit cache ownership. Steer remains text-only.
+5. D09 / Q11 with Q03: attachment-bearing queues implemented and verified in
+   2.27.0; phone installation deferred. Desktop-style text/file entries reuse draft storage
+   and uploads, preserve separate composer work and pause after uncertainty.
+   Steer remains text-only.
 
 Firebase setup, answer-version metadata, sensitive/side-task recovery and remote
 TUI restart remain tracked dependencies. Other selections and exclusions stay
 as recorded in PRODUCT_PLAN.md.
+
+### Work after the current continuation queue
+
+The 2026-09-12 coverage check found the following remaining dependencies. These
+items remain selected; completing the client slices above does not complete
+their live verification or authorize broader administration features.
+
+| Selected work | Next required step |
+| --- | --- |
+| Phone and live-server QA across delivered slices | When the owner is home, install the latest signed Personal build in place. Check existing-chat context fullness, the reported large-chat Outputs flow, older Find navigation, cross-client read state, and attachment queues. These require real device/server behavior beyond fixtures and package checks. |
+| D26-D27 / M01, R16, R17, S12, M09 | Configure the Firebase project/app and trusted backend sender, then implement authenticated registration and delivery through the existing notification routing. Locked/background/terminated-app tests remain part of completion. |
+| D10 / Q09 synchronized answer versions | Hermes must expose the original message, relationship type and stable version order. Parent-chat navigation already uses server metadata. |
+| D07/D11 sensitive and side/background task recovery | Hermes needs a listing or resume response for outstanding sensitive requests and side/background tasks. Transient live cards do not establish recovery. |
+| D30 / B11 remote TUI restart | Verify or add a remote TUI restart contract with a reconnect outcome. The inspected gateway restart route does not restart the TUI process. |
+
+Phone unavailability does not block implementation, tests or milestone pushes.
+It does leave device-dependent acceptance checks open. Do not fill that gap with
+unselected features or mark those checks complete from mocks.
 
 For each active slice, append a short record here or link its implementation note:
 
@@ -149,7 +167,7 @@ For each active slice, append a short record here or link its implementation not
 | D06 | Implemented; live QA pending | Existing clarification handling retained; server-advertised approval scopes and request targeting | Included in foundation test run, 890 passed | Live gateway verification pending |
 | D07 | Implemented; live QA pending | Dedicated sudo/secret/vault response forms, scoped expiry and duplicate-response guards; credentials remain unsaved | Controller delivery tests and six widget tests | Resume exposes approval/clarify only; restoring sensitive prompts after process death requires backend metadata |
 | D08 | Implemented; live QA pending | Independent completion/attention switches, optional chat titles, permission/test alert and existing notification routing | Settings widget tests | End-to-end notification permission/tap checks remain; locked/terminated-app push remains D26/D27 |
-| D09 | Implemented; live QA pending | Desktop-style text queues with review/removal and one-shot Steer through Message actions or long press | Queue tests cover ordered drain, separate drafts/attachments, restart, lost acknowledgement, stop/failure and repeated resume; Steer checks queued/rejected outcomes | Phone must be connected to drain; attachments cannot be queued in this slice |
+| D09 | Attachment queues implemented; phone installation deferred | Desktop-style text/file queues with filenames, review/removal, preserved composer work and one-shot text-only Steer. See [queue notes](SUPERVISION_AND_QUEUES.md) | 2.27.0: 108 focused checks and 1,209 full-suite tests passed/four skips; analyzer clean; signed Personal 21782 verified | Phone must be connected to drain. Phone/live upload and interruption QA remains |
 | D10 | Partial; live QA pending | Saved-message Edit/resend, one-shot idle Fork and Regenerate; phone-only answer links removed; Parent chat uses server metadata. See [relationships](SERVER_CHAT_RELATIONSHIPS.md) | 2.18.0: 1,143 tests passed, four opt-in skips; 31 focused checks passed; analyzer clean; signed Personal 21672 installed and launched | A synchronized answer carousel needs server origin-row, relationship-kind and ordering metadata |
 | D11 | Live side/background cards implemented; phone installation pending | Identifiable `/btw`, `/bg` and `/background` cards, task-kind/ID correlation, original prompts and early/out-of-order completions | 2.25.0: 30 focused checks and 1,182 full-suite tests passed/four skips; analyzer clean; signed Personal 21752 verified | Recovery after reconnect/process death still needs a server listing/resume contract; live gateway QA remains |
 | D12 | Common content, Mermaid and SVG implemented; live QA pending | Wide tables, selectable streamed/nested fenced code and copy/wrap controls; on-demand Mermaid/SVG previews with zoom and source access. See [diagram notes](DIAGRAM_PREVIEWS.md) | 2.23.0: 1,169 tests passed, four opt-in skips; analyzer clean; browser fixtures passed; signed Personal 21722 installed and launched | Other diagram formats retain source fallback; live device preview/zoom QA remains |

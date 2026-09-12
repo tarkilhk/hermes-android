@@ -14,6 +14,7 @@ import '../models/gateway_insight.dart';
 import '../models/gateway_process.dart';
 import '../models/gateway_todo.dart';
 import '../models/profile_live_activity.dart';
+import '../models/queued_prompt_draft.dart';
 import '../models/session_control.dart';
 import '../models/side_question_delivery.dart';
 import '../models/slash_command.dart';
@@ -144,10 +145,12 @@ class ProfileChat {
   double historyScrollOffset = 0;
   bool archived = false;
   final List<AttachmentDraft> attachments = [];
-  final List<String> queuedPrompts = [];
+  final List<QueuedPromptDraft> queuedPrompts = [];
   bool queuePaused = false;
   bool steering = false;
   bool draftRestored = false;
+  bool queueMutating = false;
+  bool queueDraftChanged = false;
   bool queueDraining = false;
   ProfileTurnStatus status = ProfileTurnStatus.idle;
   ProfileChat({
@@ -271,6 +274,7 @@ class ProfileWorkspaceController extends ChangeNotifier {
     required this.preferences,
     ProfileGatewayFactory? gatewayFactory,
     AttachmentDraftService? attachmentService,
+    ComposerDraftStore? draftStore,
     this.onAttention,
   }) : _factory =
            gatewayFactory ??
@@ -282,10 +286,9 @@ class ProfileWorkspaceController extends ChangeNotifier {
     _sessionVisibility = SessionVisibility.fromStored(
       preferences.getString(_visibilityKey),
     );
-    _drafts = ComposerDraftStore(
-      preferences,
-      connectionIdentity: connectionIdentity,
-    );
+    _drafts =
+        draftStore ??
+        ComposerDraftStore(preferences, connectionIdentity: connectionIdentity);
   }
 
   Future<void> setSessionVisibility(SessionVisibility value) async {
@@ -1633,6 +1636,12 @@ class ProfileWorkspaceController extends ChangeNotifier {
     resource.mutatingSessions.add(id);
     _changed();
     try {
+      final storedDraft = delete && chat == null
+          ? await _drafts.read(
+              profileName: resource.scope.profileName,
+              sessionId: id,
+            )
+          : null;
       Map<String, dynamic> updated = changes;
       if (delete) {
         await resource.gateway.deleteSession(id);
@@ -1672,8 +1681,19 @@ class ProfileWorkspaceController extends ChangeNotifier {
       apply(resource.projectSessions);
       apply(resource.searchResults, search: true);
       if (delete) {
-        if (chat != null) await attachments.removeAll(chat.attachments);
         await _clearStoredDraft(resource.scope, id);
+        final cachedAttachments = chat == null
+            ? [
+                ...?storedDraft?.attachments,
+                ...?storedDraft?.queuedPrompts.expand(
+                  (prompt) => prompt.attachments,
+                ),
+              ]
+            : [
+                ...chat.attachments,
+                ...chat.queuedPrompts.expand((prompt) => prompt.attachments),
+              ];
+        await attachments.removeAll(cachedAttachments);
         resource.deletedSessions.add(id);
         resource.chats.remove(id);
       } else if (chat != null) {
@@ -1968,6 +1988,10 @@ class ProfileWorkspaceController extends ChangeNotifier {
     chat.draft = text;
     chat.draftSubmissionUncertain = false;
     _changed();
+    if (chat.queueMutating) {
+      chat.queueDraftChanged = true;
+      return Future.value();
+    }
     return _persistDraft(chat);
   }
 
@@ -1982,7 +2006,7 @@ class ProfileWorkspaceController extends ChangeNotifier {
 
     final originalText = chat.draft;
     final originalAttachments = List<AttachmentDraft>.of(chat.attachments);
-    final originalQueue = List<String>.of(chat.queuedPrompts);
+    final originalQueue = List<QueuedPromptDraft>.of(chat.queuedPrompts);
     final originalQueuePaused = chat.queuePaused;
     final originalUncertain = chat.draftSubmissionUncertain;
     final originalStatus = chat.status;
@@ -3033,20 +3057,23 @@ class ProfileWorkspaceController extends ChangeNotifier {
     String? prompt,
     String? display,
     bool preserveComposer = false,
+    List<AttachmentDraft>? attachmentOverride,
   }) async {
     final resource = _owned(chat);
+    final files =
+        attachmentOverride ??
+        (preserveComposer
+            ? <AttachmentDraft>[]
+            : List<AttachmentDraft>.of(chat.attachments));
     if (chat.busy ||
         chat.changingAnswer ||
         chat.changingIntelligence ||
-        ((prompt ?? chat.draft).trim().isEmpty && chat.attachments.isEmpty)) {
+        ((prompt ?? chat.draft).trim().isEmpty && files.isEmpty)) {
       return false;
     }
     final text = prompt ?? chat.draft.trim();
     final draftAtSubmit = chat.draft;
     chat.lastActive = DateTime.now().millisecondsSinceEpoch / 1000;
-    final files = preserveComposer
-        ? <AttachmentDraft>[]
-        : List<AttachmentDraft>.of(chat.attachments);
     chat.status = ProfileTurnStatus.submitting;
     chat.error = null;
     chat.reasoning = '';
@@ -3075,9 +3102,10 @@ class ProfileWorkspaceController extends ChangeNotifier {
           return AttachmentUploadReceipt(refText: ref);
         },
         onChanged: (_) {
-          unawaited(_persistDraft(chat));
           _changed();
+          return _persistDraft(chat);
         },
+        removeCachedFileAfterUpload: attachmentOverride == null,
         submitPrompt: (refs) async {
           await resource.gateway.requireProfile();
           chat.messages.add({
@@ -3105,7 +3133,7 @@ class ProfileWorkspaceController extends ChangeNotifier {
           await _persistDraft(chat);
         },
       );
-      await attachments.removeAll(files);
+      if (attachmentOverride == null) await attachments.removeAll(files);
     } catch (e) {
       if (submitted && !preserveComposer) {
         chat.draftSubmissionUncertain = true;
@@ -3172,35 +3200,117 @@ class ProfileWorkspaceController extends ChangeNotifier {
 
   Future<void> queuePrompt(ProfileChat chat, String rawText) async {
     _owned(chat);
-    final text = rawText.trim();
-    if (text.isEmpty || text.startsWith('/') || chat.attachments.isNotEmpty) {
-      throw StateError('Only a text message can be queued.');
+    if (chat.queueMutating || chat.queueDraining) {
+      throw StateError('Another queued message is still being saved.');
     }
-    chat.queuedPrompts.add(text);
-    if (chat.draft.trim() == text) chat.draft = '';
-    await _persistDraft(chat);
+    final text = rawText.trim();
+    if (text.startsWith('/')) {
+      throw StateError('Queue a message or attachment, not a slash command.');
+    }
+    final originalText = chat.draft;
+    final movedText = chat.draft.trim() == text;
+    final movedAttachments = movedText
+        ? List<AttachmentDraft>.of(chat.attachments)
+        : <AttachmentDraft>[];
+    if (text.isEmpty && movedAttachments.isEmpty) {
+      throw StateError('Queue a message or attachment, not a slash command.');
+    }
+    final queued = QueuedPromptDraft(text: text, attachments: movedAttachments);
+    chat.queueMutating = true;
+    chat.queuedPrompts.add(queued);
+    if (movedText) chat.draft = '';
+    if (movedAttachments.isNotEmpty) chat.attachments.clear();
     _changed();
+    try {
+      await _persistQueueMutation(chat);
+    } catch (_) {
+      chat.queuedPrompts.remove(queued);
+      if (movedText) {
+        chat.draft = chat.draft.isEmpty
+            ? originalText
+            : _appendSharedText(originalText, chat.draft);
+      }
+      for (final attachment in movedAttachments.reversed) {
+        if (!chat.attachments.any(
+          (current) => identical(current, attachment),
+        )) {
+          chat.attachments.insert(0, attachment);
+        }
+      }
+      chat.queueMutating = false;
+      _changed();
+      try {
+        await _persistDraft(chat);
+      } catch (_) {
+        chat.queuePaused = true;
+        chat.error = 'Queue paused. Unsent messages could not be saved.';
+        _changed();
+        rethrow;
+      }
+      await _drainQueuedPrompts(chat);
+      rethrow;
+    } finally {
+      if (chat.queueMutating) {
+        chat.queueMutating = false;
+        _changed();
+      }
+    }
     await _drainQueuedPrompts(chat);
   }
 
   Future<void> removeQueuedPrompt(
     ProfileChat chat,
     int index, {
-    String? expectedText,
+    QueuedPromptDraft? expectedPrompt,
   }) async {
     _owned(chat);
-    if (chat.queueDraining) return;
+    if (chat.queueDraining || chat.queueMutating) return;
     if (index < 0 || index >= chat.queuedPrompts.length) return;
-    if (expectedText != null && chat.queuedPrompts[index] != expectedText) {
+    if (expectedPrompt != null &&
+        !identical(chat.queuedPrompts[index], expectedPrompt)) {
       return;
     }
-    chat.queuedPrompts.removeAt(index);
-    await _persistDraft(chat);
+    chat.queueMutating = true;
+    final removed = chat.queuedPrompts.removeAt(index);
     _changed();
+    try {
+      await _persistQueueMutation(chat);
+    } catch (_) {
+      final restoreIndex = index > chat.queuedPrompts.length
+          ? chat.queuedPrompts.length
+          : index;
+      chat.queuedPrompts.insert(restoreIndex, removed);
+      chat.queuePaused = true;
+      chat.queueMutating = false;
+      _changed();
+      try {
+        await _persistDraft(chat);
+      } catch (_) {
+        chat.queuePaused = true;
+        chat.error = 'Queue paused. Unsent messages could not be saved.';
+        _changed();
+        rethrow;
+      }
+      rethrow;
+    } finally {
+      if (chat.queueMutating) {
+        chat.queueMutating = false;
+        _changed();
+      }
+    }
+    await attachments.removeAll(removed.attachments);
+    await _drainQueuedPrompts(chat);
+  }
+
+  Future<void> _persistQueueMutation(ProfileChat chat) async {
+    do {
+      chat.queueDraftChanged = false;
+      await _persistDraft(chat);
+    } while (chat.queueDraftChanged);
   }
 
   Future<void> resumeQueue(ProfileChat chat) async {
-    if (chat.queueDraining) return;
+    if (chat.queueDraining || chat.queueMutating) return;
     final gateway = _owned(chat).gateway;
     chat.queueDraining = true;
     _changed();
@@ -3223,6 +3333,7 @@ class ProfileWorkspaceController extends ChangeNotifier {
   Future<void> _drainQueuedPrompts(ProfileChat chat) async {
     if (_closed ||
         chat.queuePaused ||
+        chat.queueMutating ||
         chat.queueDraining ||
         chat.busy ||
         chat.queuedPrompts.isEmpty) {
@@ -3242,20 +3353,30 @@ class ProfileWorkspaceController extends ChangeNotifier {
           !chat.queuePaused &&
           !chat.busy &&
           chat.queuedPrompts.isNotEmpty) {
-        final text = chat.queuedPrompts.first;
+        final queued = chat.queuedPrompts.first;
         // A restart between sending and acknowledgement must never resend this head.
         await _persistDraft(chat);
         final accepted = await _sendPrompt(
           chat,
-          prompt: text,
+          prompt: queued.text,
           preserveComposer: true,
+          attachmentOverride: queued.attachments,
         );
         if (!accepted) {
           chat.queuePaused = true;
           break;
         }
+        if (!identical(chat.queuedPrompts.first, queued)) {
+          throw StateError('Queue changed while sending.');
+        }
         chat.queuedPrompts.removeAt(0);
-        await _persistDraft(chat);
+        try {
+          await _persistDraft(chat);
+        } catch (_) {
+          chat.queuedPrompts.insert(0, queued);
+          rethrow;
+        }
+        await attachments.removeAll(queued.attachments);
       }
     } catch (_) {
       chat.queuePaused = true;

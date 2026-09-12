@@ -107,9 +107,14 @@ class _ProfileWorkspaceScreenState extends State<ProfileWorkspaceScreen>
       await action();
     } catch (e) {
       if (mounted) {
+        final message = switch (e) {
+          StateError error => error.message.toString(),
+          FormatException error => error.message,
+          _ => e.toString(),
+        };
         ScaffoldMessenger.of(
           context,
-        ).showSnackBar(SnackBar(content: Text(e.toString())));
+        ).showSnackBar(SnackBar(content: Text(message)));
       }
     }
   }
@@ -1052,16 +1057,20 @@ class _ProfileWorkspaceScreenState extends State<ProfileWorkspaceScreen>
                             hint:
                                 chat.queuedPrompts.isNotEmpty ||
                                     (chat.busy &&
-                                        chat.draft.trim().isNotEmpty &&
-                                        chat.attachments.isEmpty)
-                                ? 'Long press for steer or queue actions'
+                                        (chat.draft.trim().isNotEmpty ||
+                                            chat.attachments.isNotEmpty) &&
+                                        !chat.draft.trimLeft().startsWith('/'))
+                                ? 'Long press for message actions'
                                 : null,
                             child: GestureDetector(
                               onLongPress:
                                   chat.queuedPrompts.isNotEmpty ||
                                       (chat.busy &&
-                                          chat.draft.trim().isNotEmpty &&
-                                          chat.attachments.isEmpty)
+                                          (chat.draft.trim().isNotEmpty ||
+                                              chat.attachments.isNotEmpty) &&
+                                          !chat.draft.trimLeft().startsWith(
+                                            '/',
+                                          ))
                                   ? () => _showBusyActions(chat, context)
                                   : null,
                               child: IconButton.filled(
@@ -1184,12 +1193,12 @@ class _ProfileWorkspaceScreenState extends State<ProfileWorkspaceScreen>
       !chat.commandRunning &&
       !chat.changingAnswer &&
       !chat.changingIntelligence &&
+      !chat.queueMutating &&
       (_canForkDraft(chat) ||
           chat.queuedPrompts.isNotEmpty ||
           (chat.busy &&
-              chat.draft.trim().isNotEmpty &&
-              !chat.draft.trimLeft().startsWith('/') &&
-              chat.attachments.isEmpty));
+              (chat.draft.trim().isNotEmpty || chat.attachments.isNotEmpty) &&
+              !chat.draft.trimLeft().startsWith('/')));
 
   Future<void> _showBusyActions(ProfileChat chat, BuildContext context) async {
     if (!_hasMessageActions(chat)) return;
@@ -1231,15 +1240,22 @@ class _ProfileWorkspaceScreenState extends State<ProfileWorkspaceScreen>
                         ? () => Navigator.pop(sheetContext, 'steer')
                         : null,
                   ),
+                ],
+                if ((text.isNotEmpty || chat.attachments.isNotEmpty) &&
+                    !text.startsWith('/') &&
+                    chat.busy)
                   ListTile(
                     leading: const Icon(Icons.queue),
                     title: const Text('Queue for the next turn'),
-                    subtitle: const Text(
-                      'Keep this message for when Hermes is idle',
+                    subtitle: Text(
+                      chat.attachments.isEmpty
+                          ? 'Keep this message for when Hermes is idle'
+                          : 'Keep this message and ${chat.attachments.length} attachment${chat.attachments.length == 1 ? '' : 's'} for when Hermes is idle',
                     ),
-                    onTap: () => Navigator.pop(sheetContext, 'queue'),
+                    onTap: chat.queueMutating || chat.queueDraining
+                        ? null
+                        : () => Navigator.pop(sheetContext, 'queue'),
                   ),
-                ],
                 if (chat.queuePaused)
                   ListTile(
                     leading: const Icon(Icons.pause_circle_outline),
@@ -1247,7 +1263,7 @@ class _ProfileWorkspaceScreenState extends State<ProfileWorkspaceScreen>
                     subtitle: const Text(
                       'Check history before resuming; a previous send may have reached Hermes.',
                     ),
-                    onTap: chat.queueDraining
+                    onTap: chat.queueDraining || chat.queueMutating
                         ? null
                         : () async {
                             await _run(() => controller.resumeQueue(chat));
@@ -1261,15 +1277,24 @@ class _ProfileWorkspaceScreenState extends State<ProfileWorkspaceScreen>
                   ...chat.queuedPrompts.asMap().entries.map(
                     (entry) => ListTile(
                       leading: const Icon(Icons.delete_outline),
-                      title: Text('Remove queued: ${entry.value}'),
-                      onTap: chat.queueDraining
+                      title: Text(
+                        'Remove queued: ${entry.value.text.isEmpty ? 'Attachment' : entry.value.text}',
+                      ),
+                      subtitle: entry.value.attachments.isEmpty
+                          ? null
+                          : Text(
+                              '${entry.value.attachments.length} attachment${entry.value.attachments.length == 1 ? '' : 's'}: ${entry.value.attachments.map((draft) => draft.name).join(', ')}',
+                              maxLines: 2,
+                              overflow: TextOverflow.ellipsis,
+                            ),
+                      onTap: chat.queueDraining || chat.queueMutating
                           ? null
                           : () async {
                               await _run(
                                 () => controller.removeQueuedPrompt(
                                   chat,
                                   entry.key,
-                                  expectedText: entry.value,
+                                  expectedPrompt: entry.value,
                                 ),
                               );
                               if (sheetContext.mounted) {

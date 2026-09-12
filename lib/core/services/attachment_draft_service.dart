@@ -1,4 +1,5 @@
 import 'dart:convert';
+import 'dart:async';
 import 'dart:io';
 import 'dart:typed_data';
 
@@ -43,7 +44,7 @@ typedef AttachmentUploadCallback =
       required AttachmentDraft draft,
       required String dataUrl,
     });
-typedef AttachmentDraftChanged = void Function(AttachmentDraft draft);
+typedef AttachmentDraftChanged = FutureOr<void> Function(AttachmentDraft draft);
 typedef AttachmentPromptSubmit = Future<void> Function(List<String> refTexts);
 
 class AttachmentUploadReceipt {
@@ -78,12 +79,14 @@ class AttachmentDraftSendCoordinator {
     required AttachmentUploadCallback upload,
     required AttachmentPromptSubmit submitPrompt,
     AttachmentDraftChanged? onChanged,
+    bool removeCachedFileAfterUpload = true,
   }) async {
     final snapshot = drafts.toList(growable: false);
     await draftService.uploadSequential(
       drafts: snapshot,
       upload: upload,
       onChanged: onChanged,
+      removeCachedFileAfterUpload: removeCachedFileAfterUpload,
     );
     final refs = snapshot
         .map((draft) => draft.refText)
@@ -102,11 +105,13 @@ class AttachmentDraftSendCoordinator {
     required AttachmentDraft draft,
     required AttachmentUploadCallback upload,
     AttachmentDraftChanged? onChanged,
+    bool removeCachedFileAfterUpload = true,
   }) {
     return draftService.retryFailed(
       draft: draft,
       upload: upload,
       onChanged: onChanged,
+      removeCachedFileAfterUpload: removeCachedFileAfterUpload,
     );
   }
 }
@@ -362,6 +367,7 @@ class AttachmentDraftService {
     required Iterable<AttachmentDraft> drafts,
     required AttachmentUploadCallback upload,
     AttachmentDraftChanged? onChanged,
+    bool removeCachedFileAfterUpload = true,
   }) async {
     final snapshot = drafts.toList(growable: false);
     validateRemoteDrafts(snapshot);
@@ -378,7 +384,12 @@ class AttachmentDraftService {
         continue;
       }
       receipts.add(
-        await _uploadOne(draft, upload: upload, onChanged: onChanged),
+        await _uploadOne(
+          draft,
+          upload: upload,
+          onChanged: onChanged,
+          removeCachedFileAfterUpload: removeCachedFileAfterUpload,
+        ),
       );
     }
     return receipts;
@@ -390,44 +401,52 @@ class AttachmentDraftService {
     required AttachmentDraft draft,
     required AttachmentUploadCallback upload,
     AttachmentDraftChanged? onChanged,
+    bool removeCachedFileAfterUpload = true,
   }) async {
     if (draft.status != AttachmentDraftStatus.failed) {
       throw const AttachmentDraftException(
         'Only a failed attachment can be retried.',
       );
     }
-    return _uploadOne(draft, upload: upload, onChanged: onChanged);
+    return _uploadOne(
+      draft,
+      upload: upload,
+      onChanged: onChanged,
+      removeCachedFileAfterUpload: removeCachedFileAfterUpload,
+    );
   }
 
   Future<AttachmentUploadReceipt> _uploadOne(
     AttachmentDraft draft, {
     required AttachmentUploadCallback upload,
     AttachmentDraftChanged? onChanged,
+    required bool removeCachedFileAfterUpload,
   }) async {
     draft
       ..status = AttachmentDraftStatus.uploading
       ..error = null;
-    onChanged?.call(draft);
+    await onChanged?.call(draft);
     String? dataUrl;
+    late AttachmentUploadReceipt receipt;
     try {
       dataUrl = await readDataUrl(draft);
-      final receipt = await upload(draft: draft, dataUrl: dataUrl);
-      draft
-        ..status = AttachmentDraftStatus.attached
-        ..refText = receipt.refText
-        ..atlasIntakeAccepted = receipt.atlasIntakeAccepted;
-      dataUrl = null;
-      await removeCachedFile(draft);
-      onChanged?.call(draft);
-      return receipt;
+      receipt = await upload(draft: draft, dataUrl: dataUrl);
     } catch (error) {
       dataUrl = null;
       draft
         ..status = AttachmentDraftStatus.failed
         ..error = error.toString();
-      onChanged?.call(draft);
+      await onChanged?.call(draft);
       rethrow;
     }
+    dataUrl = null;
+    draft
+      ..status = AttachmentDraftStatus.attached
+      ..refText = receipt.refText
+      ..atlasIntakeAccepted = receipt.atlasIntakeAccepted;
+    await onChanged?.call(draft);
+    if (removeCachedFileAfterUpload) await removeCachedFile(draft);
+    return receipt;
   }
 
   Future<void> removeCachedFile(AttachmentDraft draft) async {

@@ -5,6 +5,7 @@ import 'package:hermes_android/core/models/attachment_draft.dart';
 import 'package:hermes_android/core/services/android_share_intent_service.dart';
 import 'package:hermes_android/core/services/attachment_draft_service.dart';
 import 'package:hermes_android/core/services/profile_workspace_controller.dart';
+import 'package:hermes_android/core/models/queued_prompt_draft.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
 import 'profile_connection_identity_test.dart' show identityTestConnection;
@@ -43,7 +44,7 @@ void main() {
         ..draft = 'Existing draft\n'
         ..draftSubmissionUncertain = true
         ..attachments.add(original)
-        ..queuedPrompts.add('follow up')
+        ..queuedPrompts.add(QueuedPromptDraft(text: 'follow up'))
         ..queuePaused = true;
 
       await controller.stageSharedDraft(
@@ -76,7 +77,7 @@ void main() {
       expect(chat.attachments[1].sanitized, isTrue);
       expect(chat.attachments[2].mediaType, 'application/pdf');
       expect(attachments.existingCounts, [1, 2]);
-      expect(chat.queuedPrompts, ['follow up']);
+      expect(chat.queuedPrompts.single.text, 'follow up');
       expect(chat.queuePaused, isTrue);
       expect(chat.draftSubmissionUncertain, isTrue);
 
@@ -99,7 +100,7 @@ void main() {
       chat
         ..draft = 'Keep this'
         ..attachments.add(original)
-        ..queuedPrompts.add('keep queued');
+        ..queuedPrompts.add(QueuedPromptDraft(text: 'keep queued'));
       attachments.failAt = 2;
 
       await expectLater(
@@ -128,7 +129,7 @@ void main() {
 
       expect(chat.draft, 'Keep this');
       expect(chat.attachments, [same(original)]);
-      expect(chat.queuedPrompts, ['keep queued']);
+      expect(chat.queuedPrompts.single.text, 'keep queued');
       expect(attachments.removedIds, ['shared-1']);
       expect(attachments.removedIds, isNot(contains('original')));
     },

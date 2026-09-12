@@ -8,6 +8,31 @@ Feature releases increment the minor version, fixes increment the patch version,
 and breaking changes increment the major version. The Android build number after
 `+` always increases. Update this changelog for every release milestone.
 
+## [2.27.0+2178] - 2026-09-12
+
+### Added
+
+- Queue messages with attachments, including attachment-only drafts, through
+  the existing Message actions menu. Queued files use the same upload and send
+  path as ordinary drafts; separately typed work stays in the composer.
+- Restore queued text and files after interruption, including previously saved
+  text-only queues. Remove the private file cache only after the queued entry is
+  durably removed. Failed or uncertain sends keep the entry paused for review.
+
+### Fixed
+
+- Preserve newer composer edits during delayed queue saves and removals, and
+  distinguish duplicate queue entries when removing one.
+- Clean up queued attachment caches when a chat is deleted, including chats
+  whose saved draft has not been opened in this app run.
+
+### Verification
+
+- All 108 focused checks passed. Full suite: 1,209 passed, four opt-in skips;
+  analyzer clean. Independent review found no remaining issue. Signed Personal
+  2.27.0 / 21782 passed native compilation and certificate/package checks.
+  Phone installation remains deferred while the owner is away.
+
 ## [2.26.0+2177] - 2026-09-12
 
 ### Added
