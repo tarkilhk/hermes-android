@@ -20,14 +20,12 @@ The capture descriptor is saved before launch. Successful nonempty output, up to
 
 ## Remaining limits
 
-An interruption after saving the conversation draft but before acknowledging the incoming share can offer the share again. Review is mandatory and nothing sends automatically. No separate deduplication ledger is added to conversation drafts. A file copy interrupted before native intake commits may need to be shared again; only successfully imported content is retained. Native process-death behavior still needs an end-to-end device check.
+An interruption after saving the conversation draft but before acknowledging the incoming share can offer the share again. Review is mandatory and nothing sends automatically. No separate deduplication ledger is added to conversation drafts. A file copy interrupted before native intake commits may need to be shared again; only successfully imported content is retained. Native text intake passed a real process-restart check; file-copy and capture recovery still need device checks.
 
-Camera recovery also needs live cancellation and Android process-recreation QA. Empty abandoned output is cleared when Android returns to Hermes; while the camera remains foreground, it stays pending to avoid treating a file being written as complete.
+Successful camera capture, media intake and Android process-recreation still need live QA. Empty abandoned output is cleared when Android returns to Hermes; while the camera remains foreground, it stays pending to avoid treating a file being written as complete.
 
-The D15 existing-session context-loading report was reproduced using the
-installed backend's deferred-agent sequence. The small ready-event refresh is
-included in 2.5.0; see [the context reopen fix](CONTEXT_REOPEN_FIX.md). Its live
-phone verification remains outstanding.
+The separate D15 context-reopen check is recorded in the
+[live phone acceptance record](LIVE_PHONE_ACCEPTANCE_2026-09-12.md).
 
 ## Verification
 
@@ -36,3 +34,7 @@ The 2.4.0 review/Photos release passed 995 tests with four opt-in skips and a cl
 The 2.5.0 intake recovery release adds bridge replay/acknowledgement and UI failure checks. The full suite passed 1,000 tests with four opt-in skips; analyzer clean. The signed Personal APK passed package/certificate checks and was installed in place and launched on the owner's phone as 2.5.0 / 21522. Bridge fixtures verify service replay, not Android process-death behavior itself.
 
 The 2.6.0 camera checks cover launch targeting, duplicate taps, original-chat preselection outside the first page, changed connection identity, and rejection of an unowned target. The full run passed 1,020 tests and found one obsolete assertion in a new test; all seven tests in the affected review/camera files passed after correcting that assertion. Four opt-in tests remain skipped. The release snapshot has a clean analyzer. The signed APK passed package/certificate checks and was installed in place and launched on the owner's phone as Personal 2.6.0 / 21552. Native camera capture and interruption QA remain outstanding.
+
+On 2026-09-13, Samsung phone QA on Personal 2.31.1 verified cancellation paths. Photos opened the chooser; cancelling returned to an empty composer with Send disabled. Camera opened and Back returned to the same empty composer with no review. A second Camera launch succeeded and cancelled the same way, confirming the first cancellation did not leave capture intake busy. Files also opened the document picker and cancelled cleanly. No photo was captured and no content was uploaded.
+
+An explicit Android text-share intent opened review. Leaving review, force-stopping Hermes and relaunching restored the exact unsent text, including through Home's Review action. Discard removed it, and another restart confirmed it stayed removed. Successful capture, Samsung media intake and file/capture process-death recovery remain open. See the [live acceptance record](LIVE_PHONE_ACCEPTANCE_2026-09-12.md).

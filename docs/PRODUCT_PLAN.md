@@ -340,6 +340,10 @@ provider grouping and a basic prompt round trip also passed live checks. The
 temporary test chat was deleted. Project creation, Activity with real work,
 cross-client read state, queue/upload behavior, sensitive response delivery and
 Samsung-specific media and capture behavior remain open.
+The 2026-09-13 Samsung follow-up verified the local test alert and app-opening
+tap, Camera/Photos/Files cancellation, and incoming text recovery and discard
+across real Hermes process restarts. Successful capture, media intake and
+chat-specific alert routing still need live checks.
 The [delivery sequence](DELIVERY_SEQUENCE.md) and technical feature notes record
 the precise limits and completed verification.
 

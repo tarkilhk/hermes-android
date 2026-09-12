@@ -31,6 +31,20 @@ transient failures, preserves saved proxied-auth forwarding, keeps recent Find
 results stable while adding older matches, and places the result action before
 expanded full text. Raw server responses and private paths are not displayed.
 
+## Follow-up on 2026-09-13
+
+The installed Personal 2.31.1 build passed these additional Samsung checks.
+No messages, files or photos were sent during this pass.
+
+| Check | Result and limit |
+| --- | --- |
+| Local test notification | Android notification permission was granted. The built-in test posted an actual Hermes notification, and tapping it returned to the app. This verifies local delivery and app opening, not background push or chat-specific routing. |
+| Photos cancellation | Photos opened Android's app chooser. Cancelling returned to an empty composer with Send disabled. No media was selected. |
+| Camera cancellation | Samsung Camera opened and cancelled back to the empty composer without a review. A second launch also opened and cancelled successfully. No photo was taken. |
+| Files cancellation | Android's document picker opened and cancelled back to the original empty composer. The context fuse remained populated and the original model setting remained High. |
+| Incoming text recovery | An explicit Android text-share intent opened review. After leaving review, force-stopping Hermes and relaunching restored the exact unsent text. Home's Review action reopened it. This verifies native text intake across actual process restart, not a third-party sender's share-sheet selection. |
+| Incoming text discard | Discard removed the test intake. Another force-stop and relaunch did not restore it or reopen review. Nothing was added to a conversation draft. |
+
 ## Remaining live acceptance
 
 - Create or edit a real project after selecting a discovered folder.
