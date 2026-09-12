@@ -49,6 +49,28 @@ certificate/package checks; installation awaits a new wireless-debugging
 endpoint after the phone refused the last address. Navigation from a match to
 its message remains the next selected D18 portion.
 
+### Find result navigation, 2.26.0
+
+The selected C03/T11 follow-up adds **View in chat** to each Find match. The
+result retains its original fetched history and row ID, including older batches.
+The chat displays the matched message with up to four saved rows on either side,
+using the existing message and tool renderers. Matching tool disclosures open
+automatically and the match is highlighted. **Back to latest** stays visible and
+returns to the normal conversation. This view supports reading, copying and media
+access; saved-message editing and branching remain in the normal transcript.
+
+This is disposable reading state. It does not replace the chat's current history,
+change its pagination, save a transcript or route through a different profile.
+Changing chat or refreshing history invalidates a stale selection. All 22 focused
+checks passed, including older results, stale selection, tool expansion and
+320-pixel layouts at 200% text size. A regression with long preceding messages
+reproduced an offscreen match before replacing the nearby view's lazy list with
+an eager, bounded column; the selected tool output is now verified visible.
+Full suite: 1,191 passed, four opt-in skips;
+analyzer clean. Signed Personal 2.26.0 / 21772 passed native compilation and
+certificate/package checks. Phone installation remains deferred while the owner
+is away from home.
+
 ## Per-chat Outputs
 
 Outputs follows Desktop's transcript-derived approach. It finds assistant-delivered MEDIA tags, links/images and qualified paths, plus explicit producer-tool output fields. It recognizes common documents, archives and media; explicit references may use relative filenames. Passive tool cache/source paths are excluded where possible. Candidates are deduplicated within the one selected chat and remain disposable.

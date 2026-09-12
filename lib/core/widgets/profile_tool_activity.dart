@@ -2,16 +2,28 @@ import 'package:flutter/material.dart';
 
 /// One collapsed section containing the existing tool result cards.
 class ProfileToolActivitySection extends StatelessWidget {
-  const ProfileToolActivitySection({super.key, required this.groups});
+  const ProfileToolActivitySection({
+    super.key,
+    required this.groups,
+    this.expandedMessageId,
+    this.focusedMessageKey,
+  });
   final List<List<Map<String, dynamic>>> groups;
+  final int? expandedMessageId;
+  final GlobalKey? focusedMessageKey;
 
   @override
   Widget build(BuildContext context) {
     final count = groups.fold(0, (total, group) => total + group.length);
+    final expanded =
+        expandedMessageId != null &&
+        groups.any(
+          (group) => group.any((message) => message['id'] == expandedMessageId),
+        );
     return Padding(
       padding: const EdgeInsets.only(bottom: 8),
       child: ExpansionTile(
-        initiallyExpanded: false,
+        initiallyExpanded: expanded,
         maintainState: true,
         minTileHeight: 48,
         tilePadding: const EdgeInsets.symmetric(horizontal: 12),
@@ -21,7 +33,17 @@ class ProfileToolActivitySection extends StatelessWidget {
         title: const Text('Tool activity'),
         subtitle: Text('$count tool ${count == 1 ? 'call' : 'calls'}'),
         children: [
-          for (final group in groups) ProfileToolActivity(messages: group),
+          for (final group in groups)
+            ProfileToolActivity(
+              messages: group,
+              initiallyExpanded: group.any(
+                (message) =>
+                    expandedMessageId != null &&
+                    message['id'] == expandedMessageId,
+              ),
+              focusedMessageId: expandedMessageId,
+              focusedMessageKey: focusedMessageKey,
+            ),
         ],
       ),
     );
@@ -60,8 +82,17 @@ List<ProfileTranscriptSection> groupTranscriptSections(
 
 /// Disclosure for contiguous tool results. Never contains approvals or questions.
 class ProfileToolActivity extends StatelessWidget {
-  const ProfileToolActivity({super.key, required this.messages});
+  const ProfileToolActivity({
+    super.key,
+    required this.messages,
+    this.initiallyExpanded = false,
+    this.focusedMessageId,
+    this.focusedMessageKey,
+  });
   final List<Map<String, dynamic>> messages;
+  final bool initiallyExpanded;
+  final int? focusedMessageId;
+  final GlobalKey? focusedMessageKey;
 
   @override
   Widget build(BuildContext context) {
@@ -76,6 +107,7 @@ class ProfileToolActivity extends StatelessWidget {
         borderRadius: BorderRadius.circular(14),
         clipBehavior: Clip.antiAlias,
         child: ExpansionTile(
+          initiallyExpanded: initiallyExpanded,
           minTileHeight: 48,
           tilePadding: const EdgeInsets.symmetric(horizontal: 12),
           shape: const Border(),
@@ -98,30 +130,51 @@ class ProfileToolActivity extends StatelessWidget {
           childrenPadding: const EdgeInsets.fromLTRB(14, 0, 14, 14),
           expandedCrossAxisAlignment: CrossAxisAlignment.stretch,
           children: [
-            for (final message in messages) ...[
-              const Divider(height: 16),
-              if (messages.length > 1)
-                Padding(
-                  padding: const EdgeInsets.only(bottom: 8),
-                  child: Text(
-                    message['tool_name']?.toString() ?? 'Tool result',
-                    style: const TextStyle(
-                      fontWeight: FontWeight.w600,
-                      fontSize: 13,
+            for (final message in messages)
+              Container(
+                key:
+                    focusedMessageId != null &&
+                        message['id'] == focusedMessageId
+                    ? focusedMessageKey
+                    : null,
+                decoration:
+                    focusedMessageId != null &&
+                        message['id'] == focusedMessageId
+                    ? BoxDecoration(
+                        color: colors.primaryContainer.withValues(alpha: 0.45),
+                        border: Border.all(color: colors.primary, width: 2),
+                        borderRadius: BorderRadius.circular(10),
+                      )
+                    : null,
+                padding: const EdgeInsets.symmetric(horizontal: 8),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.stretch,
+                  children: [
+                    const Divider(height: 16),
+                    if (messages.length > 1)
+                      Padding(
+                        padding: const EdgeInsets.only(bottom: 8),
+                        child: Text(
+                          message['tool_name']?.toString() ?? 'Tool result',
+                          style: const TextStyle(
+                            fontWeight: FontWeight.w600,
+                            fontSize: 13,
+                          ),
+                        ),
+                      ),
+                    SelectableText(
+                      (message['display_content'] ?? message['content'] ?? '')
+                          .toString(),
+                      style: TextStyle(
+                        fontFamily: 'monospace',
+                        fontSize: 12,
+                        height: 1.5,
+                        color: colors.onSurface,
+                      ),
                     ),
-                  ),
-                ),
-              SelectableText(
-                (message['display_content'] ?? message['content'] ?? '')
-                    .toString(),
-                style: TextStyle(
-                  fontFamily: 'monospace',
-                  fontSize: 12,
-                  height: 1.5,
-                  color: colors.onSurface,
+                  ],
                 ),
               ),
-            ],
           ],
         ),
       ),

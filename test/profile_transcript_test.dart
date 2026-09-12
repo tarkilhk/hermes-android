@@ -266,6 +266,20 @@ void main() {
     expect(tester.takeException(), isNull);
   });
 
+  testWidgets('tool rows without saved IDs stay collapsed by default', (
+    tester,
+  ) async {
+    chat.messages = [
+      {'role': 'tool', 'content': 'Unsaved tool output'},
+    ];
+    chat.nextHistoryOffset = null;
+
+    await show(tester);
+
+    expect(find.text('Tool activity'), findsOneWidget);
+    expect(find.text('Unsaved tool output'), findsNothing);
+  });
+
   testWidgets(
     'input requests are discoverable while reading without automatically approving',
     (tester) async {
@@ -281,6 +295,71 @@ void main() {
       expect(chat.historyScrollOffset, 0);
       expect(chat.approval, isNotNull);
       expect(host.calls.length, before);
+    },
+  );
+
+  testWidgets(
+    'search context keeps its header visible and expands the matched tool result',
+    (tester) async {
+      tester.view.physicalSize = const Size(320, 640);
+      tester.view.devicePixelRatio = 1;
+      tester.platformDispatcher.textScaleFactorTestValue = 2;
+      addTearDown(tester.view.reset);
+      addTearDown(tester.platformDispatcher.clearTextScaleFactorTestValue);
+      final originalMessages = List<Map<String, dynamic>>.of(chat.messages);
+      chat.historyScrollOffset = 84;
+      var returned = false;
+      final nearby = [
+        for (var id = 1; id <= 9; id++)
+          id == 5
+              ? {
+                  'id': id,
+                  'role': 'tool',
+                  'tool_name': 'read_file',
+                  'content': 'Matched tool output',
+                }
+              : {
+                  'id': id,
+                  'role': 'assistant',
+                  'content': List.filled(30, 'Nearby message $id').join('\n'),
+                },
+      ];
+
+      await tester.pumpWidget(
+        MaterialApp(
+          home: Scaffold(
+            body: ListenableBuilder(
+              listenable: controller,
+              builder: (_, _) => ProfileTranscript(
+                chat: chat,
+                controller: controller,
+                messageBuilder: (message) =>
+                    Text(message['content'].toString()),
+                tail: const [],
+                nearbyMessages: nearby,
+                focusedMessageId: 5,
+                onBackToLatest: () => returned = true,
+              ),
+            ),
+          ),
+        ),
+      );
+      await tester.pumpAndSettle();
+      controller.clearSearch();
+      await tester.pumpAndSettle();
+
+      expect(find.text('Search result'), findsOneWidget);
+      expect(find.text('Nearby messages'), findsOneWidget);
+      expect(find.text('Back to latest'), findsOneWidget);
+      expect(find.text('Matched tool output').hitTestable(), findsOneWidget);
+      expect(tester.takeException(), isNull);
+      expect(chat.messages, originalMessages);
+      expect(chat.historyScrollOffset, 84);
+
+      await tester.tap(find.text('Back to latest'));
+      expect(returned, isTrue);
+      await tester.pumpWidget(const SizedBox.shrink());
+      expect(chat.historyScrollOffset, 84);
     },
   );
 

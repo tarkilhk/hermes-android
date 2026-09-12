@@ -10,22 +10,34 @@ class ProfileTranscript extends StatefulWidget {
   final ProfileWorkspaceController controller;
   final Widget Function(Map<String, dynamic>) messageBuilder;
   final List<Widget> tail;
+  final List<Map<String, dynamic>>? nearbyMessages;
+  final int? focusedMessageId;
+  final VoidCallback? onBackToLatest;
   const ProfileTranscript({
     super.key,
     required this.chat,
     required this.controller,
     required this.messageBuilder,
     required this.tail,
-  });
+    this.nearbyMessages,
+    this.focusedMessageId,
+    this.onBackToLatest,
+  }) : assert(
+         nearbyMessages == null ||
+             (focusedMessageId != null && onBackToLatest != null),
+       );
   @override
   State<ProfileTranscript> createState() => _ProfileTranscriptState();
 }
 
 class _ProfileTranscriptState extends State<ProfileTranscript> {
   late final _scroll = ScrollController(
-    initialScrollOffset: widget.chat.historyScrollOffset,
+    initialScrollOffset: widget.nearbyMessages == null
+        ? widget.chat.historyScrollOffset
+        : 0,
   );
   final _viewport = GlobalKey();
+  final _focusedRow = GlobalKey();
   final _rows = <Object, GlobalKey>{};
   int _layoutGeneration = 0;
   int _gestureGeneration = 0;
@@ -35,7 +47,9 @@ class _ProfileTranscriptState extends State<ProfileTranscript> {
   late String _streaming;
   String? _segment;
   late final _jumpLabel = ValueNotifier<String?>(
-    widget.chat.historyScrollOffset > 48 ? 'Latest' : null,
+    widget.nearbyMessages == null && widget.chat.historyScrollOffset > 48
+        ? 'Latest'
+        : null,
   );
 
   @override
@@ -44,7 +58,21 @@ class _ProfileTranscriptState extends State<ProfileTranscript> {
     _newestId = widget.chat.messages.lastOrNull?['id'];
     _streaming = widget.chat.streaming;
     _segment = widget.chat.historySessionId;
-    WidgetsBinding.instance.addPostFrameCallback((_) => _updateJump());
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (widget.nearbyMessages == null) {
+        _updateJump();
+      } else {
+        _revealFocusedRow();
+      }
+    });
+  }
+
+  void _revealFocusedRow() {
+    if (!mounted) return;
+    final context = _focusedRow.currentContext;
+    if (context != null) {
+      Scrollable.ensureVisible(context, alignment: 0.25);
+    }
   }
 
   void _updateJump() {
@@ -81,6 +109,7 @@ class _ProfileTranscriptState extends State<ProfileTranscript> {
   @override
   void didUpdateWidget(covariant ProfileTranscript oldWidget) {
     super.didUpdateWidget(oldWidget);
+    if (widget.nearbyMessages != null) return;
     if (!_scroll.hasClients) return;
     final atBottom = _scroll.offset <= 24 || _jumping;
     final newest = widget.chat.messages.lastOrNull?['id'];
@@ -145,7 +174,9 @@ class _ProfileTranscriptState extends State<ProfileTranscript> {
 
   @override
   void dispose() {
-    if (_scroll.hasClients) widget.chat.historyScrollOffset = _scroll.offset;
+    if (widget.nearbyMessages == null && _scroll.hasClients) {
+      widget.chat.historyScrollOffset = _scroll.offset;
+    }
     _scroll.dispose();
     _jumpLabel.dispose();
     super.dispose();
@@ -153,6 +184,7 @@ class _ProfileTranscriptState extends State<ProfileTranscript> {
 
   @override
   Widget build(BuildContext context) {
+    if (widget.nearbyMessages != null) return _nearbyMessages(context);
     final chat = widget.chat;
     final tail = widget.tail.reversed.toList();
     final rows = groupTranscriptSections(chat.messages).reversed.toList();
@@ -267,6 +299,93 @@ class _ProfileTranscriptState extends State<ProfileTranscript> {
       ],
     );
   }
+
+  Widget _nearbyMessages(BuildContext context) {
+    final targetId = widget.focusedMessageId!;
+    final rows = widget.nearbyMessages!;
+    final rowIndex = rows.indexWhere((row) => row['id'] == targetId);
+    if (rowIndex < 0) return _missingSearchResult();
+    final start = (rowIndex - 4).clamp(0, rows.length).toInt();
+    final end = (rowIndex + 5).clamp(0, rows.length).toInt();
+    final sections = groupTranscriptSections(rows.sublist(start, end));
+    final targetIndex = sections.indexWhere(
+      (section) => section.messages.any((row) => row['id'] == targetId),
+    );
+    if (targetIndex < 0) return _missingSearchResult();
+    return Column(
+      children: [
+        Padding(
+          padding: const EdgeInsets.fromLTRB(16, 8, 16, 0),
+          child: Card(
+            child: Padding(
+              padding: const EdgeInsets.fromLTRB(16, 10, 8, 6),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(
+                    'Search result',
+                    style: Theme.of(context).textTheme.titleSmall,
+                  ),
+                  const Text('Nearby messages'),
+                  Align(
+                    alignment: Alignment.centerRight,
+                    child: TextButton(
+                      onPressed: widget.onBackToLatest,
+                      child: const Text('Back to latest'),
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          ),
+        ),
+        Expanded(
+          child: SingleChildScrollView(
+            key: const ValueKey('profile-transcript-search-result'),
+            controller: _scroll,
+            keyboardDismissBehavior: ScrollViewKeyboardDismissBehavior.onDrag,
+            padding: const EdgeInsets.fromLTRB(16, 8, 16, 8),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.stretch,
+              children: [
+                for (final section in sections)
+                  if (section.isTool)
+                    ProfileToolActivitySection(
+                      groups: section.groups,
+                      expandedMessageId: targetId,
+                      focusedMessageKey: _focusedRow,
+                    )
+                  else
+                    Container(
+                      key: section.messages.any((row) => row['id'] == targetId)
+                          ? _focusedRow
+                          : null,
+                      decoration:
+                          section.messages.any((row) => row['id'] == targetId)
+                          ? BoxDecoration(
+                              border: Border.all(
+                                color: Theme.of(context).colorScheme.primary,
+                                width: 2,
+                              ),
+                              borderRadius: BorderRadius.circular(12),
+                            )
+                          : null,
+                      child: widget.messageBuilder(section.messages.last),
+                    ),
+              ],
+            ),
+          ),
+        ),
+      ],
+    );
+  }
+
+  Widget _missingSearchResult() => Center(
+    child: TextButton(
+      onPressed: widget.onBackToLatest,
+      child: const Text('Back to latest'),
+    ),
+  );
 
   Widget _historyEdge(ProfileChat chat) {
     if (chat.historyLoading) {

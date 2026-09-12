@@ -8,6 +8,24 @@ Feature releases increment the minor version, fixes increment the patch version,
 and breaking changes increment the major version. The Android build number after
 `+` always increases. Update this changelog for every release milestone.
 
+## [2.26.0+2177] - 2026-09-12
+
+### Added
+
+- Find results offer **View in chat**, including matches in older saved history.
+  Read the matching message with nearby context and return with **Back to latest**.
+  Matched tool results open their disclosures automatically.
+- Keep this search view temporary and scoped to its original chat. It leaves
+  normal history and pagination untouched and discards stale selections after
+  a history refresh or chat change.
+
+### Verification
+
+- All 22 focused checks passed. Full suite: 1,191 passed, four opt-in skips;
+  analyzer clean. Signed Personal 2.26.0 / 21772 passed native compilation and
+  certificate/package checks. Phone installation is deferred while the owner
+  is away from home.
+
 ## [2.25.1+2176] - 2026-09-12
 
 ### Fixed

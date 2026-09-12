@@ -62,6 +62,10 @@ class _ProfileWorkspaceScreenState extends State<ProfileWorkspaceScreen>
   final _scaffoldKey = GlobalKey<ScaffoldState>();
   ProfileSessionKey? _composerKey;
   ProfileSessionKey? _loadingIntelligence;
+  ChatFindResult? _findResult;
+  ProfileSessionKey? _findOwner;
+  int? _findHistoryGeneration;
+  int _findRequestGeneration = 0;
   bool _launchingCamera = false;
   late AppDestination _destination;
 
@@ -207,13 +211,7 @@ class _ProfileWorkspaceScreenState extends State<ProfileWorkspaceScreen>
                   if (action == 'refresh') {
                     unawaited(_run(controller.refresh));
                   } else if (action == 'find') {
-                    unawaited(
-                      showChatFindSheet(
-                        context,
-                        loadHistory: (offset) =>
-                            controller.savedHistoryPage(chat, offset: offset),
-                      ),
-                    );
+                    unawaited(_openFind(chat));
                   } else if (action == 'outputs') {
                     unawaited(_run(() => _openOutputs(chat)));
                   } else if (action == 'subagents') {
@@ -311,6 +309,53 @@ class _ProfileWorkspaceScreenState extends State<ProfileWorkspaceScreen>
     ),
   );
 
+  Future<void> _openFind(ProfileChat chat) async {
+    final owner = chat.key;
+    final historyGeneration = chat.historyGeneration;
+    final requestGeneration = ++_findRequestGeneration;
+    final result = await showChatFindSheet(
+      context,
+      loadHistory: (offset) =>
+          controller.savedHistoryPage(chat, offset: offset),
+    );
+    if (!mounted ||
+        result == null ||
+        requestGeneration != _findRequestGeneration ||
+        controller.current?.chat != chat ||
+        chat.key != owner ||
+        chat.historyGeneration != historyGeneration ||
+        result.page.sessionId !=
+            (chat.historySessionId ?? chat.key.sessionId)) {
+      return;
+    }
+    setState(() {
+      _findResult = result;
+      _findOwner = owner;
+      _findHistoryGeneration = historyGeneration;
+    });
+  }
+
+  ChatFindResult? _activeFindResult(ProfileChat chat) {
+    if (_findOwner != chat.key ||
+        _findHistoryGeneration != chat.historyGeneration) {
+      return null;
+    }
+    return _findResult;
+  }
+
+  void _backToLatest() {
+    setState(() {
+      final owner = _findOwner;
+      final chat = controller.current?.chat;
+      if (owner != null && chat?.key == owner) {
+        chat!.historyScrollOffset = 0;
+      }
+      _findResult = null;
+      _findOwner = null;
+      _findHistoryGeneration = null;
+    });
+  }
+
   Future<void> _openOutputs(ProfileChat chat) async {
     final files = controller.outputFiles(chat);
     final owner = chat.key;
@@ -363,12 +408,19 @@ class _ProfileWorkspaceScreenState extends State<ProfileWorkspaceScreen>
     );
   }
 
-  Widget _answer(ProfileChat chat, Map<String, dynamic> message) {
+  Widget _answer(
+    ProfileChat chat,
+    Map<String, dynamic> message, {
+    bool allowSavedActions = true,
+  }) {
     if (isHiddenAnswerMessage(message)) return const SizedBox.shrink();
     final reasoning = profileMessageReasoning(message);
     final savedPrompt =
-        isAnswerPrompt(message) && answerMessageId(message) != null;
+        allowSavedActions &&
+        isAnswerPrompt(message) &&
+        answerMessageId(message) != null;
     final savedAnswer =
+        allowSavedActions &&
         message['role'] == 'assistant' &&
         answerMessageId(message) != null &&
         isBranchMessage(message);
@@ -556,10 +608,23 @@ class _ProfileWorkspaceScreenState extends State<ProfileWorkspaceScreen>
         ),
       Expanded(
         child: ProfileTranscript(
-          key: ValueKey(chat.key),
+          key: ValueKey((
+            chat.key,
+            _activeFindResult(chat)?.page.offset,
+            _activeFindResult(chat)?.rowId,
+          )),
           chat: chat,
           controller: controller,
-          messageBuilder: (message) => _answer(chat, message),
+          messageBuilder: (message) => _answer(
+            chat,
+            message,
+            allowSavedActions: _activeFindResult(chat) == null,
+          ),
+          nearbyMessages: _activeFindResult(chat)?.page.rows,
+          focusedMessageId: _activeFindResult(chat)?.rowId,
+          onBackToLatest: _activeFindResult(chat) == null
+              ? null
+              : _backToLatest,
           tail: [
             if (chat.streaming.isNotEmpty)
               ProfileMessage(

@@ -6,10 +6,24 @@ import '../services/profile_gateway.dart';
 
 typedef ChatHistoryPageLoader = Future<ProfileHistoryPage> Function(int offset);
 
-Future<void> showChatFindSheet(
+class ChatFindResult {
+  final ProfileHistoryPage page;
+  final int rowId;
+
+  const ChatFindResult({required this.page, required this.rowId});
+}
+
+class _ChatFindRow {
+  final ProfileHistoryPage page;
+  final Map<String, dynamic> row;
+
+  const _ChatFindRow(this.page, this.row);
+}
+
+Future<ChatFindResult?> showChatFindSheet(
   BuildContext context, {
   required ChatHistoryPageLoader loadHistory,
-}) => showModalBottomSheet<void>(
+}) => showModalBottomSheet<ChatFindResult>(
   context: context,
   isScrollControlled: true,
   builder: (_) => ChatFindSheet(loadHistory: loadHistory),
@@ -25,7 +39,7 @@ class ChatFindSheet extends StatefulWidget {
 
 class _ChatFindSheetState extends State<ChatFindSheet> {
   final _query = TextEditingController();
-  final _history = <Map<String, dynamic>>[];
+  final _history = <_ChatFindRow>[];
   final _expanded = <Object>{};
   int? _nextOffset = 0;
   int? _retryOffset;
@@ -52,9 +66,10 @@ class _ChatFindSheetState extends State<ChatFindSheet> {
         if (offset == 0) {
           _history.clear();
         }
-        final ids = _history.map((row) => row['id']).toSet();
+        final ids = _history.map((entry) => entry.row['id']).toSet();
         final rows = page.rows
             .where((row) => ids.add(row['id']))
+            .map((row) => _ChatFindRow(page, row))
             .toList(growable: false);
         if (offset == 0) {
           _history.addAll(rows);
@@ -76,11 +91,11 @@ class _ChatFindSheetState extends State<ChatFindSheet> {
     }
   }
 
-  List<Map<String, dynamic>> get _matches {
+  List<_ChatFindRow> get _matches {
     final query = _query.text.trim().toLowerCase();
     if (query.isEmpty) return const [];
     return _history
-        .where((row) => _rowText(row).toLowerCase().contains(query))
+        .where((entry) => _rowText(entry.row).toLowerCase().contains(query))
         .toList(growable: false);
   }
 
@@ -149,7 +164,8 @@ class _ChatFindSheetState extends State<ChatFindSheet> {
                       : ListView.builder(
                           itemCount: matches.length,
                           itemBuilder: (_, index) {
-                            final row = matches[index];
+                            final entry = matches[index];
+                            final row = entry.row;
                             final role = row['role']?.toString() ?? 'message';
                             final key = _rowKey(row);
                             final expanded = _expanded.contains(key);
@@ -176,6 +192,31 @@ class _ChatFindSheetState extends State<ChatFindSheet> {
                                       overflow: TextOverflow.ellipsis,
                                     ),
                               subtitle: Text(role),
+                              children: [
+                                Align(
+                                  alignment: Alignment.centerRight,
+                                  child: Padding(
+                                    padding: const EdgeInsets.fromLTRB(
+                                      16,
+                                      0,
+                                      16,
+                                      8,
+                                    ),
+                                    child: TextButton.icon(
+                                      onPressed: row['id'] is int
+                                          ? () => Navigator.of(context).pop(
+                                              ChatFindResult(
+                                                page: entry.page,
+                                                rowId: row['id'] as int,
+                                              ),
+                                            )
+                                          : null,
+                                      icon: const Icon(Icons.open_in_new),
+                                      label: const Text('View in chat'),
+                                    ),
+                                  ),
+                                ),
+                              ],
                             );
                           },
                         ),

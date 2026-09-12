@@ -87,6 +87,61 @@ void main() {
       'order': 'latest',
       'include_compacted': 'true',
     });
+
+    await tester.enterText(
+      find.descendant(
+        of: find.byType(ChatFindSheet),
+        matching: find.byType(TextField),
+      ),
+      'Saved /srv/earlier.pdf',
+    );
+    await tester.tap(find.text('Search older messages'));
+    await tester.pumpAndSettle();
+    expect(
+      find.widgetWithText(ExpansionTile, 'Saved /srv/earlier.pdf'),
+      findsOneWidget,
+    );
+    await tester.tap(
+      find.widgetWithText(ExpansionTile, 'Saved /srv/earlier.pdf'),
+    );
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('View in chat'));
+    await tester.pumpAndSettle();
+
+    final chat = controller.current!.chat!;
+    expect(find.text('Search result'), findsOneWidget);
+    expect(find.text('Nearby messages'), findsOneWidget);
+    expect(find.text('Back to latest'), findsOneWidget);
+    expect(find.text('Saved /srv/earlier.pdf'), findsOneWidget);
+    expect(chat.messages, hasLength(50));
+    expect(chat.messages.any((row) => row['id'] == 9500), isFalse);
+
+    await tester.tap(find.text('Back to latest'));
+    await tester.pumpAndSettle();
+    expect(find.text('Search result'), findsNothing);
+    expect(find.text('Saved /srv/latest.pdf'), findsOneWidget);
+    expect(chat.historyScrollOffset, 0);
+
+    await tester.tap(find.byTooltip('Chat actions'));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('Find in chat'));
+    await tester.pumpAndSettle();
+    await tester.enterText(
+      find.descendant(
+        of: find.byType(ChatFindSheet),
+        matching: find.byType(TextField),
+      ),
+      'Saved /srv/latest.pdf',
+    );
+    await tester.pump();
+    await tester.tap(
+      find.widgetWithText(ExpansionTile, 'Saved /srv/latest.pdf'),
+    );
+    await tester.pumpAndSettle();
+    chat.historyGeneration++;
+    await tester.tap(find.text('View in chat'));
+    await tester.pumpAndSettle();
+    expect(find.text('Search result'), findsNothing);
   });
 
   testWidgets(

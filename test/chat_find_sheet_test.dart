@@ -11,6 +11,46 @@ ProfileHistoryPage page(
 }) => ProfileHistoryPage('chat', rows, offset, limit);
 
 void main() {
+  testWidgets('returns the source page and row ID for a selected match', (
+    tester,
+  ) async {
+    ChatFindResult? selected;
+    await tester.pumpWidget(
+      MaterialApp(
+        home: Builder(
+          builder: (context) => TextButton(
+            onPressed: () async {
+              selected = await showChatFindSheet(
+                context,
+                loadHistory: (offset) async => page([
+                  {
+                    'id': 42,
+                    'role': 'assistant',
+                    'content': 'Find this saved answer',
+                  },
+                ], offset: 500),
+              );
+            },
+            child: const Text('Open Find'),
+          ),
+        ),
+      ),
+    );
+
+    await tester.tap(find.text('Open Find'));
+    await tester.pumpAndSettle();
+    await tester.enterText(find.byType(TextField), 'saved answer');
+    await tester.pump();
+    await tester.tap(find.text('Find this saved answer'));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('View in chat'));
+    await tester.pumpAndSettle();
+
+    expect(selected?.rowId, 42);
+    expect(selected?.page.offset, 500);
+    expect(selected?.page.rows.single['content'], 'Find this saved answer');
+  });
+
   testWidgets('loads the recent page once and filters message text locally', (
     tester,
   ) async {
