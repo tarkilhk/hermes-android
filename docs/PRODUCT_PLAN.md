@@ -295,7 +295,16 @@ For M06, Android's [sharing contract](https://developer.android.com/develop/ui/c
 
 ## Active owner feedback
 
-Current verified release, 2026-09-12: Personal 2.28.0 / 21812 adds the Firebase
+Current implementation, 2026-09-12: Personal 2.29.0 adds server-backed sensitive
+request recovery on reconnect. All 1,245 tests pass with four opt-in skips and
+the analyzer is clean. The 28 focused checks cover current, expired, replaced
+and partial-update requests. Patch 0004 deployment and live verification remain
+open. See [request recovery](SENSITIVE_REQUEST_RECOVERY.md). The remaining
+answer-version, side-task, remote TUI restart and background-delivery work stays
+in the plan, along with the existing exclusions and device acceptance checks.
+
+
+Earlier verified release, 2026-09-12: Personal 2.28.0 / 21812 adds the Firebase
 client integration and coordinated backend patch. The owner's Firebase project
 configuration, sender deployment and real background delivery tests remain
 open. The full suite passed 1,237 tests with four opt-in skips; analyzer clean;
@@ -311,7 +320,7 @@ versions, side-task recovery and remote TUI restart remain in the global plan.
 
 - 2026-09-12, D16/F03-F05: owner screenshot reports Outputs failing on a large chat with "Use the paginated conversation view," an unexplained instruction and a Retry that repeats the failure. Integrated into the existing Outputs milestone and installed in 2.24.0: recent outputs first, **Load older outputs**, preserved results after page failures, and clear recovery actions. The exact error was reproduced through the actual chat menu with 10,000 saved messages; the regression now reaches the oldest output and recovers from a failed batch. See [fix details](EXECUTION_FIND_AND_OUTPUTS.md). The related Find limit is fixed in 2.24.1, pending phone installation. All other selections and exclusions remain intact.
 
-Next verified release, 2026-09-12: Personal 2.27.2 / 21802 fixes duplicate notification screens and obsolete opens during rapid target changes or cold startup. Later taps still refresh from Hermes, failed opens can be retried, and original connection ownership is checked. It includes 2.27.1 startup recovery/stable alert IDs, 2.27.0 attachment queues and the preceding Find, read-state and background-task improvements. All 33 focused notification checks and 1,224 full-suite tests pass, with four opt-in skips. Analyzer clean; the signed APK passed native compilation and certificate/package checks. Installation is deferred while the owner is away from home. Firebase configuration and the trusted backend sender remain necessary for delivery while the app is absent; see [background delivery](BACKGROUND_NOTIFICATIONS.md). The delivery sequence retains all other phone/live QA and backend-contract dependencies. All selected work and exclusions remain intact.
+Earlier verified release, 2026-09-12: Personal 2.27.2 / 21802 fixes duplicate notification screens and obsolete opens during rapid target changes or cold startup. Later taps still refresh from Hermes, failed opens can be retried, and original connection ownership is checked. It includes 2.27.1 startup recovery/stable alert IDs, 2.27.0 attachment queues and the preceding Find, read-state and background-task improvements. All 33 focused notification checks and 1,224 full-suite tests pass, with four opt-in skips. Analyzer clean; the signed APK passed native compilation and certificate/package checks. Installation is deferred while the owner is away from home. Firebase configuration and the trusted backend sender remain necessary for delivery while the app is absent; see [background delivery](BACKGROUND_NOTIFICATIONS.md). The delivery sequence retains all other phone/live QA and backend-contract dependencies. All selected work and exclusions remain intact.
 
 Latest phone delivery, 2026-09-12: Hermes Personal 2.24.0 / 21732 is installed and launched. It fixes large-chat Outputs and adds downloaded self-contained HTML previews. It includes all preceding milestones, thousands separators and the D15 context reopen fix. The full suite passed 1,173 tests with four opt-in skips, and the analyzer is clean. Real browser fixtures passed for HTML, SVG and Mermaid. The signed APK passed native compilation and certificate/package checks. Phone verification covers installed identity and process metadata; the owner's live Outputs chat, playback/reading/browser gestures and server feature QA remain. The documented Firebase/backend-contract dependencies remain tracked. Other unsupported visual formats retain source fallback.
 

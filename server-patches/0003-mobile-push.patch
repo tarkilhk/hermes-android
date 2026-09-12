@@ -450,10 +450,10 @@ index 0000000..057b510
 +        log.debug("mobile push event hook failed", exc_info=True)
 diff --git a/hermes_cli/web_routers/mobile_push.py b/hermes_cli/web_routers/mobile_push.py
 new file mode 100644
-index 0000000..ebfbca1
+index 0000000..d6fc16b
 --- /dev/null
 +++ b/hermes_cli/web_routers/mobile_push.py
-@@ -0,0 +1,49 @@
+@@ -0,0 +1,50 @@
 +"""Authenticated dashboard routes for Android push registration."""
 +
 +from pathlib import Path
@@ -468,26 +468,27 @@ index 0000000..ebfbca1
 +_profile_scope = late("_profile_scope", "hermes_cli.web_server_profiles")
 +
 +
-+def _scope(profile: str) -> tuple[Path, str]:
++def _scope(profile: str) -> tuple[Path, Path, str]:
++    from hermes_cli.config import get_process_hermes_home
 +    from hermes_constants import get_hermes_home, profile_name_for_home
 +    home = Path(get_hermes_home())
 +    canonical = profile_name_for_home(home) or profile
-+    return home, canonical
++    return home, Path(get_process_hermes_home()), canonical
 +
 +
 +@router.get("/api/mobile/push/status")
 +def mobile_push_status(profile: str):
 +    with _profile_scope(profile):
-+        home, _ = _scope(profile)
-+        return sender_status(home)
++        _, config_home, _ = _scope(profile)
++        return sender_status(config_home)
 +
 +
 +@router.post("/api/mobile/push/installations")
 +def mobile_push_register(body: dict[str, Any], profile: str):
 +    try:
 +        with _profile_scope(profile):
-+            home, canonical = _scope(profile)
-+            return register(home, canonical, body)
++            home, config_home, canonical = _scope(profile)
++            return register(home, canonical, body, config_home=config_home)
 +    except ValueError as exc:
 +        raise HTTPException(status_code=400, detail=str(exc)) from exc
 +    except RuntimeError as exc:
@@ -498,7 +499,7 @@ index 0000000..ebfbca1
 +def mobile_push_remove(registration_id: str, profile: str):
 +    try:
 +        with _profile_scope(profile):
-+            home, canonical = _scope(profile)
++            home, _, canonical = _scope(profile)
 +            remove(home, canonical, registration_id)
 +    except ValueError as exc:
 +        raise HTTPException(status_code=400, detail=str(exc)) from exc

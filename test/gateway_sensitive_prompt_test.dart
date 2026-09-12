@@ -73,5 +73,62 @@ void main() {
       expect(code!.title, 'Enter code for Example');
       expect(code.description, 'Use your authenticator app.');
     });
+
+    test('parses each authoritative pending-sensitive request family', () {
+      const cases = [
+        ('sudo.request', 'sudo-1', GatewaySensitivePromptKind.sudo),
+        ('secret.request', 'secret-1', GatewaySensitivePromptKind.secret),
+        (
+          'vault.unlock.request',
+          'unlock-1',
+          GatewaySensitivePromptKind.vaultUnlock,
+        ),
+        (
+          'vault.save_login.request',
+          'save-1',
+          GatewaySensitivePromptKind.vaultSaveLogin,
+        ),
+        ('vault.code.request', 'code-1', GatewaySensitivePromptKind.vaultCode),
+      ];
+      for (final value in cases) {
+        final request = GatewaySensitivePromptRequest.fromPendingSnapshot({
+          'type': value.$1,
+          'payload': {'request_id': value.$2},
+        });
+        expect(request?.requestId, value.$2);
+        expect(request?.kind, value.$3);
+      }
+    });
+
+    test('fails closed on malformed pending-sensitive snapshots', () {
+      final malformed = <Object?>[
+        null,
+        const {},
+        const {
+          'type': 'unknown.request',
+          'payload': {'request_id': 'id'},
+        },
+        const {'type': 'sudo.request', 'payload': 'not-an-object'},
+        const {'type': 'sudo.request', 'payload': {}},
+        const {
+          'type': 'sudo.request',
+          'payload': {'request_id': 7},
+        },
+        const {
+          'type': 'secret.request',
+          'payload': {'request_id': 'id', 'prompt': 7},
+        },
+        const {
+          'type': 'sudo.request',
+          'payload': {'request_id': 'id', 'password': 'must-not-appear'},
+        },
+      ];
+      for (final value in malformed) {
+        expect(
+          GatewaySensitivePromptRequest.fromPendingSnapshot(value),
+          isNull,
+        );
+      }
+    });
   });
 }

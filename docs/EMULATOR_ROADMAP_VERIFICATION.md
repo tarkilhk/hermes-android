@@ -31,6 +31,7 @@ and checks that still need a configured Hermes server or Firebase project.
 | Camera cancellation | Native camera opened; cancelling returned to the unchanged text draft | `build/qa-native-camera-ready.xml`, `build/qa-native-camera-cancelled.xml` |
 | Camera capture | Native Shutter and Done returned a 72 KiB Camera photo.jpg to destination review; Add to draft staged it with the original text | `build/qa-native-camera-confirm.xml`, `build/qa-native-camera-result.xml`, `build/qa-native-camera-staged.xml` |
 | Camera draft interruption | Restart after staging did not reoffer the completed intake; reopening the chat retained the image and text | `build/qa-native-camera-restart-ready.xml`, `build/qa-native-camera-restored.xml` |
+| Process reclaimed during capture | Android killed the background Hermes process while the camera remained open. Shutter and Done recreated Hermes with a 75 KiB photo in destination review | `build/qa-native-camera-after-kill.xml`, `build/qa-native-camera-killed-confirm.xml`, `build/qa-native-camera-recovered-ready.xml` |
 | Native file picker | Android Downloads selected the synthetic text document; the composer retained it alongside the earlier image and text | `build/qa-native-downloads.xml`, `build/qa-native-file-selected.xml` |
 | Native photo picker | Selected a synthetic emulator screenshot; horizontal scrolling revealed it as the third attachment without replacing the earlier items | `build/qa-native-photo-items.xml`, `build/qa-native-photo-chip.xml` |
 
@@ -57,15 +58,27 @@ separate pre-test load error for
 scenarios and exited with `+3 -1`. With standard DDS enabled, it failed to start
 the Dart Development Service before loading the suite. The exact error and
 scenario results are retained in `build/roadmap-emulator-run-20260912.log`.
-Resolving this runner issue remains part of verification; this is not recorded
-as a fully passing integration-test command.
+That command did not pass and remains recorded as a runner failure.
+
+The 2.29.0 rerun used `test_driver/roadmap_emulator_driver.dart`. The combined
+`flutter drive --no-dds` launch lost its service connection before running tests.
+The app remained alive and paused at start. A direct VM-service probe succeeded,
+so the same standard integration driver was connected through an explicit ADB
+port forward. All three scenarios then passed and the driver exited 0. No test
+assertions or Flutter SDK files were changed. The clean result is in
+`build/2.29.0-emulator-direct-driver.log`; the failed launch is retained in
+`build/2.29.0-emulator-drive.log`.
+
+For this run, `adb forward tcp:61888 tcp:42549` forwarded the emulator's observed
+VM port. Setting `VM_SERVICE_URL` to that forwarded service URI and running
+`dart --packages=.dart_tool/package_config.json test_driver/roadmap_emulator_driver.dart`
+completed the suite. VM ports and service tokens change on each app launch.
 
 `integration_test/roadmap_native_preview.dart` uses the same synthetic transport
 with real Android plugins, secure storage and preferences for direct UI checks.
 It requires a debug build and is only used on the disposable emulator.
 
-Interruption while the camera owns the foreground,
-media/PDF/browser previews and cold/warm session-target notification taps still
+Media/PDF/browser previews and cold/warm session-target notification taps still
 need their Android checks. The force-stop checks above test draft/intake
 recovery only; they do not claim FCM delivery to a force-stopped application.
 Fixture results must not be recorded as live server results. Production-context

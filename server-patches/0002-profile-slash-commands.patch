@@ -1,5 +1,5 @@
 diff --git a/tui_gateway/methods_complete.py b/tui_gateway/methods_complete.py
-index a7e5decc11..0752b3317c 100644
+index a7e5dec..0752b33 100644
 --- a/tui_gateway/methods_complete.py
 +++ b/tui_gateway/methods_complete.py
 @@ -221,6 +221,7 @@ def _(rid, params: dict) -> dict:
@@ -11,10 +11,10 @@ index a7e5decc11..0752b3317c 100644
  def _(rid, params: dict) -> dict:
      text = params.get("text", "")
 diff --git a/tui_gateway/methods_tools.py b/tui_gateway/methods_tools.py
-index 9d9e457f75..52dcf9d3e5 100644
+index 68abf1e..2a54ce0 100644
 --- a/tui_gateway/methods_tools.py
 +++ b/tui_gateway/methods_tools.py
-@@ -403,7 +403,7 @@ def _catalog_skills(cat: _Catalog, skills: dict[str, dict]) -> None:
+@@ -400,7 +400,7 @@ def _catalog_skills(cat: _Catalog, skills: dict[str, dict]) -> None:
          skills[k] = {"usage": usage(name), "origin": origin_of(name)}
  
  
@@ -23,16 +23,16 @@ index 9d9e457f75..52dcf9d3e5 100644
  def _(rid, params: dict) -> dict:
      """Registry-backed slash metadata, categorized, no aliases. Discovery failures land in ``warning``
      (skills' message wins, then quick commands', then plugins')."""
-@@ -811,7 +811,7 @@ _SLASH_BUILTINS = {
+@@ -792,7 +792,7 @@ _SLASH_BUILTINS = {
+     "loop": _cmd_loop, "undo": _cmd_undo, "snapshot": _cmd_snapshot, "snap": _cmd_snapshot,
      "compress": _cmd_compress, "compact": _cmd_compress}
- 
  
 -@method("command.dispatch")
 +@_scoped_rpc("command.dispatch", 5012)
  def _(rid, params: dict) -> dict:
      name, arg = _resolve_name(params.get("name", "").lstrip("/")), params.get("arg", "")
      session = _sessions.get(params.get("session_id", ""))
-@@ -825,7 +825,7 @@ def _(rid, params: dict) -> dict:
+@@ -808,7 +808,7 @@ def _(rid, params: dict) -> dict:
      return _err(rid, 4018, f"not a quick/plugin/bundle/skill command: {name}")
  
  

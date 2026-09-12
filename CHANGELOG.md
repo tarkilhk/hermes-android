@@ -8,6 +8,36 @@ Feature releases increment the minor version, fixes increment the patch version,
 and breaking changes increment the major version. The Android build number after
 `+` always increases. Update this changelog for every release milestone.
 
+## [2.29.0+2182] - 2026-09-12
+
+### Added
+
+- Pending password, secret and verification requests can return when a chat
+  reconnects, using the server's current request. Expired or answered requests
+  close their forms. Replaced requests clear entered values; partial status
+  updates preserve an active form. Sensitive answers remain unsaved.
+- Backend patch 0004 exposes pending request metadata through resume and
+  session-info responses, with ownership, expiry and display-field checks.
+
+### Fixed
+
+- Rebased the older TCP/SSE and profile-command backend patches onto the pinned
+  Hermes source. Corrected push registration/status to use the host's Firebase
+  configuration while keeping installation records scoped to their profile.
+
+### Verification
+
+- Full suite: 1,245 passed, four opt-in skips; static analyzer clean.
+- Signed Personal 21822 passed native compilation, package and certificate checks.
+- All three roadmap emulator scenarios passed with a clean standard-driver
+  exit after connecting it directly to the emulator's VM service. The combined
+  Flutter launch connection failure remains documented in the verification record.
+- All 28 focused request recovery checks passed. Live server acceptance needs
+  the coordinated backend patch. See [request recovery](docs/SENSITIVE_REQUEST_RECOVERY.md).
+- On the disposable emulator, Android reclaimed Hermes while the camera stayed
+  open. Completing the capture recreated Hermes and restored photo review.
+  Phone installation remains deferred while the owner is away.
+
 ## [2.28.0+2181] - 2026-09-12
 
 ### Added

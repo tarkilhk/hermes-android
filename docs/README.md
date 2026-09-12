@@ -44,6 +44,7 @@ The inventories describe their inspection dates and source commits. Do not silen
 - [App shell](APP_SHELL.md), navigation, cleanup boundary and verification.
 - [Conversation foundations](CONVERSATION_FOUNDATIONS.md), durable drafts, server refresh, provider selection, session YOLO and approval controls.
 - [Supervision and queues](SUPERVISION_AND_QUEUES.md), cross-profile Activity, sensitive responses, notification controls and client-owned follow-up queues.
+- [Sensitive request recovery](SENSITIVE_REQUEST_RECOVERY.md), server-owned pending forms, expiry and response privacy.
 - [Conversation actions and reading](CONVERSATION_ACTIONS_AND_READING.md), saved-message actions, side-question deliveries, phone reading improvements and the context fuse.
 - [Execution, Find and Outputs](EXECUTION_FIND_AND_OUTPUTS.md), live tool/todo/reasoning views, current-chat search and scoped output retrieval.
 - [Filters and projects](FILTERS_AND_PROJECTS.md), paginated unread filtering, Activity status filters and server project management.

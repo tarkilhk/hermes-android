@@ -135,6 +135,33 @@ void main() {
     );
   });
 
+  testWidgets('the same recovered request preserves the typed value', (
+    tester,
+  ) async {
+    await tester.pumpWidget(app(sudo, (_) async {}));
+    await tester.enterText(
+      find.byKey(const Key('sensitive-prompt-field')),
+      'still-typing',
+    );
+    const refreshed = GatewaySensitivePromptRequest(
+      kind: GatewaySensitivePromptKind.sudo,
+      requestId: 'sudo-1',
+      title: 'Administrator password still needed',
+      description: 'The same request remains pending.',
+      fieldLabel: 'Sudo password',
+    );
+
+    await tester.pumpWidget(app(refreshed, (_) async {}));
+
+    expect(
+      tester
+          .widget<TextField>(find.byKey(const Key('sensitive-prompt-field')))
+          .controller!
+          .text,
+      'still-typing',
+    );
+  });
+
   testWidgets('save login submits a trimmed identifier and masked password', (
     tester,
   ) async {

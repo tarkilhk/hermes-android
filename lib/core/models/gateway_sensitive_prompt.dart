@@ -25,6 +25,59 @@ class GatewaySensitivePromptRequest {
     required this.fieldLabel,
   });
 
+  /// Parses the authoritative `pending_sensitive` session snapshot.
+  /// Invalid snapshots are treated as no pending request.
+  static GatewaySensitivePromptRequest? fromPendingSnapshot(Object? value) {
+    if (value is! Map) return null;
+    if (value.keys.any((key) => key is! String)) return null;
+    final envelope = Map<String, dynamic>.from(value);
+    if (envelope.keys.any((key) => key != 'type' && key != 'payload')) {
+      return null;
+    }
+    final type = envelope['type'];
+    final rawPayload = envelope['payload'];
+    if (type is! String || rawPayload is! Map) return null;
+    if (rawPayload.keys.any((key) => key is! String)) return null;
+    final payload = Map<String, dynamic>.from(rawPayload);
+    final kind = switch (type) {
+      'sudo.request' => GatewaySensitivePromptKind.sudo,
+      'secret.request' => GatewaySensitivePromptKind.secret,
+      'vault.unlock.request' => GatewaySensitivePromptKind.vaultUnlock,
+      'vault.save_login.request' => GatewaySensitivePromptKind.vaultSaveLogin,
+      'vault.code.request' => GatewaySensitivePromptKind.vaultCode,
+      _ => null,
+    };
+    if (kind == null) return null;
+    final optional = switch (kind) {
+      GatewaySensitivePromptKind.sudo => const <String>{},
+      GatewaySensitivePromptKind.secret => const {'prompt', 'env_var'},
+      GatewaySensitivePromptKind.vaultUnlock => const {
+        'backend',
+        'display_name',
+      },
+      GatewaySensitivePromptKind.vaultSaveLogin => const {'origin', 'site'},
+      GatewaySensitivePromptKind.vaultCode => const {'site', 'hint'},
+    };
+    if (payload.keys.any(
+      (key) => key != 'request_id' && !optional.contains(key),
+    )) {
+      return null;
+    }
+    final requestId = payload['request_id'];
+    if (requestId is! String || requestId.trim().isEmpty) return null;
+    for (final key in optional) {
+      if (payload.containsKey(key) && !_validSnapshotString(payload[key])) {
+        return null;
+      }
+    }
+    return fromEventData(kind: kind, data: payload);
+  }
+
+  static bool _validSnapshotString(Object? value) {
+    if (value is! String) return false;
+    return value.isNotEmpty && value.length <= 512 && value.trim() == value;
+  }
+
   static GatewaySensitivePromptRequest? fromEventData({
     required GatewaySensitivePromptKind kind,
     required Map<String, dynamic> data,

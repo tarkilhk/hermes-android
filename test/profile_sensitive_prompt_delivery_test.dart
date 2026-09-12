@@ -15,6 +15,7 @@ class SensitivePromptHost extends Host {
   Completer<void>? responseDelay;
   Object? responseError;
   String? resumedRuntime;
+  Object? pendingSensitive;
 
   @override
   ProfileGateway gateway(WorkspaceScope scope) {
@@ -40,7 +41,14 @@ class SensitivePromptHost extends Host {
         }
         final result = await response;
         if (method == 'session.resume' && resumedRuntime != null) {
-          return {...result, 'session_id': resumedRuntime};
+          return {
+            ...result,
+            'session_id': resumedRuntime,
+            'pending_sensitive': pendingSensitive,
+          };
+        }
+        if (method == 'session.resume') {
+          return {...result, 'pending_sensitive': pendingSensitive};
         }
         return result;
       },
@@ -304,16 +312,113 @@ void main() {
     expect(chat.status, ProfileTurnStatus.reconnecting);
   });
 
-  test('resume keeps a known request only for the same runtime', () async {
-    host.event('a', 'sudo.request', {'request_id': 'same-runtime'});
+  test(
+    'resume authoritatively clears a request absent from the server',
+    () async {
+      host.event('a', 'sudo.request', {'request_id': 'same-runtime'});
 
-    await controller.reconnect(chat.key.workspace);
-    expect(chat.sensitivePrompt?.requestId, 'same-runtime');
+      await controller.reconnect(chat.key.workspace);
+      expect(chat.sensitivePrompt, isNull);
+    },
+  );
+
+  test(
+    'resume restores a valid request and clears it on replacement',
+    () async {
+      host.pendingSensitive = {
+        'type': 'secret.request',
+        'payload': {
+          'request_id': 'recovered-secret',
+          'env_var': 'FIXTURE_TOKEN',
+          'prompt': 'Enter the fixture token',
+        },
+      };
+      await controller.reconnect(chat.key.workspace);
+      expect(chat.sensitivePrompt?.requestId, 'recovered-secret');
+      expect(chat.sensitivePrompt?.title, 'FIXTURE_TOKEN');
+      expect(chat.status, ProfileTurnStatus.attention);
+
+      host.pendingSensitive = null;
+      host.resumedRuntime = 'replacement-runtime';
+      await controller.reconnect(chat.key.workspace);
+      expect(chat.sensitivePrompt, isNull);
+    },
+  );
+
+  test('session info replaces and clears the authoritative request', () {
+    host.event('a', 'session.info', {
+      'pending_sensitive': {
+        'type': 'vault.code.request',
+        'payload': {'request_id': 'code-1', 'site': 'Example'},
+      },
+    });
+    expect(chat.sensitivePrompt?.requestId, 'code-1');
     expect(chat.status, ProfileTurnStatus.attention);
 
-    host.resumedRuntime = 'replacement-runtime';
-    await controller.reconnect(chat.key.workspace);
+    chat.sensitivePromptResponding = true;
+    host.event('a', 'session.info', {
+      'pending_sensitive': {
+        'type': 'vault.code.request',
+        'payload': {'request_id': 'code-1', 'site': 'Updated Example'},
+      },
+    });
+    expect(chat.sensitivePromptResponding, isTrue);
+
+    host.event('a', 'session.info', {
+      'pending_sensitive': null,
+      'running': false,
+    });
     expect(chat.sensitivePrompt, isNull);
+    expect(chat.sensitivePromptResponding, isFalse);
+    expect(chat.status, ProfileTurnStatus.completed);
+  });
+
+  test('partial session info leaves a live request untouched', () {
+    host.event('a', 'secret.request', {
+      'request_id': 'live-secret',
+      'env_var': 'FIXTURE_TOKEN',
+    });
+
+    host.event('a', 'session.info', {'model': 'fixture-model'});
+
+    expect(chat.sensitivePrompt?.requestId, 'live-secret');
+    expect(chat.status, ProfileTurnStatus.attention);
+  });
+
+  test('session info keeps running after clearing resolved input', () {
+    host.event('a', 'sudo.request', {'request_id': 'resolved'});
+
+    host.event('a', 'session.info', {
+      'pending_sensitive': null,
+      'running': true,
+    });
+
+    expect(chat.sensitivePrompt, isNull);
+    expect(chat.status, ProfileTurnStatus.running);
+  });
+
+  test('malformed session info clears stale metadata without persistence', () {
+    host.event('a', 'secret.request', {
+      'request_id': 'stale',
+      'env_var': 'FIXTURE_TOKEN',
+    });
+    host.event('a', 'session.info', {
+      'pending_sensitive': {
+        'type': 'secret.request',
+        'payload': {
+          'request_id': 'bad',
+          'value': 'synthetic-secret-must-not-persist',
+        },
+      },
+    });
+
+    expect(chat.sensitivePrompt, isNull);
+    expect(
+      [
+        for (final key in preferences.getKeys()) preferences.get(key),
+      ].toString(),
+      isNot(contains('synthetic-secret-must-not-persist')),
+    );
   });
 
   test('the official missing-pending error expires the request', () async {

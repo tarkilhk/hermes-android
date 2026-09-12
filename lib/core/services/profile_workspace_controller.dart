@@ -3627,6 +3627,21 @@ class ProfileWorkspaceController extends ChangeNotifier {
     switch (event.type) {
       case 'session.info':
         _hydrateIntelligence(chat, {'info': event.data});
+        if (event.data.containsKey('pending_sensitive')) {
+          final wasSensitiveAttention =
+              chat.status == ProfileTurnStatus.attention &&
+              chat.sensitivePrompt != null;
+          _hydrateSensitivePrompt(chat, event.data['pending_sensitive']);
+          if (chat.sensitivePrompt != null) {
+            chat.status = ProfileTurnStatus.attention;
+          } else if (wasSensitiveAttention &&
+              chat.approval == null &&
+              chat.clarification == null) {
+            chat.status = event.data['running'] == true
+                ? ProfileTurnStatus.running
+                : ProfileTurnStatus.completed;
+          }
+        }
         if (event.data['usage'] is Map) {
           _updateContext(chat, event.data['usage'] as Map);
         }
@@ -3985,6 +4000,7 @@ class ProfileWorkspaceController extends ChangeNotifier {
     chat.clarification = result['pending_clarify'] is Map
         ? Map<String, dynamic>.from(result['pending_clarify'])
         : null;
+    _hydrateSensitivePrompt(chat, result['pending_sensitive']);
     final failed = inflight?['status'] == 'error';
     chat.status = failed
         ? ProfileTurnStatus.failed
@@ -4004,6 +4020,15 @@ class ProfileWorkspaceController extends ChangeNotifier {
       chat.error =
           'Delivery is uncertain. Check the server history before sending this draft again.';
     }
+  }
+
+  void _hydrateSensitivePrompt(ProfileChat chat, Object? snapshot) {
+    final previous = chat.sensitivePrompt;
+    final next = GatewaySensitivePromptRequest.fromPendingSnapshot(snapshot);
+    final sameRequest =
+        previous?.kind == next?.kind && previous?.requestId == next?.requestId;
+    chat.sensitivePrompt = next;
+    if (!sameRequest) chat.sensitivePromptResponding = false;
   }
 
   Future<void> _journal() {
