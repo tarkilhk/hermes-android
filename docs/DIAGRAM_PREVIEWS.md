@@ -5,14 +5,19 @@ one viewer for that diagram, with pinch zoom, light/dark appearance and
 **Show source** for selecting or copying the original code. Back returns to
 the same chat. Streaming and unfinished blocks retain their source view.
 
+Since 2.23.0, completed `svg` blocks offer **Open SVG**, and SVG output files
+use the same viewer after downloading through their original chat connection.
+The source toggle retains the SVG text and copy control. Web SVG links keep
+their explicit browser fallback; they are not fetched automatically.
+
 The renderer is the Mermaid 11.16.1 browser bundle, matching the renderer version
 in the pinned Desktop audit. Android serves three bundled assets to a dedicated
 WebView at a synthetic HTTPS origin. No server connection, authenticated URL,
 credential or remote rendering service is involved. The view is disposed on
 close; it does not persist conversation state.
 
-This implements the Mermaid portion of T04/D12. Other diagram formats retain
-the existing selectable source fallback. Previews are limited to 50,000 source
+This implements Mermaid and SVG portions of T04/D12. Other diagram formats retain
+the existing selectable source fallback. Mermaid is limited to 50,000 source
 characters and 500 edges. Embedded media, links and custom configuration
 directives are disabled. Parse failures show a readable error with source still
 available. This is a diagram viewer, not the separately planned F07 interactive
@@ -23,6 +28,14 @@ content and network loading, external navigation, windows, downloads and device
 permission requests. Only the exact bundled HTML and two JavaScript asset URLs
 receive local responses. The shell enforces a content security policy and uses
 Mermaid strict mode without binding diagram click handlers.
+
+SVG uses a blob-backed HTML image rather than inserting untrusted SVG elements
+into the page. It is limited to 262,144 source characters and an intrinsic width
+and height no greater than 8,192 pixels. The shared shell releases object URLs
+after loading, errors, replacement or disposal. It does not run SVG scripts or
+provide clickable SVG navigation. External resources remain unavailable in this
+image context, so self-contained files work best. See the browser restrictions
+for [SVG as an image](https://developer.mozilla.org/en-US/docs/Web/SVG/Guides/SVG_as_an_image).
 
 References checked during implementation:
 
@@ -71,3 +84,15 @@ The synthetic flowchart screenshot was visually inspected. Signed Personal
 2.19.0 / 21682 passed native compilation and package/certificate checks,
 installed in place wirelessly and launched. Phone evidence covers version and
 process metadata; live WebView gestures remain a manual check.
+
+For 2.23.0, all 32 focused reading/diagram checks passed, the full suite passed
+1,169 tests with four opt-in skips, and the analyzer reported no issues.
+Browser fixtures verified SVG labels/shapes, script-disabled pixel output,
+blocked external images/styles, source/dimension limits and object-URL cleanup
+during successful, failed and replaced previews. The synthetic SVG screenshot
+was visually inspected. These checks remain separate from Android WebView
+gestures on the phone.
+
+Signed Personal 2.23.0 / 21722 passed native compilation and certificate/package
+checks, installed in place through wireless debugging, and launched successfully.
+The phone check verified installed version and process metadata.

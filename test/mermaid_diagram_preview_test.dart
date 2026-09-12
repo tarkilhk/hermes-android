@@ -1,8 +1,8 @@
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:hermes_android/core/widgets/diagram_preview.dart';
 import 'package:hermes_android/core/widgets/markdown_code_block.dart';
-import 'package:hermes_android/core/widgets/mermaid_diagram_preview.dart';
 import 'package:hermes_android/core/widgets/profile_message.dart';
 
 void main() {
@@ -34,7 +34,7 @@ void main() {
         home: Scaffold(
           body: MarkdownCodeBlock(
             language: 'mermaid',
-            code: 'A' * (MermaidDiagramPreview.maxSourceLength + 1),
+            code: 'A' * (DiagramPreview.maxMermaidSourceLength + 1),
           ),
         ),
       ),
@@ -101,12 +101,12 @@ void main() {
           (call) => call.method == 'create',
         );
         final args = create.arguments as Map;
-        expect(args['viewType'], MermaidDiagramPreview.viewType);
+        expect(args['viewType'], DiagramPreview.viewType);
         expect(
           const StandardMessageCodec().decodeMessage(
             ByteData.sublistView(args['params'] as Uint8List),
           ),
-          {'source': source, 'dark': true},
+          {'source': source, 'dark': true, 'format': 'mermaid'},
         );
         expect(tester.takeException(), isNull);
         await tester.tap(find.byTooltip('Show source'));
@@ -122,4 +122,85 @@ void main() {
       },
     );
   }
+
+  testWidgets('complete SVG fences open the shared viewer with exact source', (
+    tester,
+  ) async {
+    final nativeCalls = <MethodCall>[];
+    tester.binding.defaultBinaryMessenger.setMockMethodCallHandler(
+      SystemChannels.platform_views,
+      (call) async {
+        nativeCalls.add(call);
+        if (call.method == 'create') return 1;
+        if (call.method == 'resize') {
+          final args = call.arguments as Map;
+          return {'width': args['width'], 'height': args['height']};
+        }
+        return null;
+      },
+    );
+    addTearDown(
+      () => tester.binding.defaultBinaryMessenger.setMockMethodCallHandler(
+        SystemChannels.platform_views,
+        null,
+      ),
+    );
+    const source = '<svg><text>Exact</text></svg>\n';
+    await tester.pumpWidget(
+      const MaterialApp(
+        home: Scaffold(
+          body: MarkdownCodeBlock(language: 'svg', code: source),
+        ),
+      ),
+    );
+    await tester.tap(find.byTooltip('Open SVG'));
+    await tester.pumpAndSettle();
+
+    final create = nativeCalls.singleWhere((call) => call.method == 'create');
+    final args = create.arguments as Map;
+    expect(args['viewType'], DiagramPreview.viewType);
+    expect(
+      const StandardMessageCodec().decodeMessage(
+        ByteData.sublistView(args['params'] as Uint8List),
+      ),
+      {'source': source, 'dark': false, 'format': 'svg'},
+    );
+    await tester.tap(find.byTooltip('Show source'));
+    await tester.pumpAndSettle();
+    expect(
+      tester.widget<MarkdownCodeBlock>(find.byType(MarkdownCodeBlock)).code,
+      source,
+    );
+    expect(find.byTooltip('Show SVG'), findsOneWidget);
+  });
+
+  testWidgets('streaming incomplete and oversized SVG fences stay source-only', (
+    tester,
+  ) async {
+    final streaming = splitMarkdownCodeBlocks(
+      '```svg\n<svg>',
+      streaming: true,
+    ).single as MarkdownCodeBlock;
+    final incomplete = splitMarkdownCodeBlocks(
+      '```svg\n<svg>',
+    ).single as MarkdownCodeBlock;
+    await tester.pumpWidget(
+      MaterialApp(
+        home: Column(
+          children: [
+            streaming,
+            MarkdownCodeBlock(
+              language: 'svg',
+              code: 'x' * (DiagramPreview.maxSvgSourceLength + 1),
+            ),
+          ],
+        ),
+      ),
+    );
+
+    expect(streaming.previewEnabled, isFalse);
+    expect(incomplete.previewEnabled, isFalse);
+    expect(find.byTooltip('Open SVG'), findsNothing);
+    expect(find.byTooltip('Copy code'), findsNWidgets(2));
+  });
 }

@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'dart:convert';
 
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
@@ -12,6 +13,7 @@ import 'package:hermes_android/core/services/media_preview_service.dart';
 import 'package:hermes_android/core/services/pdf_preview_service.dart';
 import 'package:hermes_android/core/widgets/markdown_code_block.dart';
 import 'package:hermes_android/core/widgets/markdown_message_content.dart';
+import 'package:hermes_android/core/widgets/diagram_preview.dart';
 
 class _FileDelivery extends AndroidFileDeliveryService {
   final Future<bool> Function(RemoteFileDownload file, String? mimeType) open;
@@ -344,6 +346,65 @@ void main() {
     );
     await tester.pumpAndSettle();
     expect(plays, 0);
+  });
+
+  testWidgets('authenticated SVG output uses its original path and shared viewer', (
+    tester,
+  ) async {
+    String? downloadedPath;
+    const source = '<svg xmlns="http://www.w3.org/2000/svg"><text>Hi</text></svg>';
+    final nativeCalls = <MethodCall>[];
+    tester.binding.defaultBinaryMessenger.setMockMethodCallHandler(
+      SystemChannels.platform_views,
+      (call) async {
+        nativeCalls.add(call);
+        if (call.method == 'create') return 1;
+        if (call.method == 'resize') {
+          final args = call.arguments as Map;
+          return {'width': args['width'], 'height': args['height']};
+        }
+        return null;
+      },
+    );
+    addTearDown(
+      () => tester.binding.defaultBinaryMessenger.setMockMethodCallHandler(
+        SystemChannels.platform_views,
+        null,
+      ),
+    );
+    await tester.pumpWidget(
+      _screen(
+        loadHistory: () async => [
+          {'role': 'assistant', 'content': 'Saved /srv/current/chart.svg'},
+        ],
+        readText: (_) async => throw StateError('Unexpected text preview'),
+        download: (path) async {
+          downloadedPath = path;
+          return RemoteFileDownload(
+            filename: 'server-chart.svg',
+            bytes: utf8.encode(source),
+          );
+        },
+      ),
+    );
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('chart.svg'));
+    await tester.pumpAndSettle();
+
+    expect(downloadedPath, '/srv/current/chart.svg');
+    expect(find.byType(DiagramPreview), findsOneWidget);
+    expect(find.byType(AndroidView), findsOneWidget);
+    expect(find.byTooltip('Save or share'), findsOneWidget);
+    await tester.tap(find.byTooltip('Show source'));
+    await tester.pumpAndSettle();
+    expect(
+      tester.widget<MarkdownCodeBlock>(find.byType(MarkdownCodeBlock)).code,
+      source,
+    );
+    await tester.pageBack();
+    await tester.pumpAndSettle();
+    expect(find.text('chart.svg'), findsOneWidget);
+    expect(tester.takeException(), isNull);
   });
 
   testWidgets('shows supplied chat outputs and previews the original path', (

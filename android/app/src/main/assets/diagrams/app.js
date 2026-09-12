@@ -2,9 +2,13 @@
   'use strict';
 
   const MAX_SOURCE_LENGTH = 50_000;
+  const MAX_SVG_SOURCE_LENGTH = 256 * 1024;
+  const MAX_SVG_DIMENSION = 8_192;
   const diagram = document.getElementById('diagram');
   const status = document.getElementById('status');
   let renderSequence = 0;
+  let activeObjectUrl = null;
+  let cancelPendingSvg = null;
 
   const blockedElements = 'script, foreignObject, iframe, object, embed, image, audio, video';
   const protectedConfig = [
@@ -20,7 +24,17 @@
     document.documentElement.dataset.theme = dark ? 'dark' : 'light';
   }
 
+  function revokeObjectUrl(url = activeObjectUrl) {
+    if (!url) return;
+    URL.revokeObjectURL(url);
+    if (activeObjectUrl === url) activeObjectUrl = null;
+  }
+
   function clearPreview() {
+    const cancel = cancelPendingSvg;
+    cancelPendingSvg = null;
+    if (cancel) cancel();
+    revokeObjectUrl();
     diagram.replaceChildren();
     diagram.hidden = true;
   }
@@ -64,6 +78,26 @@
     }
   }
 
+  function validateSvgSource(value) {
+    if (typeof value !== 'string' || value.trim().length === 0) {
+      throw new Error('EMPTY_SVG');
+    }
+    if (value.length > MAX_SVG_SOURCE_LENGTH) {
+      throw new Error('SVG_TOO_LARGE');
+    }
+  }
+
+  function publicSvgError(error) {
+    switch (error instanceof Error ? error.message : '') {
+      case 'EMPTY_SVG':
+        return 'There is no SVG to preview.';
+      case 'SVG_TOO_LARGE':
+        return 'This SVG is too large to preview.';
+      default:
+        return 'This SVG could not be previewed.';
+    }
+  }
+
   function sanitizeSvg(svgMarkup) {
     const parsed = new DOMParser().parseFromString(svgMarkup, 'image/svg+xml');
     const svg = parsed.documentElement;
@@ -99,6 +133,7 @@
   async function render(source, dark, sequence) {
     setTheme(dark);
     status.hidden = true;
+    clearPreview();
 
     try {
       validateSource(source);
@@ -140,9 +175,72 @@
     }
   }
 
+  async function renderSvg(source, dark, sequence) {
+    setTheme(dark);
+    status.hidden = true;
+    clearPreview();
+
+    try {
+      validateSvgSource(source);
+      const blob = new Blob([source], { type: 'image/svg+xml' });
+      const objectUrl = URL.createObjectURL(blob);
+      activeObjectUrl = objectUrl;
+      const image = new Image();
+      image.alt = 'SVG preview';
+
+      return await new Promise((resolve) => {
+        let settled = false;
+        const finish = (value) => {
+          if (settled) return;
+          settled = true;
+          if (cancelPendingSvg === cancel) cancelPendingSvg = null;
+          image.onload = null;
+          image.onerror = null;
+          revokeObjectUrl(objectUrl);
+          resolve(value);
+        };
+        const cancel = () => finish(false);
+        cancelPendingSvg = cancel;
+        image.onload = () => {
+          if (sequence !== renderSequence || activeObjectUrl !== objectUrl) {
+            finish(false);
+            return;
+          }
+          const validDimensions = image.naturalWidth > 0 && image.naturalHeight > 0 &&
+            image.naturalWidth <= MAX_SVG_DIMENSION &&
+            image.naturalHeight <= MAX_SVG_DIMENSION;
+          if (!validDimensions) {
+            finish(false);
+            showStatus('This SVG could not be previewed.');
+            return;
+          }
+          diagram.replaceChildren(image);
+          diagram.hidden = false;
+          finish(true);
+        };
+        image.onerror = () => {
+          finish(false);
+          if (sequence === renderSequence) {
+            showStatus('This SVG could not be previewed.');
+          }
+        };
+        image.src = objectUrl;
+      });
+    } catch (error) {
+      if (sequence !== renderSequence) return false;
+      showStatus(publicSvgError(error));
+      return false;
+    }
+  }
+
   window.renderDiagram = (source, dark = false) => {
     renderSequence += 1;
     return render(source, Boolean(dark), renderSequence);
+  };
+
+  window.renderSvg = (source, dark = false) => {
+    renderSequence += 1;
+    return renderSvg(source, Boolean(dark), renderSequence);
   };
 
   window.showDiagramError = (message) => {
@@ -155,6 +253,10 @@
   }, true);
   document.addEventListener('submit', (event) => event.preventDefault(), true);
   window.open = () => null;
+  window.addEventListener('pagehide', () => {
+    renderSequence += 1;
+    clearPreview();
+  });
 
   setTheme(false);
   clearPreview();

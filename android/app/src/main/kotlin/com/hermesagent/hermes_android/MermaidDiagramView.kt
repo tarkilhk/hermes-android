@@ -38,9 +38,20 @@ private class MermaidDiagramView(
     private val webView = WebView(context)
     private val dark = creationParams?.get("dark") as? Boolean ?: false
     private val source = creationParams?.get("source") as? String
+    private val format = (creationParams?.get("format") as? String)
+        ?.takeIf { it == SVG_FORMAT || it == MERMAID_FORMAT }
+        ?: MERMAID_FORMAT
     private val sourceError = when {
-        source == null -> "This diagram has no source."
-        source.length > MAX_SOURCE_CHARS -> "This diagram is too large to display."
+        source == null -> if (format == SVG_FORMAT) {
+            "There is no SVG to preview."
+        } else {
+            "This diagram has no source."
+        }
+        source.length > maxSourceChars() -> if (format == SVG_FORMAT) {
+            "This SVG is too large to preview."
+        } else {
+            "This diagram is too large to display."
+        }
         else -> null
     }
 
@@ -117,8 +128,8 @@ private class MermaidDiagramView(
                     "if (typeof window.showDiagramError === 'function') {" +
                         "window.showDiagramError(${javascriptString(it)});" +
                         "} else { ${viewerUnavailableScript()} }"
-                } ?: "if (typeof window.renderDiagram === 'function') {" +
-                    "window.renderDiagram(${javascriptString(source)}, $dark);" +
+                } ?: "if (typeof window.${renderFunction()} === 'function') {" +
+                    "window.${renderFunction()}(${javascriptString(source)}, $dark);" +
                     "} else { ${viewerUnavailableScript()} }"
                 view.evaluateJavascript(script, null)
             }
@@ -224,10 +235,19 @@ private class MermaidDiagramView(
             "document.body.textContent='The diagram viewer could not load.';"
     }
 
+    private fun renderFunction(): String =
+        if (format == SVG_FORMAT) "renderSvg" else "renderDiagram"
+
+    private fun maxSourceChars(): Int =
+        if (format == SVG_FORMAT) MAX_SVG_SOURCE_CHARS else MAX_SOURCE_CHARS
+
     private data class Asset(val filename: String, val mimeType: String)
 
     companion object {
         private const val MAX_SOURCE_CHARS = 50_000
+        private const val MAX_SVG_SOURCE_CHARS = 256 * 1024
+        private const val MERMAID_FORMAT = "mermaid"
+        private const val SVG_FORMAT = "svg"
         private const val ORIGIN = "https://hermes-diagrams.invalid"
         private const val ENTRY_URL = "$ORIGIN/index.html"
         private val DARK_BACKGROUND = Color.rgb(17, 19, 24)

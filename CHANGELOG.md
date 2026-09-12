@@ -8,6 +8,28 @@ Feature releases increment the minor version, fixes increment the patch version,
 and breaking changes increment the major version. The Android build number after
 `+` always increases. Update this changelog for every release milestone.
 
+## [2.23.0+2172] - 2026-09-12
+
+### Added
+
+- Preview completed SVG blocks and authenticated SVG output files in the
+  existing diagram viewer, with source/copy access, pinch zoom and return to
+  the originating chat. Incomplete and oversized blocks retain source access.
+- Render SVG as an image in the offline viewer, with no executable SVG scripts
+  or external resources. Bound source size and image dimensions, and release
+  temporary image URLs on completion or replacement. No new renderer dependency.
+
+### Verification
+
+- Real headless-browser fixtures passed for SVG rendering, disabled scripts,
+  blocked external content, source/dimension limits and URL cleanup. Existing
+  Mermaid rendering checks still pass.
+- Full suite: 1,169 passed, four opt-in skips. All 32 focused reading/diagram
+  checks passed and the analyzer is clean.
+- Signed Personal 2.23.0 / 21722 passed native compilation and certificate/package
+  checks, installed in place wirelessly and launched. Phone checks cover version
+  and process metadata; live WebView gestures remain a manual check.
+
 ## [2.22.0+2171] - 2026-09-12
 
 ### Added

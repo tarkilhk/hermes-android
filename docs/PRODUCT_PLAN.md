@@ -121,7 +121,7 @@ Source check confirms `/steer`, `/btw`, `/bg` and `/background` already have act
 | ID | Selected scope and owner qualification |
 | --- | --- |
 | T03 | P1 common content only: readable Markdown, code, tables and large content. A separate advanced math project is not selected here. |
-| T04 | Readable diagrams and supported visual blocks with a useful fallback. On-demand Mermaid rendering is implemented in 2.19.0; other formats retain copyable source. See [diagram notes](DIAGRAM_PREVIEWS.md) for supported scope and verification. |
+| T04 | Readable diagrams and supported visual blocks with a useful fallback. On-demand Mermaid rendering is implemented in 2.19.0, with SVG blocks/files added in 2.23.0; other formats retain copyable source. See [diagram notes](DIAGRAM_PREVIEWS.md) for supported scope and verification. |
 | T05 | Images and other media, not images alone. |
 | T06 | Useful link/media previews and opening in the appropriate app/browser. |
 | T07 | Structured, expandable tool status and results. |
@@ -282,7 +282,7 @@ For M06, Android's [sharing contract](https://developer.android.com/develop/ui/c
 
 ## Active owner feedback
 
-Latest phone delivery, 2026-09-12: Hermes Personal 2.22.0 / 21712 is installed and launched. It adds in-app playback for downloaded audio/video and includes Markdown/source and web previews, PDF pages/zoom, Mermaid, all preceding milestones, thousands separators and the D15 context reopen fix. The full suite passed 1,166 tests with four opt-in skips before consolidating the shared file-action helper; all 19 focused checks passed afterward and the analyzer is clean. The signed APK passed native compilation and certificate/package checks. Phone verification covers installed identity and process metadata; live playback/reading/browser gestures and server feature QA remain. Other visual formats and downloaded interactive HTML remain selected, along with the documented Firebase and backend-contract dependencies.
+Latest phone delivery, 2026-09-12: Hermes Personal 2.23.0 / 21722 is installed and launched. It adds SVG block/file previews and includes audio/video playback, Markdown/source and web previews, PDF pages/zoom, Mermaid, all preceding milestones, thousands separators and the D15 context reopen fix. The full suite passed 1,169 tests with four opt-in skips, and the analyzer is clean. Real browser fixtures passed for SVG and Mermaid. The signed APK passed native compilation and certificate/package checks. Phone verification covers installed identity and process metadata; live playback/reading/browser gestures and server feature QA remain. Downloaded interactive HTML remains selected, along with the documented Firebase and backend-contract dependencies. Other unsupported visual formats retain source fallback.
 
 - 2026-09-12, D15/T10: the integrated fuse design is accepted. Opening an existing chat must load authoritative context fullness without requiring a new message. The owner reiterated that this must be fixed, so it moved ahead of Camera. The missing deferred-agent ready-event refresh was reproduced and fixed for 2.5.0; see [cause and regression evidence](CONTEXT_REOPEN_FIX.md). Final live-server phone verification remains outstanding. All other planned milestones and exclusions remain unchanged.
 

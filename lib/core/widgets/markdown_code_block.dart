@@ -1,7 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 
-import 'mermaid_diagram_preview.dart';
+import 'diagram_preview.dart';
 
 /// Splits raw markdown into text segments and fenced code blocks.
 ///
@@ -96,6 +96,15 @@ class _MarkdownCodeBlockState extends State<MarkdownCodeBlock> {
         : const Color(0xFFF2F2F2);
     final header = isDark ? const Color(0xFF232323) : const Color(0xFFE4E4E4);
     final foreground = isDark ? Colors.white70 : Colors.black87;
+    final language = widget.language?.toLowerCase();
+    final diagramFormat = switch (language) {
+      'mermaid' => DiagramFormat.mermaid,
+      'svg' => DiagramFormat.svg,
+      _ => null,
+    };
+    final diagramLimit = diagramFormat == DiagramFormat.svg
+        ? DiagramPreview.maxSvgSourceLength
+        : DiagramPreview.maxMermaidSourceLength;
 
     final body = _wrap
         ? SelectableText(
@@ -153,20 +162,29 @@ class _MarkdownCodeBlockState extends State<MarkdownCodeBlock> {
                     overflow: TextOverflow.ellipsis,
                   ),
                 ),
-                if (widget.language?.toLowerCase() == 'mermaid' &&
+                if (diagramFormat != null &&
                     widget.previewEnabled &&
-                    widget.code.length <= MermaidDiagramPreview.maxSourceLength)
+                    widget.code.length <= diagramLimit)
                   IconButton(
-                    tooltip: 'Open diagram',
-                    icon: const Icon(Icons.account_tree_outlined, size: 18),
+                    tooltip: diagramFormat == DiagramFormat.svg
+                        ? 'Open SVG'
+                        : 'Open diagram',
+                    icon: Icon(
+                      diagramFormat == DiagramFormat.svg
+                          ? Icons.image_outlined
+                          : Icons.account_tree_outlined,
+                      size: 18,
+                    ),
                     constraints: const BoxConstraints.tightFor(
                       width: 48,
                       height: 48,
                     ),
                     onPressed: () => Navigator.of(context).push(
                       MaterialPageRoute<void>(
-                        builder: (_) =>
-                            MermaidDiagramPreview(source: widget.code),
+                        builder: (_) => DiagramPreview(
+                          source: widget.code,
+                          format: diagramFormat,
+                        ),
                       ),
                     ),
                   ),

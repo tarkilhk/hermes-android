@@ -29,7 +29,7 @@ The current connection flow opens `ProfileWorkspaceScreen`, which owns the drawe
 - Message actions and a long press on Send/Stop offer text-only follow-up queues and steering. Queues run in order while the client is connected, remain separate from the current draft, and pause after failed, stopped or uncertain sends. Queued items can be reviewed and removed.
 - Dynamic slash-command discovery, aliases, argument completion, skill dispatch, and dedicated current-session actions including steering and identifiable side-question deliveries.
 - Saved-message Edit/resend with history-replacement confirmation, one-shot idle Fork, Regenerate and Branch. Parent chat navigation uses Hermes relationship metadata; a synchronized answer-version carousel remains a backend dependency.
-- Per-chat Outputs finds file/link references in server history. Authenticated file retrieval preserves host/profile/chat ownership, supports formatted Markdown/source and image previews and shares actual bytes through Android; downloads are capped at 32 MiB. PDFs can also be read in the app with page controls and pinch zoom; downloaded audio/video has an in-app player with play/pause and seeking. Web links open a browser preview with a direct return to the chat.
+- Per-chat Outputs finds file/link references in server history. Authenticated file retrieval preserves host/profile/chat ownership, supports formatted Markdown/source, SVG and image previews and shares actual bytes through Android; downloads are capped at 32 MiB. PDFs can also be read in the app with page controls and pinch zoom; downloaded audio/video has an in-app player with play/pause and seeking. Web links open a browser preview with a direct return to the chat.
 - Camera/Photos/Files attachment choices and reviewed Android sharing into a chosen connection/profile/chat. Camera returns to the originating draft's review when that destination is still valid. Incoming shares survive restart before destination selection, preserve existing drafts and never send automatically. Launcher quick chat, server-advertised approvals and structured clarification remain. Sudo, secret and vault forms keep credentials out of drafts/history.
 - Local completion/input notifications with independent device controls, optional chat titles, a test alert and original host/profile/chat routing, plus configuration restore from the connections screen.
 
@@ -55,12 +55,12 @@ The app's current slash/profile contracts and any separately maintained backend 
 
 ## Version and application identity
 
-Source version on 2026-09-12 is `2.22.0+2171` in [pubspec.yaml](pubspec.yaml). This is the checked-out version, not a claim that a matching public release has been published. Each release is recorded in the [changelog](CHANGELOG.md), with semantic versions and an increasing Android build number.
+Source version on 2026-09-12 is `2.23.0+2172` in [pubspec.yaml](pubspec.yaml). This is the checked-out version, not a claim that a matching public release has been published. Each release is recorded in the [changelog](CHANGELOG.md), with semantic versions and an increasing Android build number.
 
 - Personal release package: `com.tarkilhk.hermes.android`, labelled Hermes Personal.
 - Development package: `com.hermesagent.hermes_android.dev`.
 - The inherited upstream package is separate and is not this fork's release identity.
-- ABI-split codes derive from the base build number; the current ARM64 split uses `21712`.
+- ABI-split codes derive from the base build number; the current ARM64 split uses `21722`.
 
 The [release plan](docs/ANDROID_RELEASE_PLAN.md) and [build configuration](android/app/build.gradle.kts) document identity, signing and version-code rules. The selected S08 work will expose this client's version/build and update information in the app, separately from the backend version.
 

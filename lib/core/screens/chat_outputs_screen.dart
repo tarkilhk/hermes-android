@@ -1,4 +1,5 @@
 import 'dart:io';
+import 'dart:convert';
 
 import 'package:flutter/material.dart';
 import 'package:path_provider/path_provider.dart';
@@ -11,6 +12,7 @@ import '../services/media_preview_service.dart';
 import '../services/remote_files_client.dart';
 import '../services/web_preview.dart';
 import '../widgets/chat_image_preview.dart';
+import '../widgets/diagram_preview.dart';
 import '../widgets/markdown_code_block.dart';
 import '../widgets/markdown_message_content.dart';
 import 'pdf_preview_screen.dart';
@@ -95,6 +97,11 @@ class _ChatOutputsScreenState extends State<ChatOutputsScreen> {
     if (output.kind == ChatOutputKind.image) {
       RemoteFileDownload? download;
       Uri? uri;
+      if (path == null &&
+          !output.url!.startsWith('data:image/') &&
+          _isSvgName(output.label, output.url!)) {
+        return _openLink(output.url!);
+      }
       if (path != null) {
         download = await widget.download(path);
       } else if (output.url!.startsWith('data:image/')) {
@@ -118,6 +125,28 @@ class _ChatOutputsScreenState extends State<ChatOutputsScreen> {
       }
       if (!mounted) return;
       final imageFile = download;
+      if (imageFile != null &&
+          _isSvgName(imageFile.filename, path ?? output.url ?? '')) {
+        final source = utf8.decode(imageFile.bytes);
+        await Navigator.of(context).push(
+          MaterialPageRoute<void>(
+            builder: (previewContext) => DiagramPreview(
+              source: source,
+              format: DiagramFormat.svg,
+              title: output.label,
+              actionLabel: 'Save or share',
+              onAction: () async {
+                try {
+                  await _share(imageFile);
+                } catch (error) {
+                  if (previewContext.mounted) _error(previewContext, error);
+                }
+              },
+            ),
+          ),
+        );
+        return;
+      }
       await Navigator.of(context).push(
         MaterialPageRoute<void>(
           builder: (previewContext) => ChatImagePreview(
@@ -453,3 +482,7 @@ bool _isMarkdownPreview(ChatOutput output, RemoteTextPreview preview) {
       path.endsWith('.md') ||
       path.endsWith('.markdown');
 }
+
+bool _isSvgName(String filename, String target) =>
+    filename.toLowerCase().endsWith('.svg') ||
+    Uri.tryParse(target)?.path.toLowerCase().endsWith('.svg') == true;
