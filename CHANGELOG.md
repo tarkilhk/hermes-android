@@ -8,6 +8,19 @@ Feature releases increment the minor version, fixes increment the patch version,
 and breaking changes increment the major version. The Android build number after
 `+` always increases. Update this changelog for every release milestone.
 
+## [2.17.0+2166] - 2026-09-12
+
+### Added
+
+- Open PDF, audio and video files from chat Outputs in a compatible installed
+  Android app. Reuse authenticated downloads and private read-only file grants,
+  with Save or share available when no viewer is installed.
+
+### Changed
+
+- Group session usage counts, per-model token counts and costs with thousands
+  separators so large values are easier to read.
+
 ## [2.16.0+2165] - 2026-09-12
 
 ### Added

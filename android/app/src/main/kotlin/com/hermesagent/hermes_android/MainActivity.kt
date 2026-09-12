@@ -23,6 +23,7 @@ import java.util.concurrent.Executors
 class MainActivity : FlutterActivity() {
     private val shareChannelName = "com.hermesagent.hermes_android/share"
     private val launchChannelName = "com.hermesagent.hermes_android/launch"
+    private val fileDeliveryChannelName = "com.hermesagent.hermes_android/file_delivery"
     private val quickChatAction = "com.hermesagent.hermes_android.action.QUICK_CHAT"
     private val intakePreferencesName = "pending_share_intake"
     private val intakeQueueKey = "queue"
@@ -35,6 +36,7 @@ class MainActivity : FlutterActivity() {
     private val maxSharedTextChars = 256 * 1024
     private var shareChannel: MethodChannel? = null
     private var launchChannel: MethodChannel? = null
+    private var fileDeliveryChannel: MethodChannel? = null
     private var initialShareIntent: Intent? = null
     private var initialLaunchAction: String? = null
     @Volatile private var activityResumed = false
@@ -105,6 +107,104 @@ class MainActivity : FlutterActivity() {
                 }
             }
         }
+        fileDeliveryChannel = MethodChannel(
+            flutterEngine.dartExecutor.binaryMessenger,
+            fileDeliveryChannelName,
+        ).apply {
+            setMethodCallHandler { call, result ->
+                when (call.method) {
+                    "openInApp" -> openDownloadedFile(
+                        call.argument<String>("filename"),
+                        call.argument<String>("mimeType"),
+                        call.argument<ByteArray>("bytes"),
+                        result,
+                    )
+                    else -> result.notImplemented()
+                }
+            }
+        }
+    }
+
+    private fun openDownloadedFile(
+        rawFilename: String?,
+        rawMimeType: String?,
+        bytes: ByteArray?,
+        result: MethodChannel.Result,
+    ) {
+        val mimeType = rawMimeType?.trim()?.lowercase().orEmpty()
+        if (mimeType !in supportedOutputMimeTypes ||
+            bytes == null || bytes.isEmpty() || bytes.size > maxDeliveredBytes
+        ) {
+            result.error("file_open_invalid", genericFileOpenError, null)
+            return
+        }
+        val filename = safeDeliveredFilename(rawFilename)
+        intakeExecutor.execute {
+            try {
+                val directory = File(cacheDir, "delivered_outputs")
+                if (!directory.exists() && !directory.mkdirs()) {
+                    throw IllegalStateException()
+                }
+                cleanupDeliveredOutputs(directory)
+                val output = File(directory, "${UUID.randomUUID()}-$filename")
+                FileOutputStream(output).use { stream ->
+                    stream.write(bytes)
+                    stream.fd.sync()
+                }
+                val uri = FileProvider.getUriForFile(
+                    this,
+                    "$packageName.fileprovider",
+                    output,
+                )
+                runOnUiThread {
+                    if (isFinishing || isDestroyed || !activityResumed) {
+                        output.delete()
+                        result.error("file_open_inactive", genericFileOpenError, null)
+                        return@runOnUiThread
+                    }
+                    try {
+                        val view = Intent(Intent.ACTION_VIEW).apply {
+                            setDataAndType(uri, mimeType)
+                            clipData = ClipData.newRawUri("Hermes output", uri)
+                            addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
+                        }
+                        startActivity(view)
+                        result.success(true)
+                    } catch (_: ActivityNotFoundException) {
+                        output.delete()
+                        result.success(false)
+                    } catch (_: Exception) {
+                        output.delete()
+                        result.error("file_open_failed", genericFileOpenError, null)
+                    }
+                }
+            } catch (_: Exception) {
+                postError(result, "file_open_failed", genericFileOpenError)
+            }
+        }
+    }
+
+    private fun safeDeliveredFilename(raw: String?): String {
+        val basename = raw
+            ?.substringAfterLast('/')
+            ?.substringAfterLast('\\')
+            ?.trim()
+            .orEmpty()
+            .replace(Regex("[^A-Za-z0-9._ -]"), "_")
+            .takeLast(120)
+        return basename.takeIf { it.isNotEmpty() && it != "." && it != ".." } ?: "output"
+    }
+
+    private fun cleanupDeliveredOutputs(directory: File) {
+        val now = System.currentTimeMillis()
+        directory.listFiles()
+            ?.filter { it.isFile }
+            ?.sortedByDescending { it.lastModified() }
+            ?.forEachIndexed { index, file ->
+                if (index >= maxDeliveredFiles || now - file.lastModified() > deliveredFileMaxAgeMs) {
+                    file.delete()
+                }
+            }
     }
 
     override fun onActivityResult(requestCode: Int, resultCode: Int, data: Intent?) {
@@ -783,6 +883,16 @@ class MainActivity : FlutterActivity() {
 
     companion object {
         private val intakeExecutor = Executors.newSingleThreadExecutor()
+        private const val maxDeliveredBytes = 32 * 1024 * 1024
+        private const val maxDeliveredFiles = 12
+        private const val deliveredFileMaxAgeMs = 24L * 60L * 60L * 1000L
+        private val supportedOutputMimeTypes = setOf(
+            "application/pdf",
+            "audio/aac", "audio/flac", "audio/mp4", "audio/mpeg", "audio/ogg",
+            "audio/wav", "audio/webm", "audio/x-wav",
+            "video/mp4", "video/mpeg", "video/quicktime", "video/webm",
+            "video/x-matroska", "video/x-msvideo",
+        )
         private val uuidPattern = Regex(
             "^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-5][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}$",
         )
@@ -806,5 +916,7 @@ class MainActivity : FlutterActivity() {
             "The photo could not be saved for review. Try again."
         private const val genericCameraError =
             "The camera could not be opened. Try again."
+        private const val genericFileOpenError =
+            "This file could not be opened on this device."
     }
 }

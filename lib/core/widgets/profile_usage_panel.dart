@@ -177,14 +177,30 @@ class _UsageDetails extends StatelessWidget {
         value != value.round()) {
       return 'Unknown';
     }
-    return '${value.round()}';
+    return _groupWhole(value.round().toString());
   }
 
   static String _money(Object? value) {
     if (value is! num || !value.isFinite || value < 0) {
       return 'Unknown';
     }
-    return '\$${value.toStringAsFixed(2)}';
+    final fixed = value.toStringAsFixed(2);
+    final decimal = fixed.indexOf('.');
+    if (decimal < 0) {
+      return '\$$fixed';
+    }
+    return '\$${_groupWhole(fixed.substring(0, decimal))}${fixed.substring(decimal)}';
+  }
+
+  static String _groupWhole(String digits) {
+    final grouped = StringBuffer();
+    for (var index = 0; index < digits.length; index++) {
+      if (index > 0 && (digits.length - index) % 3 == 0) {
+        grouped.write(',');
+      }
+      grouped.write(digits[index]);
+    }
+    return grouped.toString();
   }
 }
 

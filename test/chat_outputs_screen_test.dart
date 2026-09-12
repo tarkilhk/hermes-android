@@ -5,12 +5,23 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:hermes_android/core/screens/chat_outputs_screen.dart';
 import 'package:hermes_android/core/services/connection_manager.dart';
 import 'package:hermes_android/core/services/remote_files_client.dart';
+import 'package:hermes_android/core/services/android_file_delivery_service.dart';
+
+class _FileDelivery extends AndroidFileDeliveryService {
+  final Future<bool> Function(RemoteFileDownload file, String? mimeType) open;
+  _FileDelivery(this.open);
+
+  @override
+  Future<bool> openInApp(RemoteFileDownload file, {String? mimeType}) =>
+      open(file, mimeType);
+}
 
 Widget _screen({
   required Future<List<Map<String, dynamic>>> Function() loadHistory,
   required Future<RemoteFileDownload> Function(String path) download,
   required Future<RemoteTextPreview> Function(String path) readText,
   Future<void> Function(RemoteFileDownload)? deliver,
+  AndroidFileDeliveryService fileDelivery = const AndroidFileDeliveryService(),
 }) => MaterialApp(
   home: ChatOutputsScreen(
     chatTitle: 'Only this chat',
@@ -18,6 +29,7 @@ Widget _screen({
     download: download,
     readText: readText,
     deliver: deliver,
+    fileDelivery: fileDelivery,
   ),
 );
 
@@ -32,6 +44,106 @@ RemoteTextPreview _textPreview(String path) => RemoteTextPreview(
 );
 
 void main() {
+  testWidgets('PDF open uses original download and keeps save/share fallback', (
+    tester,
+  ) async {
+    RemoteFileDownload? opened;
+    String? mime;
+    String? path;
+    await tester.pumpWidget(
+      _screen(
+        loadHistory: () async => [
+          {'role': 'assistant', 'content': 'Saved /srv/current/report.pdf'},
+        ],
+        readText: (path) async => RemoteTextPreview(
+          path: path,
+          text: '',
+          language: '',
+          mimeType: 'application/pdf',
+          byteSize: 4,
+          binary: true,
+          truncated: false,
+        ),
+        download: (value) async {
+          path = value;
+          return RemoteFileDownload(
+            filename: 'actual.pdf',
+            bytes: [37, 80, 68, 70],
+          );
+        },
+        fileDelivery: _FileDelivery((file, type) async {
+          opened = file;
+          mime = type;
+          return false;
+        }),
+      ),
+    );
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('report.pdf'));
+    await tester.pumpAndSettle();
+    expect(opened, isNull);
+    await tester.tap(find.text('Open in app'));
+    await tester.pumpAndSettle();
+    expect(path, '/srv/current/report.pdf');
+    expect(opened?.filename, 'actual.pdf');
+    expect(opened?.bytes, [37, 80, 68, 70]);
+    expect(mime, 'application/pdf');
+    expect(
+      find.text('No compatible app was found. Use Save or share instead.'),
+      findsOneWidget,
+    );
+    expect(find.text('Save or share'), findsOneWidget);
+  });
+
+  testWidgets('closing preview during download prevents a late app launch', (
+    tester,
+  ) async {
+    final pending = Completer<RemoteFileDownload>();
+    var opened = false;
+    await tester.pumpWidget(
+      _screen(
+        loadHistory: () async => [
+          {'role': 'assistant', 'content': 'Saved /srv/current/report.pdf'},
+        ],
+        readText: (path) async => RemoteTextPreview(
+          path: path,
+          text: '',
+          language: '',
+          mimeType: 'application/pdf',
+          byteSize: 4,
+          binary: true,
+          truncated: false,
+        ),
+        download: (_) => pending.future,
+        fileDelivery: _FileDelivery((_, _) async {
+          opened = true;
+          return true;
+        }),
+      ),
+    );
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('report.pdf'));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('Open in app'));
+    await tester.pump();
+    expect(
+      tester
+          .widget<FilledButton>(
+            find.widgetWithText(FilledButton, 'Open in app'),
+          )
+          .onPressed,
+      isNull,
+    );
+    await tester.pageBack();
+    await tester.pumpAndSettle();
+    pending.complete(
+      RemoteFileDownload(filename: 'report.pdf', bytes: [37, 80, 68, 70]),
+    );
+    await tester.pumpAndSettle();
+    expect(opened, isFalse);
+    expect(tester.takeException(), isNull);
+  });
+
   testWidgets('shows supplied chat outputs and previews the original path', (
     tester,
   ) async {

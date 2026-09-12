@@ -40,3 +40,5 @@ restart endpoint is not a substitute and remains outside this feature. See
 for the verified one-host contracts and receipt rules.
 
 Verification for 2.16.0: 1,132 tests passed, four opt-in skips, clean analyzer. Thirty focused screen/card/navigation checks cover selected-only writes, exact endpoint deduplication, fresh eligibility refusal, partial outcomes, late closing, external controller ownership and 320-pixel layout at 200% text. No live backend was updated.
+
+Deployment on 2026-09-12: signed Personal 2.16.0 / 21652 passed certificate/package checks, installed in place over wireless debugging and launched. No backend update was triggered during deployment verification.

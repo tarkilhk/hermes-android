@@ -3,4 +3,7 @@
     <files-path
         name="pending_intake"
         path="pending_intake/" />
+    <cache-path
+        name="delivered_outputs"
+        path="delivered_outputs/" />
 </paths>

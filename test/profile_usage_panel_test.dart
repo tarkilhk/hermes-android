@@ -34,13 +34,21 @@ void main() {
               return const {
                 'period_days': 30,
                 'totals': {
-                  'total_sessions': 2,
-                  'total_api_calls': 4,
-                  'total_input': 100,
-                  'total_output': 50,
-                  'total_estimated_cost': 1.25,
+                  'total_sessions': 1234,
+                  'total_api_calls': 5678,
+                  'total_input': 40755279,
+                  'total_output': 9123456,
+                  'total_estimated_cost': 12345.25,
                   'total_actual_cost': 1.10,
                 },
+                'by_model': [
+                  {
+                    'model': 'provider/model',
+                    'input_tokens': 40000000,
+                    'output_tokens': 9000000,
+                    'estimated_cost': 12345.25,
+                  },
+                ],
               };
             }),
           ),
@@ -56,9 +64,18 @@ void main() {
         findsOneWidget,
       );
       expect(find.text('Estimated cost'), findsOneWidget);
-      expect(find.text(r'$1.25'), findsOneWidget);
+      expect(find.text('40,755,279'), findsOneWidget);
+      expect(find.text('9,123,456'), findsOneWidget);
+      expect(find.text(r'$12,345.25'), findsOneWidget);
       expect(find.text('Reported cost (where available)'), findsOneWidget);
       expect(find.text(r'$1.10'), findsOneWidget);
+      await tester.tap(find.text('Models (includes auxiliary calls)'));
+      await tester.pumpAndSettle();
+      expect(
+        find.textContaining('Tokens: 40,000,000 in / 9,000,000 out'),
+        findsOneWidget,
+      );
+      expect(find.textContaining(r'Estimated: $12,345.25'), findsOneWidget);
     },
   );
 

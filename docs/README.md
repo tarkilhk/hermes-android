@@ -36,6 +36,7 @@ The inventories describe their inspection dates and source commits. Do not silen
 - [Context fullness on reopen](CONTEXT_REOPEN_FIX.md), the deferred-agent ready-event fix and regression evidence.
 - [Subagent supervision](SUBAGENT_SUPERVISION.md), scoped live rosters, output and supported child controls.
 - [Session controls](SESSION_CONTROLS.md), server goal details/actions and the following heartbeat, loop and process slice.
+- [Opening output files](OPENING_OUTPUT_FILES.md), authenticated PDF/audio/video handoff to installed Android viewers.
 - [Backend updates](BACKEND_UPDATES.md), deliberate multi-host selection, shared update controls and per-host outcomes.
 - [Advanced connection headers](ADVANCED_CONNECTION_HEADERS.md), secure access-proxy credentials in the existing connection editor.
 - [Connection diagnostics and versions](CONNECTION_DIAGNOSTICS_AND_VERSIONS.md), the initial access/provider checks and Android/backend version visibility, with remaining operations scope.

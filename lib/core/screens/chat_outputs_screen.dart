@@ -7,6 +7,7 @@ import 'package:url_launcher/url_launcher.dart';
 
 import '../models/chat_output.dart';
 import '../services/connection_manager.dart';
+import '../services/android_file_delivery_service.dart';
 import '../services/remote_files_client.dart';
 import '../widgets/chat_image_preview.dart';
 import '../widgets/markdown_code_block.dart';
@@ -18,6 +19,7 @@ class ChatOutputsScreen extends StatefulWidget {
   final Future<RemoteFileDownload> Function(String path) download;
   final Future<RemoteTextPreview> Function(String path) readText;
   final Future<void> Function(RemoteFileDownload)? deliver;
+  final AndroidFileDeliveryService fileDelivery;
 
   const ChatOutputsScreen({
     super.key,
@@ -26,6 +28,7 @@ class ChatOutputsScreen extends StatefulWidget {
     required this.download,
     required this.readText,
     this.deliver,
+    this.fileDelivery = const AndroidFileDeliveryService(),
   });
 
   @override
@@ -138,46 +141,93 @@ class _ChatOutputsScreenState extends State<ChatOutputsScreen> {
     if (path == null) return _openLink(output.url!);
     final preview = await widget.readText(path);
     if (!mounted) return;
+    final canOpen = widget.fileDelivery.supportsType(
+      output.label,
+      mimeType: preview.mimeType,
+    );
+    var delivering = false;
     await Navigator.of(context).push(
       MaterialPageRoute<void>(
-        builder: (previewContext) => Scaffold(
-          appBar: AppBar(
-            title: Text(
-              output.label,
-              maxLines: 1,
-              overflow: TextOverflow.ellipsis,
-            ),
-          ),
-          body: ListView(
-            padding: const EdgeInsets.all(16),
-            children: [
-              if (preview.binary)
-                const Text(
-                  'Use Save or share to open this file in another app.',
-                )
-              else ...[
-                if (preview.truncated)
-                  const Text(
-                    'Preview shortened by Hermes. Save the file to read it all.',
-                  ),
-                MarkdownCodeBlock(
-                  code: preview.text,
-                  language: preview.language,
-                ),
-              ],
-              FilledButton.icon(
-                icon: const Icon(Icons.ios_share),
-                label: const Text('Save or share'),
-                onPressed: () async {
-                  try {
-                    await _share(await widget.download(path));
-                  } catch (error) {
-                    if (previewContext.mounted) _error(previewContext, error);
+        builder: (_) => StatefulBuilder(
+          builder: (previewContext, setPreviewState) {
+            Future<void> deliverFile({required bool open}) async {
+              if (!mounted || delivering) return;
+              setPreviewState(() => delivering = true);
+              try {
+                final file = await widget.download(path);
+                if (!mounted || !previewContext.mounted) return;
+                if (open) {
+                  final opened = await widget.fileDelivery.openInApp(
+                    file,
+                    mimeType: preview.mimeType,
+                  );
+                  if (!opened && previewContext.mounted) {
+                    ScaffoldMessenger.of(previewContext).showSnackBar(
+                      const SnackBar(
+                        content: Text(
+                          'No compatible app was found. Use Save or share instead.',
+                        ),
+                      ),
+                    );
                   }
-                },
+                } else {
+                  await _share(file);
+                }
+              } catch (error) {
+                if (previewContext.mounted) _error(previewContext, error);
+              } finally {
+                if (previewContext.mounted) {
+                  setPreviewState(() => delivering = false);
+                }
+              }
+            }
+
+            return Scaffold(
+              appBar: AppBar(
+                title: Text(
+                  output.label,
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                ),
               ),
-            ],
-          ),
+              body: ListView(
+                padding: const EdgeInsets.all(16),
+                children: [
+                  if (preview.binary)
+                    Text(
+                      canOpen
+                          ? 'Open this file in a compatible app, or save/share a copy.'
+                          : 'Use Save or share to open this file in another app.',
+                    )
+                  else ...[
+                    if (preview.truncated)
+                      const Text(
+                        'Preview shortened by Hermes. Save the file to read it all.',
+                      ),
+                    MarkdownCodeBlock(
+                      code: preview.text,
+                      language: preview.language,
+                    ),
+                  ],
+                  if (canOpen)
+                    FilledButton.icon(
+                      icon: const Icon(Icons.open_in_new),
+                      label: const Text('Open in app'),
+                      onPressed: delivering
+                          ? null
+                          : () => deliverFile(open: true),
+                    ),
+                  FilledButton.icon(
+                    icon: const Icon(Icons.ios_share),
+                    label: const Text('Save or share'),
+                    onPressed: delivering
+                        ? null
+                        : () => deliverFile(open: false),
+                  ),
+                ],
+              ),
+            );
+          },
         ),
       ),
     );
