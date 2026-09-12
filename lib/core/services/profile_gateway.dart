@@ -646,17 +646,36 @@ class ProfileGateway {
   Future<void> deleteSession(String id) async {
     if (id.isEmpty) throw ArgumentError('Missing session');
     await requireProfile();
-    // The stock live list omits profile ownership. Any identical live durable
-    // ID blocks deletion conservatively, rather than risking a running agent.
-    final live = records((await call('session.active_list'))['sessions']);
-    if (live.any((row) => row['session_key'] == id)) {
-      throw StateError(
-        'This chat is still open on Hermes. Close it before deleting.',
-      );
-    }
     final remove = _delete;
     if (remove == null) {
       throw StateError('Session mutation transport unavailable');
+    }
+    final live = records((await call('session.active_list'))['sessions']);
+    if (live.any((row) => row['session_key'] == id)) {
+      // The live list has no profile owner. Resolve through scoped resume before
+      // closing anything: the same durable ID can exist in another profile.
+      final session = await resume(id);
+      if (session['stored_session_id'] != id) {
+        throw const FormatException('Session response has a different chat');
+      }
+      final runtimeId = session['session_id'] as String;
+      final current = records((await call('session.active_list'))['sessions'])
+          .where((row) => row['id'] == runtimeId && row['session_key'] == id)
+          .toList();
+      if (current.length != 1 || current.single['status'] != 'idle') {
+        throw StateError(
+          'This chat is working or waiting for input on Hermes. '
+          'Stop it or let it finish before deleting.',
+        );
+      }
+      // Finalize the runtime before removing its stored history, so a later
+      // agent flush cannot write into a deleted session.
+      final result = await call('session.close', {'session_id': runtimeId});
+      if (result['closed'] != true) {
+        throw StateError(
+          'Hermes could not close this chat. Try deleting again.',
+        );
+      }
     }
     await remove('sessions/${Uri.encodeComponent(id)}', {
       'profile': scope.profileName,

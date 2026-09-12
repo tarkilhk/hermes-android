@@ -7,10 +7,18 @@ class ProfileActionsFixture extends ProfileBrowserFixture {
   final updates = <(String, String, Map<String, dynamic>)>[];
   final deletes = <(String, Map<String, String>)>[];
   final moves = <(String, Map<String, dynamic>)>[];
+  final closes = <(String, Map<String, dynamic>)>[];
   final changes = <String, Map<String, Map<String, dynamic>>>{};
   final removed = <String, Set<String>>{};
   bool failMutation = false;
   bool active = false;
+  String? activeStatus = 'idle';
+  String? statusAfterResume;
+  String? resumeProfile;
+  String resumeSessionId = 'newest';
+  bool failClose = false;
+  bool acknowledgeClose = true;
+  bool foreignActive = false;
   Completer<void>? mutationDelay;
   @override
   List<Map<String, dynamic>> sessions(String profile) => [
@@ -52,9 +60,36 @@ class ProfileActionsFixture extends ProfileBrowserFixture {
         if (method == 'session.active_list') {
           return {
             'sessions': [
-              if (active) {'session_key': 'newest'},
+              if (active)
+                {
+                  'id': 'runtime',
+                  'session_key': 'newest',
+                  'status': activeStatus,
+                },
+              if (foreignActive)
+                {
+                  'id': 'foreign-runtime',
+                  'session_key': 'newest',
+                  'status': 'working',
+                },
             ],
           };
+        }
+        if (method == 'session.resume' && params['session_id'] == 'newest') {
+          active = true;
+          activeStatus = statusAfterResume ?? activeStatus;
+          return {
+            'session_id': 'runtime',
+            'stored_session_id': resumeSessionId,
+            'messages': [],
+            'info': {'profile_name': resumeProfile ?? scope.profileName},
+          };
+        }
+        if (method == 'session.close') {
+          closes.add((scope.profileName, params));
+          if (failClose) throw StateError('Close rejected');
+          if (acknowledgeClose) active = false;
+          return {'closed': acknowledgeClose};
         }
         return base.call(method, params);
       },
@@ -70,6 +105,7 @@ class ProfileActionsFixture extends ProfileBrowserFixture {
       },
       delete: (endpoint, query) async {
         if (failMutation) throw StateError('Delete rejected');
+        if (active) throw StateError('Runtime must be closed before deletion');
         deletes.add((endpoint, query));
         removed
             .putIfAbsent(scope.profileName, () => {})

@@ -16,6 +16,39 @@ Deleting a project removes its organization, not its saved conversations. Deskto
 
 Appearance displays server icon/color metadata with a fallback for values Android cannot render. Editing appearance changes that project on the server and is visible to other clients. The client's selected profile remains independent.
 
+## Chat deletion, 2026-09-12
+
+Confirmed Delete now closes an idle Hermes runtime before deleting the chat's
+stored history. Previously Android rejected every matching entry in
+`session.active_list`, including idle chats, with "Close it before deleting."
+Returning to Chats does not close a runtime, so this blocked ordinary deletion.
+
+The live list does not identify profile ownership. When a durable ID is open,
+Android uses profile-scoped `session.resume`, verifies the returned profile and
+stored ID, and checks the returned runtime in a fresh live list. Only an explicit
+`idle` status permits `session.close`; working, starting, waiting and unknown
+states remain blocked. After an acknowledged close, the existing profile-scoped
+REST delete removes the history. Failed requests preserve the visible chat for
+retry, and cancelling the confirmation sends no close or delete request.
+
+The installed Hermes source confirms that idle runtimes appear in the live list,
+that `session.close` returns `closed`, and that REST deletion removes the database
+row without closing a runtime. Desktop also closes a known runtime before REST
+deletion. The status check and close are separate server requests, so another
+client can still start work between them. No server changes were made.
+
+Controller and widget regression tests cover idle deletion, close-before-delete
+ordering, busy and unknown states, profile/ID collisions, failures and retry.
+These checks use authored fixtures; deletion on the owner's phone and gateway
+has not been exercised.
+
+Release checks for Personal `2.5.1+2153`: full suite 1,011 passed with four opt-in
+live tests skipped; Flutter analysis reports no issues. `dart pub outdated`
+was reviewed and the existing lockfile retained for this fix. The initial direct
+Dart analyzer hit a Windows performance-pipe shutdown error; rerunning through
+Flutter completed successfully. Phone installation and live smoke results are
+reported separately from these automated checks.
+
 ## Verification
 
 The owner's 2026-09-12 screenshot feedback also refines D15 in this batch: the context fuse sits on the message box's existing top edge, with a small dot at the current usage position. It adds no separate row. Server-reported usage, thresholds, unknown/estimated states and accessibility labels remain unchanged.

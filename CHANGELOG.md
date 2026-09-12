@@ -8,6 +8,15 @@ Feature releases increment the minor version, fixes increment the patch version,
 and breaking changes increment the major version. The Android build number after
 `+` always increases. Update this changelog for every release milestone.
 
+## [2.5.1+2153] - 2026-09-12
+
+### Fixed
+
+- Delete from Chats now closes an idle Hermes runtime before removing its
+  history. Previously, any open runtime blocked deletion, even after a response
+  completed. Profile ownership is verified before closing; chats still working
+  or waiting for input remain protected.
+
 ## [2.5.0+2152] - 2026-09-12
 
 ### Added

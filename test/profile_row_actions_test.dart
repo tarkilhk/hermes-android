@@ -133,13 +133,28 @@ void main() {
       true,
     );
   });
-  test('delete uses profile query and refuses an active durable ID', () async {
+  test('delete allows an idle chat still open on Hermes', () async {
     host.active = true;
+    await controller.mutateSession(key(), delete: true);
+    expect(host.closes.single.$1, 'personal');
+    expect(host.closes.single.$2, {
+      'session_id': 'runtime',
+      'profile': 'personal',
+    });
+    expect(host.deletes.single.$2, {'profile': 'personal'});
+    expect(controller.current!.sessions.any((r) => r['id'] == 'newest'), false);
+    await controller.refresh();
+    expect(controller.current!.sessions.any((r) => r['id'] == 'newest'), false);
+  });
+  test('delete uses profile query and refuses a working durable ID', () async {
+    host.active = true;
+    host.activeStatus = 'working';
     await expectLater(
       controller.mutateSession(key(), delete: true),
       throwsStateError,
     );
     expect(host.deletes, isEmpty);
+    expect(host.closes, isEmpty);
     host.active = false;
     await controller.mutateSession(key(), delete: true);
     expect(host.deletes.single.$2, {'profile': 'personal'});
@@ -147,6 +162,102 @@ void main() {
     await controller.refresh();
     expect(controller.current!.sessions.any((r) => r['id'] == 'newest'), false);
   });
+  for (final status in ['starting', 'waiting', 'unknown', null]) {
+    test('delete refuses an open chat with status $status', () async {
+      host.active = true;
+      host.activeStatus = status;
+      await expectLater(
+        controller.mutateSession(key(), delete: true),
+        throwsStateError,
+      );
+      expect(host.closes, isEmpty);
+      expect(host.deletes, isEmpty);
+      expect(
+        controller.current!.sessions.any((r) => r['id'] == 'newest'),
+        true,
+      );
+    });
+  }
+  test('delete rechecks runtime state after resolving ownership', () async {
+    host.active = true;
+    host.statusAfterResume = 'working';
+    await expectLater(
+      controller.mutateSession(key(), delete: true),
+      throwsStateError,
+    );
+    expect(host.closes, isEmpty);
+    expect(host.deletes, isEmpty);
+  });
+  test(
+    'delete closes only the owning runtime for a colliding durable ID',
+    () async {
+      host.foreignActive = true;
+      await controller.mutateSession(key(), delete: true);
+      expect(host.closes.single.$2['session_id'], 'runtime');
+      expect(host.foreignActive, true);
+      await controller.navigateProfile('work');
+      expect(controller.current!.sessions.single['id'], 'newest');
+    },
+  );
+  test(
+    'delete refuses a resume response from a different profile or chat',
+    () async {
+      host.active = true;
+      host.resumeProfile = 'work';
+      await expectLater(
+        controller.mutateSession(key(), delete: true),
+        throwsFormatException,
+      );
+      host.resumeProfile = null;
+      host.resumeSessionId = 'another-chat';
+      await expectLater(
+        controller.mutateSession(key(), delete: true),
+        throwsFormatException,
+      );
+      expect(host.closes, isEmpty);
+      expect(host.deletes, isEmpty);
+    },
+  );
+  test('failed close preserves the chat and allows retry', () async {
+    host.active = true;
+    host.failClose = true;
+    await expectLater(
+      controller.mutateSession(key(), delete: true),
+      throwsStateError,
+    );
+    expect(host.deletes, isEmpty);
+    expect(controller.current!.sessions.any((r) => r['id'] == 'newest'), true);
+    expect(controller.current!.mutatingSessions, isEmpty);
+    host.failClose = false;
+    host.acknowledgeClose = false;
+    await expectLater(
+      controller.mutateSession(key(), delete: true),
+      throwsStateError,
+    );
+    expect(host.deletes, isEmpty);
+    host.acknowledgeClose = true;
+    await controller.mutateSession(key(), delete: true);
+    expect(host.deletes, hasLength(1));
+  });
+  test(
+    'failed delete after close preserves the chat and allows retry',
+    () async {
+      host.active = true;
+      host.failMutation = true;
+      await expectLater(
+        controller.mutateSession(key(), delete: true),
+        throwsStateError,
+      );
+      expect(host.closes, hasLength(1));
+      expect(
+        controller.current!.sessions.any((r) => r['id'] == 'newest'),
+        true,
+      );
+      host.failMutation = false;
+      await controller.mutateSession(key(), delete: true);
+      expect(host.deletes, hasLength(1));
+    },
+  );
   test(
     'late write and duplicate taps stay bound to the original profile',
     () async {
@@ -352,6 +463,29 @@ void main() {
     await tester.tap(find.text('Cancel'));
     await tester.pumpAndSettle();
     expect(host.deletes, isEmpty);
+    expect(host.closes, isEmpty);
+    await tester.pumpWidget(const SizedBox.shrink());
+  });
+  testWidgets('confirmed delete removes an idle open chat from Chats', (
+    tester,
+  ) async {
+    host.active = true;
+    await show(tester);
+    await menu(tester, 'newest');
+    await tester.tap(find.text('Delete'));
+    await tester.pumpAndSettle();
+    await tester.tap(
+      find.descendant(
+        of: find.byType(AlertDialog),
+        matching: find.text('Delete'),
+      ),
+    );
+    await tester.pumpAndSettle();
+    expect(host.closes, hasLength(1));
+    expect(host.deletes, hasLength(1));
+    expect(find.byKey(const ValueKey('chat-newest')), findsNothing);
+    expect(find.textContaining('Close it before deleting'), findsNothing);
+    expect(tester.takeException(), isNull);
     await tester.pumpWidget(const SizedBox.shrink());
   });
   testWidgets('project compose button opens a new chat in that project', (
