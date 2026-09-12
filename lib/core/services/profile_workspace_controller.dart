@@ -13,6 +13,7 @@ import '../models/gateway_activity.dart';
 import '../models/gateway_insight.dart';
 import '../models/gateway_todo.dart';
 import '../models/profile_live_activity.dart';
+import '../models/session_control.dart';
 import '../models/side_question_delivery.dart';
 import '../models/slash_command.dart';
 import 'attachment_draft_service.dart';
@@ -108,6 +109,14 @@ class ProfileChat {
   bool subagentsLoading = false;
   String? subagentsError;
   int _subagentsLoadGeneration = 0;
+  SessionControlSnapshot? sessionControl;
+  bool sessionControlLoading = false;
+  bool sessionControlWorking = false;
+  String? sessionControlError;
+  String? sessionControlNotice;
+  int _sessionControlGeneration = 0;
+  int _sessionControlEventRevision = 0;
+  bool _sessionControlReadAttempted = false;
   String? error;
   bool changingAnswer = false;
   bool commandRunning = false;
@@ -885,6 +894,163 @@ class ProfileWorkspaceController extends ChangeNotifier {
     return current != null && (before.isTerminal || !current.isTerminal);
   }
 
+  Future<void> refreshSessionControl(ProfileChat chat) async {
+    final resource = _owned(chat);
+    final runtime = chat.runtimeId;
+    final eventRevision = chat._sessionControlEventRevision;
+    final generation = ++chat._sessionControlGeneration;
+    chat._sessionControlReadAttempted = true;
+    chat.sessionControlLoading = true;
+    chat.sessionControlError = null;
+    _changed();
+    try {
+      final response = await resource.gateway.call('session.control.read', {
+        'session_id': runtime,
+      });
+      if (!_sessionControlIsCurrent(resource, chat, runtime) ||
+          chat._sessionControlGeneration != generation ||
+          chat._sessionControlEventRevision != eventRevision) {
+        return;
+      }
+      final snapshot = SessionControlSnapshot.parse(response);
+      if (snapshot == null) {
+        throw const FormatException('Invalid session control response');
+      }
+      chat.sessionControl = snapshot;
+    } catch (_) {
+      if (_sessionControlIsCurrent(resource, chat, runtime) &&
+          chat._sessionControlGeneration == generation &&
+          chat._sessionControlEventRevision == eventRevision) {
+        chat.sessionControlError = 'Goal status could not be refreshed. Retry.';
+      }
+    } finally {
+      if (_sessionControlIsCurrent(resource, chat, runtime) &&
+          chat._sessionControlGeneration == generation) {
+        chat.sessionControlLoading = false;
+        _changed();
+      }
+    }
+  }
+
+  Future<bool> controlSession(
+    ProfileChat chat,
+    SessionControlAction action,
+  ) async {
+    final resource = _owned(chat);
+    if (chat.sessionControlWorking) return false;
+    final runtime = chat.runtimeId;
+    final eventRevision = chat._sessionControlEventRevision;
+    chat._sessionControlGeneration++;
+    chat.sessionControlLoading = false;
+    chat.sessionControlWorking = true;
+    chat.sessionControlError = null;
+    chat.sessionControlNotice = null;
+    _changed();
+    try {
+      final response = await resource.gateway.call('session.control', {
+        'session_id': runtime,
+        'action': action.wireValue,
+        'args': <String, dynamic>{},
+      });
+      if (!_sessionControlIsCurrent(resource, chat, runtime)) return false;
+      final snapshot = SessionControlSnapshot.parse(response);
+      final dispatch = _sessionControlDispatch(response['dispatch']);
+      if (snapshot == null || dispatch == null) {
+        throw const FormatException('Invalid session control action response');
+      }
+      final eventArrived = chat._sessionControlEventRevision != eventRevision;
+      if (eventArrived && chat.sessionControl?.revision != snapshot.revision) {
+        chat.sessionControlError =
+            'Goal state changed while this action was being confirmed. Refresh before trying again.';
+        return false;
+      }
+      chat.sessionControl = snapshot;
+      chat._sessionControlReadAttempted = true;
+
+      if (dispatch.type == 'send') {
+        final message = dispatch.message?.trim() ?? '';
+        if (message.isEmpty) {
+          chat.sessionControlError = _goalContinuationError;
+          return false;
+        }
+        final accepted = await _sendPrompt(
+          chat,
+          prompt: message,
+          display: dispatch.display,
+          preserveComposer: true,
+        );
+        if (!accepted) {
+          if (_sessionControlIsCurrent(resource, chat, runtime)) {
+            chat.sessionControlError = _goalContinuationError;
+          }
+          return false;
+        }
+      }
+      if (!_sessionControlIsCurrent(resource, chat, runtime)) return false;
+      final feedback = dispatch.type == 'exec'
+          ? dispatch.output ?? dispatch.notice
+          : dispatch.notice;
+      chat.sessionControlNotice =
+          GatewayNotice.safeLine(feedback, 1000) ?? 'Goal updated.';
+      return true;
+    } catch (_) {
+      if (_sessionControlIsCurrent(resource, chat, runtime)) {
+        chat.sessionControlError =
+            chat._sessionControlEventRevision != eventRevision
+            ? 'Goal state changed, but the action was not confirmed. Refresh before trying again.'
+            : 'Goal control failed. Refresh before trying again.';
+      }
+      return false;
+    } finally {
+      if (_sessionControlIsCurrent(resource, chat, runtime)) {
+        chat.sessionControlWorking = false;
+        _changed();
+      }
+    }
+  }
+
+  bool _sessionControlIsCurrent(
+    ProfileWorkspaceData resource,
+    ProfileChat chat,
+    String runtime,
+  ) =>
+      !_closed &&
+      identical(_resources[chat.key.workspace], resource) &&
+      identical(resource.chats[chat.key.sessionId], chat) &&
+      chat.runtimeId == runtime;
+
+  ({
+    String type,
+    String? output,
+    String? notice,
+    String? message,
+    String? display,
+  })?
+  _sessionControlDispatch(dynamic value) {
+    if (value is! Map) return null;
+    const fields = {'type', 'output', 'notice', 'message', 'display'};
+    if (fields.any((key) => !value.containsKey(key)) ||
+        value['type'] != 'exec' && value['type'] != 'send' ||
+        [
+          value['output'],
+          value['notice'],
+          value['message'],
+          value['display'],
+        ].any((field) => field != null && field is! String)) {
+      return null;
+    }
+    return (
+      type: value['type'] as String,
+      output: value['output'] as String?,
+      notice: value['notice'] as String?,
+      message: value['message'] as String?,
+      display: value['display'] as String?,
+    );
+  }
+
+  static const _goalContinuationError =
+      'The goal changed, but its continuation was not accepted. Check this chat and refresh goal status before trying again.';
+
   void _updateContext(ProfileChat chat, Map usage) {
     if (!usage.keys.any((key) => key.toString().startsWith('context_'))) return;
     final previous = chat.context;
@@ -1138,6 +1304,7 @@ class ProfileWorkspaceController extends ChangeNotifier {
     }
     _changed();
     if (current?.chat == chat) {
+      unawaited(refreshSessionControl(chat));
       if (chat.projectId == null) unawaited(_loadChatProject(resource, chat));
       await refreshHistory(chat);
       await _drainQueuedPrompts(chat);
@@ -3151,6 +3318,17 @@ class ProfileWorkspaceController extends ChangeNotifier {
         if (event.data['lazy'] != true && !chat.busy) {
           unawaited(refreshContext(chat));
         }
+        if (!chat._sessionControlReadAttempted) {
+          unawaited(refreshSessionControl(chat));
+        }
+      case 'session.control.update':
+        final snapshot = SessionControlSnapshot.parse(event.data['control']);
+        if (snapshot != null) {
+          chat.sessionControl = snapshot;
+          chat._sessionControlEventRevision++;
+          chat._sessionControlReadAttempted = true;
+          chat.sessionControlError = null;
+        }
       case 'session.usage':
         if (event.data['usage'] is Map) {
           _updateContext(chat, event.data['usage'] as Map);
@@ -3477,6 +3655,14 @@ class ProfileWorkspaceController extends ChangeNotifier {
       chat.subagentsLoading = false;
       chat.subagentsError = null;
       chat._subagentsLoadGeneration++;
+      chat.sessionControl = null;
+      chat.sessionControlLoading = false;
+      chat.sessionControlWorking = false;
+      chat.sessionControlError = null;
+      chat.sessionControlNotice = null;
+      chat._sessionControlGeneration++;
+      chat._sessionControlEventRevision++;
+      chat._sessionControlReadAttempted = false;
       chat.sensitivePrompt = null;
       chat.sensitivePromptResponding = false;
     }

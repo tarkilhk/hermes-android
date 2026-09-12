@@ -54,12 +54,12 @@ The app's current slash/profile contracts and any separately maintained backend 
 
 ## Version and application identity
 
-Source version on 2026-09-12 is `2.7.0+2156` in [pubspec.yaml](pubspec.yaml). This is the checked-out version, not a claim that a matching public release has been published. Each release is recorded in the [changelog](CHANGELOG.md), with semantic versions and an increasing Android build number.
+Source version on 2026-09-12 is `2.8.0+2157` in [pubspec.yaml](pubspec.yaml). This is the checked-out version, not a claim that a matching public release has been published. Each release is recorded in the [changelog](CHANGELOG.md), with semantic versions and an increasing Android build number.
 
 - Personal release package: `com.tarkilhk.hermes.android`, labelled Hermes Personal.
 - Development package: `com.hermesagent.hermes_android.dev`.
 - The inherited upstream package is separate and is not this fork's release identity.
-- ABI-split codes derive from the base build number; the current ARM64 split uses `21562`.
+- ABI-split codes derive from the base build number; the current ARM64 split uses `21572`.
 
 The [release plan](docs/ANDROID_RELEASE_PLAN.md) and [build configuration](android/app/build.gradle.kts) document identity, signing and version-code rules. The selected S08 work will expose this client's version/build and update information in the app, separately from the backend version.
 

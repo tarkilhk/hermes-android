@@ -8,6 +8,17 @@ Feature releases increment the minor version, fixes increment the patch version,
 and breaking changes increment the major version. The Android build number after
 `+` always increases. Update this changelog for every release milestone.
 
+## [2.8.0+2157] - 2026-09-12
+
+### Added
+
+- Goal status and details from Hermes, including criteria, verification,
+  turn limits and waiting reasons. Open Goal from the chat menu; an active
+  goal also appears in the conversation.
+- Supported Pause, Resume, Resume now and confirmed Clear controls use
+  acknowledged server state. Goal continuations preserve unsent composer
+  text, attachments and queued messages.
+
 ## [2.7.0+2156] - 2026-09-12
 
 ### Added

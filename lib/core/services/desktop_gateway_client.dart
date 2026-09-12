@@ -51,6 +51,7 @@ class DesktopGatewayClient {
     'subagent.tool',
     'subagent.progress',
     'subagent.complete',
+    'session.control.update',
   };
 
   DesktopGatewayClient._({

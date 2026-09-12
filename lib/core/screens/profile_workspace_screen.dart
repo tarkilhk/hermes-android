@@ -18,6 +18,7 @@ import '../widgets/chat_intelligence_picker.dart';
 import '../widgets/context_fuse.dart';
 import '../widgets/profile_execution_activity.dart';
 import '../widgets/profile_subagent_panel.dart';
+import '../widgets/profile_goal_panel.dart';
 import '../widgets/slash_command_suggestions.dart';
 import '../widgets/side_question_delivery_card.dart';
 import 'profile_workspace_browser.dart';
@@ -213,12 +214,31 @@ class _ProfileWorkspaceScreenState extends State<ProfileWorkspaceScreen>
                   } else if (action == 'outputs') {
                     unawaited(_run(() => _openOutputs(chat)));
                   } else if (action == 'subagents') {
-                    unawaited(_openSubagents(chat));
+                    unawaited(
+                      _openWorkDetails(
+                        ProfileSubagentPanel(
+                          controller: controller,
+                          chat: chat,
+                          initiallyExpanded: true,
+                        ),
+                      ),
+                    );
+                  } else if (action == 'goal') {
+                    unawaited(
+                      _openWorkDetails(
+                        ProfileGoalPanel(
+                          controller: controller,
+                          chat: chat,
+                          initiallyExpanded: true,
+                        ),
+                      ),
+                    );
                   }
                 },
                 itemBuilder: (_) => const [
                   PopupMenuItem(value: 'outputs', child: Text('Outputs')),
                   PopupMenuItem(value: 'subagents', child: Text('Subagents')),
+                  PopupMenuItem(value: 'goal', child: Text('Goal')),
                   PopupMenuItem(value: 'find', child: Text('Find in chat')),
                   PopupMenuItem(
                     value: 'refresh',
@@ -249,22 +269,14 @@ class _ProfileWorkspaceScreenState extends State<ProfileWorkspaceScreen>
     },
   );
 
-  Future<void> _openSubagents(ProfileChat chat) => showModalBottomSheet<void>(
+  Future<void> _openWorkDetails(Widget panel) => showModalBottomSheet<void>(
     context: context,
     isScrollControlled: true,
     showDragHandle: true,
     builder: (_) => SafeArea(
       child: FractionallySizedBox(
         heightFactor: 0.75,
-        child: ListView(
-          children: [
-            ProfileSubagentPanel(
-              controller: controller,
-              chat: chat,
-              initiallyExpanded: true,
-            ),
-          ],
-        ),
+        child: ListView(children: [panel]),
       ),
     ),
   );
@@ -554,6 +566,12 @@ class _ProfileWorkspaceScreenState extends State<ProfileWorkspaceScreen>
             if (chat.toolActivities.isNotEmpty)
               ProfileLiveToolActivity(activities: chat.toolActivities),
             if (chat.todos.isNotEmpty) ProfileTodoPanel(todos: chat.todos),
+            if (chat.sessionControl?.goal != null)
+              ProfileGoalPanel(
+                key: ValueKey(('goal', chat.key)),
+                controller: controller,
+                chat: chat,
+              ),
             if (chat.subagents.isNotEmpty)
               ProfileSubagentPanel(
                 key: ValueKey(('subagents', chat.key)),
