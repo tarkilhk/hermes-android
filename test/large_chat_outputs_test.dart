@@ -4,6 +4,7 @@ import 'package:shared_preferences/shared_preferences.dart';
 import 'package:hermes_android/core/screens/profile_workspace_screen.dart';
 import 'package:hermes_android/core/services/connection_manager.dart';
 import 'package:hermes_android/core/services/profile_workspace_controller.dart';
+import 'package:hermes_android/core/widgets/chat_find_sheet.dart';
 
 import 'support/profile_history_fixture.dart';
 
@@ -26,6 +27,68 @@ class _LargeChat extends ProfileHistoryFixture {
 }
 
 void main() {
+  testWidgets('Find opens a large chat without loading its entire transcript', (
+    tester,
+  ) async {
+    SharedPreferences.setMockInitialValues({});
+    final host = _LargeChat();
+    final controller = ProfileWorkspaceController(
+      connection: SavedConnection(
+        id: 'host',
+        label: 'Test',
+        host: 'localhost',
+        port: 1,
+        apiKey: '',
+      ),
+      connectionIdentity: 'test',
+      preferences: await SharedPreferences.getInstance(),
+      gatewayFactory: host.gateway,
+    );
+    addTearDown(controller.dispose);
+    await controller.initialize();
+    await controller.openSession(
+      ProfileSessionKey(controller.current!.scope, 'chat-0'),
+    );
+    await tester.pumpWidget(
+      MaterialApp(home: ProfileWorkspaceScreen(controller: controller)),
+    );
+    await tester.pumpAndSettle();
+    host.reads.clear();
+    await tester.tap(find.byTooltip('Chat actions'));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('Find in chat'));
+    await tester.pumpAndSettle();
+
+    expect(
+      find.textContaining('This chat is too large to load here'),
+      findsNothing,
+    );
+    await tester.enterText(
+      find.descendant(
+        of: find.byType(ChatFindSheet),
+        matching: find.byType(TextField),
+      ),
+      'Saved /srv/latest.pdf',
+    );
+    await tester.pump();
+    expect(
+      find.widgetWithText(ExpansionTile, 'Saved /srv/latest.pdf'),
+      findsOneWidget,
+    );
+    expect(find.text('Search older messages'), findsOneWidget);
+    final reads = host.reads
+        .where((read) => read.$1.endsWith('/messages'))
+        .toList();
+    expect(reads, hasLength(1));
+    expect(reads.single.$2, {
+      'profile': 'personal',
+      'limit': '500',
+      'offset': '0',
+      'order': 'latest',
+      'include_compacted': 'true',
+    });
+  });
+
   testWidgets(
     'Outputs opens a large chat without loading its entire transcript',
     (tester) async {

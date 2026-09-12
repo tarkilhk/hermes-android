@@ -14,6 +14,7 @@ class ProfileBrowserFixture {
   bool failWork = false;
   bool failProjects = false;
   bool failHistory = false;
+  String? historySessionIdOverride;
   bool failSearch = false;
   final historyDelays = <(String, int), Completer<void>>{};
   final searchDelays = <String, Completer<void>>{};
@@ -142,7 +143,7 @@ class ProfileBrowserFixture {
         await historyDelays[(id, offset)]?.future;
         if (failHistory) throw StateError('History offline');
         return {
-          'session_id': id,
+          'session_id': historySessionIdOverride ?? id,
           'messages': rows,
           'pagination': {
             'offset': offset,

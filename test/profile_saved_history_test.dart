@@ -1,74 +1,59 @@
 import 'package:flutter_test/flutter_test.dart';
-import 'package:hermes_android/core/models/hermes_profile.dart';
-import 'package:hermes_android/core/services/profile_gateway.dart';
-import 'package:hermes_android/core/services/profiles_repository.dart';
+import 'package:hermes_android/core/services/connection_manager.dart';
+import 'package:hermes_android/core/services/profile_workspace_controller.dart';
+import 'package:shared_preferences/shared_preferences.dart';
+
+import 'support/profile_history_fixture.dart';
 
 void main() {
-  final reads = <Map<String, String>>[];
-  var repeatPage = false;
-  var wrongChat = false;
-  late ProfileGateway gateway;
-  setUp(() {
-    reads.clear();
-    repeatPage = wrongChat = false;
-    gateway = ProfileGateway(
-      scope: WorkspaceScope(connectionId: 'host', profileName: 'work'),
-      discover: () async => const ProfileDiscovery(
-        profiles: [HermesProfile(name: 'work')],
-        currentName: 'work',
-        activeName: 'work',
+  late ProfileHistoryFixture host;
+  late ProfileWorkspaceController controller;
+  late ProfileChat chat;
+
+  setUp(() async {
+    SharedPreferences.setMockInitialValues({});
+    host = ProfileHistoryFixture();
+    controller = ProfileWorkspaceController(
+      connection: SavedConnection(
+        id: 'host',
+        label: 'Test',
+        host: 'localhost',
+        port: 1,
+        apiKey: '',
       ),
-      rpc: (_, _) async => {},
-      get: (path, query) async {
-        expect(path, 'sessions/chat/messages');
-        reads.add(query);
-        final offset = int.parse(query['offset']!);
-        return {
-          'session_id': wrongChat ? 'different' : 'chat',
-          'messages': List.generate(
-            offset == 0 || repeatPage ? 500 : 2,
-            (i) => {
-              'id': (repeatPage ? 0 : offset) + i + 1,
-              'role': 'assistant',
-              'content': 'Result $i',
-            },
-          ),
-        };
-      },
+      connectionIdentity: 'test',
+      preferences: await SharedPreferences.getInstance(),
+      gatewayFactory: host.gateway,
     );
+    addTearDown(controller.dispose);
+    await controller.initialize();
+    await controller.openSession(
+      ProfileSessionKey(controller.current!.scope, 'chat-0'),
+    );
+    chat = controller.current!.chat!;
+    host.reads.clear();
   });
+
   test(
-    'Find and Outputs receive all saved pages in original profile order',
+    'saved pages use the resolved chat identity and current profile',
     () async {
-      final messages = await gateway.savedHistory('chat');
-      expect(messages, hasLength(502));
-      expect(messages.last['id'], 502);
-      expect(reads, [
-        {
-          'profile': 'work',
-          'limit': '500',
-          'offset': '0',
-          'order': 'oldest',
-          'include_compacted': 'true',
-        },
-        {
-          'profile': 'work',
-          'limit': '500',
-          'offset': '500',
-          'order': 'oldest',
-          'include_compacted': 'true',
-        },
-      ]);
+      chat.historySessionId = 'canonical-chat';
+      final page = await controller.savedHistoryPage(chat);
+      expect(page.sessionId, 'canonical-chat');
+      expect(page.rows, hasLength(500));
+      expect(host.reads.single.$1, 'sessions/canonical-chat/messages');
+      expect(host.reads.single.$2, {
+        'profile': 'personal',
+        'limit': '500',
+        'offset': '0',
+        'order': 'latest',
+        'include_compacted': 'true',
+      });
     },
   );
-  test(
-    'repeated pages and a different chat fail instead of returning incomplete history',
-    () async {
-      repeatPage = true;
-      await expectLater(gateway.savedHistory('chat'), throwsFormatException);
-      repeatPage = false;
-      wrongChat = true;
-      await expectLater(gateway.savedHistory('chat'), throwsFormatException);
-    },
-  );
+
+  test('a saved page cannot cross into a different chat', () async {
+    host.historySessionIdOverride = 'different';
+    await expectLater(controller.savedHistoryPage(chat), throwsFormatException);
+  });
 }

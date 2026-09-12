@@ -2,11 +2,13 @@ import 'dart:async';
 
 import 'package:flutter/material.dart';
 
-typedef ChatHistoryLoader = Future<List<Map<String, dynamic>>> Function();
+import '../services/profile_gateway.dart';
+
+typedef ChatHistoryPageLoader = Future<ProfileHistoryPage> Function(int offset);
 
 Future<void> showChatFindSheet(
   BuildContext context, {
-  required ChatHistoryLoader loadHistory,
+  required ChatHistoryPageLoader loadHistory,
 }) => showModalBottomSheet<void>(
   context: context,
   isScrollControlled: true,
@@ -14,7 +16,7 @@ Future<void> showChatFindSheet(
 );
 
 class ChatFindSheet extends StatefulWidget {
-  final ChatHistoryLoader loadHistory;
+  final ChatHistoryPageLoader loadHistory;
   const ChatFindSheet({super.key, required this.loadHistory});
 
   @override
@@ -23,35 +25,58 @@ class ChatFindSheet extends StatefulWidget {
 
 class _ChatFindSheetState extends State<ChatFindSheet> {
   final _query = TextEditingController();
-  List<Map<String, dynamic>> _history = const [];
-  bool _loading = true;
-  String? _error;
-  final _expanded = <int>{};
+  final _history = <Map<String, dynamic>>[];
+  final _expanded = <Object>{};
+  int? _nextOffset = 0;
+  int? _retryOffset;
+  bool _loading = false;
+  String? _loadError;
 
   @override
   void initState() {
     super.initState();
-    unawaited(_load());
+    unawaited(_load(0));
   }
 
-  Future<void> _load() async {
+  Future<void> _load(int offset) async {
+    if (_loading) return;
+    setState(() {
+      _loading = true;
+      _loadError = null;
+      _retryOffset = null;
+    });
     try {
-      final history = await widget.loadHistory();
+      final page = await widget.loadHistory(offset);
       if (!mounted) return;
       setState(() {
-        _history = history;
-        _loading = false;
+        if (offset == 0) {
+          _history.clear();
+        }
+        final ids = _history.map((row) => row['id']).toSet();
+        final rows = page.rows
+            .where((row) => ids.add(row['id']))
+            .toList(growable: false);
+        if (offset == 0) {
+          _history.addAll(rows);
+        } else {
+          _history.insertAll(0, rows);
+        }
+        _nextOffset = page.nextOffset;
       });
-    } catch (error) {
+    } catch (_) {
       if (!mounted) return;
       setState(() {
-        _error = error.toString();
-        _loading = false;
+        _retryOffset = offset;
+        _loadError = _history.isEmpty
+            ? "Couldn't search this chat. Check the Hermes connection, then try again."
+            : "Couldn't load older messages. Your current results are still here. Check the Hermes connection, then try again.";
       });
+    } finally {
+      if (mounted) setState(() => _loading = false);
     }
   }
 
-  List<Map<String, dynamic>> get _allMatches {
+  List<Map<String, dynamic>> get _matches {
     final query = _query.text.trim().toLowerCase();
     if (query.isEmpty) return const [];
     return _history
@@ -59,17 +84,16 @@ class _ChatFindSheetState extends State<ChatFindSheet> {
         .toList(growable: false);
   }
 
-  Future<void> _retry() async {
-    setState(() {
-      _loading = true;
-      _error = null;
-    });
-    await _load();
-  }
-
   static String _rowText(Map<String, dynamic> row) {
     final content = row['content'] ?? row['text'] ?? row['message'];
     return content is String ? content : content?.toString() ?? '';
+  }
+
+  static Object _rowKey(Map<String, dynamic> row) =>
+      row['id'] ?? identityHashCode(row);
+
+  void _queryChanged(String _) {
+    setState(_expanded.clear);
   }
 
   @override
@@ -80,8 +104,9 @@ class _ChatFindSheetState extends State<ChatFindSheet> {
 
   @override
   Widget build(BuildContext context) {
-    final allMatches = _allMatches;
-    final matches = allMatches.take(100).toList();
+    final query = _query.text.trim();
+    final matches = _matches;
+    final hasMore = _nextOffset != null;
     return Material(
       child: AnimatedPadding(
         duration: const Duration(milliseconds: 150),
@@ -98,7 +123,7 @@ class _ChatFindSheetState extends State<ChatFindSheet> {
                   child: TextField(
                     controller: _query,
                     autofocus: true,
-                    onChanged: (_) => setState(_expanded.clear),
+                    onChanged: _queryChanged,
                     decoration: const InputDecoration(
                       labelText: 'Find in chat',
                       prefixIcon: Icon(Icons.search),
@@ -106,41 +131,36 @@ class _ChatFindSheetState extends State<ChatFindSheet> {
                     ),
                   ),
                 ),
+                if (_loading && _history.isNotEmpty)
+                  const LinearProgressIndicator(),
                 Expanded(
-                  child: _loading
+                  child: _loading && _history.isEmpty
                       ? const Center(child: CircularProgressIndicator())
-                      : _error != null
-                      ? Center(
-                          child: Column(
-                            mainAxisSize: MainAxisSize.min,
-                            children: [
-                              Text(_error!),
-                              const SizedBox(height: 8),
-                              TextButton(
-                                onPressed: _retry,
-                                child: const Text('Retry'),
-                              ),
-                            ],
-                          ),
-                        )
-                      : _query.text.trim().isEmpty
-                      ? const Center(child: Text('Type to search this chat.'))
+                      : _history.isEmpty && _loadError != null
+                      ? _Message(_loadError!)
+                      : query.isEmpty
+                      ? const _Message('Type to search this chat.')
                       : matches.isEmpty
-                      ? const Center(child: Text('No matching messages.'))
+                      ? _Message(
+                          hasMore
+                              ? 'No matches in the messages loaded so far.'
+                              : 'No matching messages.',
+                        )
                       : ListView.builder(
                           itemCount: matches.length,
                           itemBuilder: (_, index) {
                             final row = matches[index];
                             final role = row['role']?.toString() ?? 'message';
-                            final expanded = _expanded.contains(index);
+                            final key = _rowKey(row);
+                            final expanded = _expanded.contains(key);
                             return ExpansionTile(
-                              key: ValueKey((_query.text, row['id'] ?? index)),
+                              key: ValueKey((_query.text, key)),
                               initiallyExpanded: expanded,
                               onExpansionChanged: (open) => setState(() {
                                 if (open) {
-                                  _expanded.add(index);
+                                  _expanded.add(key);
                                 } else {
-                                  _expanded.remove(index);
+                                  _expanded.remove(key);
                                 }
                               }),
                               leading: Icon(
@@ -160,13 +180,57 @@ class _ChatFindSheetState extends State<ChatFindSheet> {
                           },
                         ),
                 ),
-                if (!_loading && _query.text.trim().isNotEmpty)
-                  Padding(
-                    padding: const EdgeInsets.all(8),
-                    child: Text(
-                      allMatches.length > matches.length
-                          ? 'Showing first ${matches.length} of ${allMatches.length} matching messages'
-                          : '${matches.length} matching messages',
+                if (!_loading || _history.isNotEmpty)
+                  SafeArea(
+                    top: false,
+                    child: ConstrainedBox(
+                      constraints: BoxConstraints(
+                        maxHeight: MediaQuery.sizeOf(context).height * .28,
+                      ),
+                      child: SingleChildScrollView(
+                        padding: const EdgeInsets.fromLTRB(16, 8, 16, 12),
+                        child: Column(
+                          mainAxisSize: MainAxisSize.min,
+                          children: [
+                            if (query.isNotEmpty && matches.isNotEmpty)
+                              Text(
+                                hasMore
+                                    ? '${_formatCount(matches.length)} matching ${matches.length == 1 ? 'message' : 'messages'} in loaded messages'
+                                    : '${_formatCount(matches.length)} matching ${matches.length == 1 ? 'message' : 'messages'}',
+                              ),
+                            if (_loadError != null && _history.isNotEmpty)
+                              Text(_loadError!),
+                            if (_loadError != null)
+                              Wrap(
+                                alignment: WrapAlignment.center,
+                                children: [
+                                  TextButton(
+                                    onPressed: _loading
+                                        ? null
+                                        : () => _load(_retryOffset ?? 0),
+                                    child: const Text('Try again'),
+                                  ),
+                                  TextButton(
+                                    onPressed: () =>
+                                        Navigator.of(context).maybePop(),
+                                    child: const Text('Close'),
+                                  ),
+                                ],
+                              )
+                            else if (query.isNotEmpty && hasMore)
+                              TextButton(
+                                onPressed: _loading
+                                    ? null
+                                    : () => _load(_nextOffset!),
+                                child: Text(
+                                  _loading
+                                      ? 'Searching older messages…'
+                                      : 'Search older messages',
+                                ),
+                              ),
+                          ],
+                        ),
+                      ),
                     ),
                   ),
               ],
@@ -176,4 +240,28 @@ class _ChatFindSheetState extends State<ChatFindSheet> {
       ),
     );
   }
+}
+
+String _formatCount(int value) {
+  final digits = value.toString();
+  final firstGroup = digits.length % 3;
+  final buffer = StringBuffer();
+  for (var index = 0; index < digits.length; index++) {
+    if (index > 0 && (index - firstGroup) % 3 == 0) buffer.write(',');
+    buffer.write(digits[index]);
+  }
+  return buffer.toString();
+}
+
+class _Message extends StatelessWidget {
+  final String text;
+  const _Message(this.text);
+
+  @override
+  Widget build(BuildContext context) => Center(
+    child: SingleChildScrollView(
+      padding: const EdgeInsets.all(24),
+      child: Text(text, textAlign: TextAlign.center),
+    ),
+  );
 }

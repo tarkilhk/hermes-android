@@ -114,6 +114,31 @@ D30 is a milestone with explicit subdeliveries: version visibility, one-host res
 
 ## Tracking and completion
 
+### Current continuation queue, 2026-09-12
+
+These are remaining portions of selected slices, not additional product scope.
+Deliver and verify each before adding the next layer.
+
+1. D18 / T11: implemented in 2.24.1, awaiting phone installation. Find uses the
+   same saved-page loader as Outputs, labels partial history, retains results on
+   failed older batches and keeps earlier matches accessible.
+2. D11 / Q12: correlate `/bg` and `/background` acknowledgements and completions
+   by the server's task ID. Reuse the side-question card for identifiable pending
+   and completed background work. Recovery after reconnect remains separate.
+3. D19 / C07: complete the server-backed read/unread lifecycle when the owner
+   opens and reads a chat. Check Desktop behavior and concurrent completion
+   semantics before changing read markers.
+4. D18 / C03, T11: navigate from a Find result to its original saved message,
+   including a message outside the currently displayed history page.
+5. D09 / Q11 with Q03: queue attachment-bearing drafts using the existing
+   attachment/upload pipeline. Desktop queues text and attachments together;
+   Android's text-only queue was an initial slice limit, not a scope exclusion.
+   Preserve queued drafts and explicit cache ownership. Steer remains text-only.
+
+Firebase setup, answer-version metadata, sensitive/side-task recovery and remote
+TUI restart remain tracked dependencies. Other selections and exclusions stay
+as recorded in PRODUCT_PLAN.md.
+
 For each active slice, append a short record here or link its implementation note:
 
 | Slice | Status | Delivered change | Verification and phone build | Remaining dependency |
@@ -133,7 +158,7 @@ For each active slice, append a short record here or link its implementation not
 | D15 | Reopen fix implemented; phone QA pending | Border fuse and endpoint dot; ready-event refresh after deferred agent construction, with stale-response protection | Reproduced empty-on-reopen regression now passes; see [fix notes](CONTEXT_REOPEN_FIX.md) | Verify the owner's live-server chat after installing 2.5.0; no new prompt or local estimate required |
 | D16 | Paged large-chat fix implemented; live QA pending | Recent outputs first, Load older outputs, retained results and actionable retry; original scoped authenticated downloads retained. See [owner-reported fix](EXECUTION_FIND_AND_OUTPUTS.md) | Exact error reproduced before fix with 10,000 messages; regression reaches oldest file and retries the same failed batch. 2.24: 1,173 tests passed/four skips; analyzer clean; signed Personal 21732 installed and launched | Candidate paths are heuristic; live owner-chat/relative-path resolution and endpoint support need verification |
 | D17 | Selected previews implemented; live QA pending | Authenticated image/SVG/text and Markdown/source, hosted web pages, downloaded self-contained HTML, binary save/share, external media handoff, in-app audio/video and PDF pages with zoom; see [opening files](OPENING_OUTPUT_FILES.md), [PDF reading](PDF_READING.md) and [HTML scope](MARKDOWN_AND_WEB_PREVIEWS.md) | 2.24: HTML/browser fixtures passed; 1,173 tests passed/four skips; analyzer clean; signed Personal 21732 installed and launched | HTML is limited to 1 MiB and self-contained content; live PDF/browser/media QA remains |
-| D18 | Implemented; live QA pending | Find in selected chat with expandable matches, accurate counts and retry; existing pagination/search/Latest retained | Saved-page, Find and existing transcript/search tests | Complete-history loader has explicit size limits |
+| D18 | Paged Find implemented; phone installation pending | Recent-first Find, Search older messages, retained results/retry and all loaded matches; known compressed history segment shared with Outputs. Existing transcript/search/Latest retained | 2.24.1: full suite 1,176 passed/four skips; analyzer clean; ten focused checks and one extra narrow error/keyboard check passed; signed Personal 21742 verified | Phone endpoint refused installation; navigating from a match to its message remains selected next work |
 | D19 | Implemented; live QA pending | Paginated Unread only in Chats; All/Running/Needs input in Activity reuse authoritative server rows | Pagination/filter/navigation fixture checks | Unread has no server query filter; older pages must be loaded |
 | D20 | Implemented; live QA pending | Project rename, appearance and confirmed deletion; existing creation/membership retained | Scoped write/ACK, deletion preservation, failure and UI checks | Deployed project write support still needs live verification |
 | D21 | Implemented; native interruption QA pending | Connection/profile/new-or-existing chat choice, atomic draft staging, private durable pending intake and exact asynchronous acknowledgement/discard | Merge/failure/routing and bridge replay checks; signed 2.5.0 installed | Native OS interruption/recreation QA remains; an interruption between draft save and intake acknowledgement can reoffer a share |

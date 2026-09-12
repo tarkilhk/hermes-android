@@ -721,15 +721,12 @@ class ProfileWorkspaceController extends ChangeNotifier {
     }
   }
 
-  Future<List<Map<String, dynamic>>> savedHistory(ProfileChat chat) =>
-      _owned(chat).gateway.savedHistory(chat.key.sessionId);
-
-  Future<ProfileHistoryPage> outputHistoryPage(
+  Future<ProfileHistoryPage> savedHistoryPage(
     ProfileChat chat, {
     int offset = 0,
   }) async {
     final gateway = _owned(chat).gateway;
-    final sessionId = chat.key.sessionId;
+    final sessionId = chat.historySessionId ?? chat.key.sessionId;
     final page = await gateway.history(sessionId, offset: offset, limit: 500);
     if (page.sessionId != sessionId) {
       throw const FormatException(

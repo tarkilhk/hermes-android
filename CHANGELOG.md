@@ -8,6 +8,30 @@ Feature releases increment the minor version, fixes increment the patch version,
 and breaking changes increment the major version. The Android build number after
 `+` always increases. Update this changelog for every release milestone.
 
+## [2.24.1+2174] - 2026-09-12
+
+### Fixed
+
+- Find in chat loads recent saved-history batches, removing the complete-chat
+  size gate. Search older messages preserves the query and prior results;
+  partial counts, retry and Close explain the current state. All loaded matches
+  remain accessible, including those beyond the old 100-result display cap.
+- Deduplicate overlapping history pages and use the server-identified history
+  segment after compression for both Find and Outputs.
+- Reconcile stale roadmap descriptions of delivered version/admin functions
+  and removed local answer-version links. Preserve the remaining selected work.
+
+### Verification
+
+- Reproduced the exact 10,000-message Find failure through the actual chat menu
+  before the fix. All ten focused tests pass, including retry, page overlap,
+  compressed-chat ownership and narrow layout with large text and keyboard.
+- Full suite: 1,176 passed, four opt-in skips. Analyzer clean. An additional
+  loaded-results/error layout test passed with large text and the keyboard open.
+- Signed Personal 2.24.1 / 21742 passed native compilation and certificate/package
+  checks. Installation awaits a new wireless-debugging endpoint; the phone
+  refused the last address. The last verified installation remains 2.24.0.
+
 ## [2.24.0+2173] - 2026-09-12
 
 ### Fixed

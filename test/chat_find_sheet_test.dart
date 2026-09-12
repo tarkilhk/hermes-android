@@ -1,20 +1,38 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 
+import 'package:hermes_android/core/services/profile_gateway.dart';
 import 'package:hermes_android/core/widgets/chat_find_sheet.dart';
 
+ProfileHistoryPage page(
+  List<Map<String, dynamic>> rows, {
+  int offset = 0,
+  int limit = 500,
+}) => ProfileHistoryPage('chat', rows, offset, limit);
+
 void main() {
-  testWidgets('loads once and filters message text locally', (tester) async {
+  testWidgets('loads the recent page once and filters message text locally', (
+    tester,
+  ) async {
     var calls = 0;
     await tester.pumpWidget(
       MaterialApp(
         home: ChatFindSheet(
-          loadHistory: () async {
+          loadHistory: (offset) async {
             calls++;
-            return [
-              {'role': 'user', 'content': 'Need the deployment checklist'},
-              {'role': 'assistant', 'content': 'Here is the checklist'},
-            ];
+            expect(offset, 0);
+            return page([
+              {
+                'id': 1,
+                'role': 'user',
+                'content': 'Need the deployment checklist',
+              },
+              {
+                'id': 2,
+                'role': 'assistant',
+                'content': 'Here is the checklist',
+              },
+            ]);
           },
         ),
       ),
@@ -26,35 +44,45 @@ void main() {
     await tester.pump();
     expect(find.text('Need the deployment checklist'), findsOneWidget);
     expect(find.text('Here is the checklist'), findsNothing);
-    expect(find.text('1 matching messages'), findsOneWidget);
+    expect(find.text('1 matching message'), findsOneWidget);
   });
 
-  testWidgets('shows no matches and load failures clearly', (tester) async {
+  testWidgets('initial failures use friendly retry and close actions', (
+    tester,
+  ) async {
     await tester.pumpWidget(
       MaterialApp(
-        home: ChatFindSheet(loadHistory: () async => throw StateError('offline')),
+        home: ChatFindSheet(
+          loadHistory: (_) async => throw StateError('offline'),
+        ),
       ),
     );
     await tester.pump();
     await tester.pump(const Duration(milliseconds: 1));
-    expect(find.textContaining('offline'), findsOneWidget);
-    expect(find.text('Retry'), findsOneWidget);
+    expect(find.textContaining("Couldn't search this chat"), findsOneWidget);
+    expect(find.textContaining('Bad state'), findsNothing);
+    expect(find.text('Try again'), findsOneWidget);
+    expect(find.text('Close'), findsOneWidget);
   });
 
-  testWidgets('expands a match into selectable full text and counts capped results', (
+  testWidgets('shows every loaded match and expands full selectable text', (
     tester,
   ) async {
     final longText = List.filled(12, 'needle line').join('\n');
     await tester.pumpWidget(
       MaterialApp(
         home: ChatFindSheet(
-          loadHistory: () async => [
-            {'role': 'assistant', 'content': longText},
+          loadHistory: (_) async => page([
+            {'id': 0, 'role': 'assistant', 'content': longText},
             ...List.generate(
               100,
-              (_) => {'role': 'user', 'content': 'needle'},
+              (index) => {
+                'id': index + 1,
+                'role': 'user',
+                'content': 'needle ${index + 1}',
+              },
             ),
-          ],
+          ]),
         ),
       ),
     );
@@ -62,36 +90,181 @@ void main() {
     await tester.pump(const Duration(milliseconds: 1));
     await tester.enterText(find.byType(TextField), 'needle');
     await tester.pump();
-    expect(find.textContaining('Showing first 100 of 101'), findsOneWidget);
+    expect(find.text('101 matching messages'), findsOneWidget);
     await tester.tap(find.byType(ExpansionTile).first);
     await tester.pump();
     expect(find.byType(SelectableText), findsOneWidget);
     expect(find.text(longText), findsOneWidget);
+    await tester.drag(find.byType(ListView), const Offset(0, -10000));
+    await tester.pumpAndSettle();
+    expect(find.text('needle 100'), findsOneWidget);
   });
 
-  testWidgets('retry reloads after a history failure', (tester) async {
-    var attempts = 0;
+  testWidgets(
+    'older-page failure preserves matches and retries the same page',
+    (tester) async {
+      var olderAttempts = 0;
+      await tester.pumpWidget(
+        MaterialApp(
+          home: ChatFindSheet(
+            loadHistory: (offset) async {
+              if (offset == 0) {
+                return page([
+                  for (var i = 0; i < 500; i++)
+                    {
+                      'id': i + 501,
+                      'role': 'assistant',
+                      'content': i == 499 ? 'recent needle' : 'recent $i',
+                    },
+                ]);
+              }
+              olderAttempts++;
+              if (olderAttempts == 1) throw StateError('offline');
+              return page([
+                {
+                  'id': 1000,
+                  'role': 'assistant',
+                  'content': 'overlapping duplicate needle',
+                },
+                {'id': 1, 'role': 'user', 'content': 'older needle'},
+              ], offset: offset);
+            },
+          ),
+        ),
+      );
+      await tester.pump();
+      await tester.pump(const Duration(milliseconds: 1));
+      await tester.enterText(find.byType(TextField), 'needle');
+      await tester.pump();
+      expect(
+        find.text('1 matching message in loaded messages'),
+        findsOneWidget,
+      );
+      await tester.tap(find.text('Search older messages'));
+      await tester.pump();
+      await tester.pump(const Duration(milliseconds: 1));
+      expect(find.text('recent needle'), findsOneWidget);
+      expect(
+        find.textContaining('current results are still here'),
+        findsOneWidget,
+      );
+      expect(find.textContaining('Bad state'), findsNothing);
+      await tester.tap(find.text('Try again'));
+      await tester.pump();
+      await tester.pump(const Duration(milliseconds: 1));
+      expect(olderAttempts, 2);
+      expect(find.text('older needle'), findsOneWidget);
+      expect(find.text('recent needle'), findsOneWidget);
+      expect(find.text('overlapping duplicate needle'), findsNothing);
+      expect(find.text('2 matching messages'), findsOneWidget);
+      expect(find.text('Search older messages'), findsNothing);
+    },
+  );
+
+  testWidgets('partial no-match copy changes when history is exhausted', (
+    tester,
+  ) async {
     await tester.pumpWidget(
       MaterialApp(
         home: ChatFindSheet(
-          loadHistory: () async {
-            attempts++;
-            if (attempts == 1) throw StateError('temporary failure');
-            return [
-              {'role': 'user', 'content': 'needle is back'},
-            ];
-          },
+          loadHistory: (offset) async => offset == 0
+              ? page([
+                  for (var i = 0; i < 500; i++)
+                    {'id': i + 501, 'content': 'recent $i'},
+                ])
+              : page([
+                  {'id': 1, 'content': 'oldest'},
+                ], offset: offset),
         ),
       ),
     );
     await tester.pump();
     await tester.pump(const Duration(milliseconds: 1));
-    await tester.tap(find.text('Retry'));
+    await tester.enterText(find.byType(TextField), 'absent');
+    await tester.pump();
+    expect(
+      find.text('No matches in the messages loaded so far.'),
+      findsOneWidget,
+    );
+    expect(find.text('No matching messages.'), findsNothing);
+    await tester.tap(find.text('Search older messages'));
     await tester.pump();
     await tester.pump(const Duration(milliseconds: 1));
-    await tester.enterText(find.byType(TextField), 'needle');
-    await tester.pump();
-    expect(attempts, 2);
-    expect(find.text('needle is back'), findsOneWidget);
+    expect(find.text('No matching messages.'), findsOneWidget);
+    expect(find.text('Search older messages'), findsNothing);
   });
+
+  testWidgets(
+    'retry layout fits a narrow screen with large text and keyboard',
+    (tester) async {
+      tester.view.physicalSize = const Size(320, 640);
+      tester.view.devicePixelRatio = 1;
+      tester.view.viewInsets = const FakeViewPadding(bottom: 240);
+      tester.platformDispatcher.textScaleFactorTestValue = 2;
+      addTearDown(tester.view.reset);
+      addTearDown(tester.platformDispatcher.clearTextScaleFactorTestValue);
+      await tester.pumpWidget(
+        MaterialApp(
+          home: ChatFindSheet(
+            loadHistory: (_) async => throw StateError('offline'),
+          ),
+        ),
+      );
+      await tester.pump();
+      await tester.pump(const Duration(milliseconds: 1));
+      expect(tester.takeException(), isNull);
+      expect(find.text('Try again'), findsOneWidget);
+      expect(find.text('Close'), findsOneWidget);
+    },
+  );
+
+  testWidgets(
+    'older-page failure fits a narrow screen with results and keyboard',
+    (tester) async {
+      tester.view.physicalSize = const Size(320, 640);
+      tester.view.devicePixelRatio = 1;
+      tester.view.viewInsets = const FakeViewPadding(bottom: 240);
+      tester.platformDispatcher.textScaleFactorTestValue = 2;
+      addTearDown(tester.view.reset);
+      addTearDown(tester.platformDispatcher.clearTextScaleFactorTestValue);
+      await tester.pumpWidget(
+        MaterialApp(
+          home: ChatFindSheet(
+            loadHistory: (offset) async {
+              if (offset > 0) throw StateError('offline');
+              return page([
+                for (var i = 0; i < 500; i++)
+                  {
+                    'id': i + 1,
+                    'role': 'assistant',
+                    'content': i == 499 ? 'recent needle' : 'recent $i',
+                  },
+              ]);
+            },
+          ),
+        ),
+      );
+      await tester.pump();
+      await tester.pump(const Duration(milliseconds: 1));
+      await tester.enterText(find.byType(TextField), 'needle');
+      await tester.pump();
+      await tester.ensureVisible(find.text('Search older messages'));
+      await tester.pump();
+      await tester.tap(find.text('Search older messages'));
+      await tester.pump();
+      await tester.pump(const Duration(milliseconds: 1));
+      expect(tester.takeException(), isNull);
+      expect(find.text('recent needle'), findsOneWidget);
+      expect(
+        find.text('1 matching message in loaded messages'),
+        findsOneWidget,
+      );
+      expect(
+        find.textContaining('current results are still here'),
+        findsOneWidget,
+      );
+      expect(find.text('Try again'), findsOneWidget);
+      expect(find.text('Close'), findsOneWidget);
+    },
+  );
 }

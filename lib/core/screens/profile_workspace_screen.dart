@@ -210,7 +210,8 @@ class _ProfileWorkspaceScreenState extends State<ProfileWorkspaceScreen>
                     unawaited(
                       showChatFindSheet(
                         context,
-                        loadHistory: () => controller.savedHistory(chat),
+                        loadHistory: (offset) =>
+                            controller.savedHistoryPage(chat, offset: offset),
                       ),
                     );
                   } else if (action == 'outputs') {
@@ -319,7 +320,7 @@ class _ProfileWorkspaceScreenState extends State<ProfileWorkspaceScreen>
           builder: (_) => ChatOutputsScreen(
             chatTitle: chat.title,
             loadHistory: (offset) =>
-                controller.outputHistoryPage(chat, offset: offset),
+                controller.savedHistoryPage(chat, offset: offset),
             download: (path) => files.download(
               path,
               profileName: owner.workspace.profileName,

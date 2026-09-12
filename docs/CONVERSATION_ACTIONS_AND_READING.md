@@ -14,7 +14,21 @@ Update for 2.18.0: regeneration remains server-backed. The phone-only answer ind
 
 `/btw` records the server's task ID and displays a distinct side-question card in the owning chat. Completion updates the matching card even when several questions finish out of order. Results remain selectable, empty events are ignored, and a completion observed without its start still displays its question/result.
 
-These are transient display records. No verified side-question recovery API was found. Existing `/bg` handling remains unchanged and still needs deployed-gateway contract verification; it is not claimed as newly completed background-task management.
+These are transient display records. No verified side-question recovery API was found. Existing `/bg` handling still displays an uncorrelated completion notice; its pending/result card is the next D11 delivery.
+
+The 2026-09-12 follow-up source check verifies the missing client path in the
+installed backend at `tui_gateway/methods_prompt.py:916-1004`.
+`prompt.background {session_id,text}` replies with `{task_id}` and later emits
+`background.complete {task_id,text}` on the parent session. `/background` is an
+alias for the same operation. The backend binds the background thread to the
+parent profile. Unlike `btw.complete`, the completion does not repeat the
+original question, so the client should retain that question with the returned
+task ID while the view exists. Completion can race ahead of the acknowledgement;
+the acknowledgement must not turn a completed card back into a pending card.
+
+This contract is enough for identifiable live cards. It does not establish a
+durable child-chat link, task cancellation or recovery after reconnect. Those
+must not be inferred from the transient `bg_*` task ID.
 
 ## Reading and context
 

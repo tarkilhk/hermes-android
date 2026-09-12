@@ -12,9 +12,42 @@ Reasoning events feed a collapsed disclosure. Historical reasoning is displayed 
 
 ## Find in chat
 
-The chat actions menu contains Find, Outputs and Refresh. Find fetches the selected chat's saved history once, then filters locally as the query changes. Results expand to selectable text. At most 100 results are displayed, with the full matching count reported. Closing the sheet preserves the transcript's reading position. Failure and retry remain visible.
+The chat actions menu contains Find, Outputs and Refresh. Find filters loaded
+server history as the query changes, with expandable selectable matches.
+Closing the sheet preserves the transcript's reading position. Failure and
+retry remain visible. The 2.24.1 behavior and remaining navigation work are
+described below.
 
-Find uses an oldest-first server loader, in pages of 500, including compacted rows. The loader stops with an explicit error on malformed/repeated pages, a different returned chat, or its limits of 10,000 rows / 32 MiB of JSON characters. It does not label an incomplete history as complete or save another transcript on the phone. These limits remain a D18 follow-up; the paged Outputs fix below does not change Find.
+The original implementation used an oldest-first complete-history loader and
+stopped at 10,000 rows or 32 MiB of JSON characters. The 2.24.1 follow-up below
+replaces it with explicit recent-first batches shared with Outputs.
+
+### Paged Find follow-up, 2.24.1
+
+Find opens after loading the most recent 500 saved messages. Typing searches
+that loaded history; **Search older messages** adds the next batch without
+clearing the query or prior results. Counts and empty states identify partial
+history until the server reports its end. Matching messages remain expandable
+and selectable, including matches beyond the previous 100-result display cap.
+
+Failed older requests retain the loaded messages and retry the same offset.
+Closing the sheet discards this temporary search view. There is no persistent
+transcript, new search service or automatic scan of the complete chat.
+
+The shared saved-page loader uses the history segment already identified by
+Hermes when opening the chat. This matters after server-side compression,
+which can change the segment ID while the durable chat identity stays the same.
+An unrelated returned segment is still rejected. Outputs uses the same loader.
+
+The exact pre-fix size error was reproduced through the actual chat-menu Find
+entry against a 10,000-message fixture. Ten focused checks pass, including
+overlap deduplication, retries, ownership and narrow layout with large text and
+the keyboard visible. The full suite passes 1,176 tests with four opt-in skips;
+analysis is clean. One additional loaded-results/error/keyboard layout check
+also passes. Signed Personal 2.24.1 / 21742 passed native compilation and
+certificate/package checks; installation awaits a new wireless-debugging
+endpoint after the phone refused the last address. Navigation from a match to
+its message remains the next selected D18 portion.
 
 ## Per-chat Outputs
 
