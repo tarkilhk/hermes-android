@@ -1,5 +1,11 @@
 # Changelog
 
+## [2.31.6+2191] - 2026-09-13
+
+### Fixed
+
+- Add and remove attachments for the next draft while Hermes is responding, including queued messages and returning from the file picker during reconnection.
+
 ## [2.31.5+2190] - 2026-09-13
 
 ### Fixed

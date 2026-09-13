@@ -156,6 +156,7 @@ class ProfileChat {
   bool _replaceableUnsubmittedRuntime = false;
   bool _replacingExpiredRuntime = false;
   int _attachmentPreparations = 0;
+  bool _submissionInFlight = false;
   Completer<void>? _replacementCompletion;
   Future<void>? _draftWrites;
   ProfileTurnStatus status = ProfileTurnStatus.idle;
@@ -2303,11 +2304,11 @@ class ProfileWorkspaceController extends ChangeNotifier {
 
   Future<void> addAttachment(ProfileChat chat, String path, String name) async {
     _owned(chat);
-    if (chat.busy || chat._replacingExpiredRuntime) {
+    if (!canAddAttachment(chat)) {
       throw StateError('Wait for the current turn');
     }
     chat._attachmentPreparations++;
-    late final AttachmentDraft draft;
+    AttachmentDraft? draft;
     try {
       final image = RegExp(
         r'\.(png|jpe?g|webp)$',
@@ -2325,26 +2326,66 @@ class ProfileWorkspaceController extends ChangeNotifier {
               displayName: name,
               existingDrafts: chat.attachments,
             );
+      _owned(chat);
+      if (chat._replacingExpiredRuntime ||
+          chat.queueMutating ||
+          chat.queueDraining) {
+        throw StateError(
+          'The composer changed while preparing the attachment.',
+        );
+      }
+      chat.attachments.add(draft);
+      try {
+        await _persistDraft(chat);
+      } catch (_) {
+        chat.attachments.remove(draft);
+        rethrow;
+      }
+      _changed();
+    } catch (_) {
+      if (draft != null && !chat.attachments.contains(draft)) {
+        try {
+          await attachments.removeCachedFile(draft);
+        } catch (_) {}
+      }
+      rethrow;
     } finally {
       chat._attachmentPreparations--;
+      _changed();
+      if (chat._attachmentPreparations == 0) {
+        await _drainQueuedPrompts(chat);
+      }
     }
-    final replacement = chat._replacementCompletion;
-    if (replacement != null) await replacement.future;
-    _owned(chat);
-    if (chat.busy) throw StateError('Wait for the current turn');
-    chat.attachments.add(draft);
-    await _persistDraft(chat);
-    _changed();
   }
 
   Future<void> removeAttachment(ProfileChat chat, AttachmentDraft draft) async {
     _owned(chat);
-    if (chat.busy || chat._replacingExpiredRuntime) return;
-    chat.attachments.remove(draft);
-    await _persistDraft(chat);
+    if (!canRemoveAttachment(chat, draft)) return;
+    final index = chat.attachments.indexOf(draft);
+    chat.attachments.removeAt(index);
+    try {
+      await _persistDraft(chat);
+    } catch (_) {
+      chat.attachments.insert(index, draft);
+      _changed();
+      rethrow;
+    }
     await attachments.removeCachedFile(draft);
     _changed();
   }
+
+  bool canAddAttachment(ProfileChat chat) {
+    final resource = _resources[chat.key.workspace];
+    return identical(resource?.chats[chat.key.sessionId], chat) &&
+        !chat._replacingExpiredRuntime &&
+        !chat._submissionInFlight &&
+        !chat.queueMutating &&
+        !chat.queueDraining &&
+        chat._attachmentPreparations == 0;
+  }
+
+  bool canRemoveAttachment(ProfileChat chat, AttachmentDraft draft) =>
+      canAddAttachment(chat) && chat.attachments.contains(draft);
 
   Future<void> updateDraft(ProfileChat chat, String text) {
     _owned(chat);
@@ -2367,7 +2408,7 @@ class ProfileWorkspaceController extends ChangeNotifier {
     AndroidSharePayload payload,
   ) async {
     _owned(chat);
-    if (chat.busy || chat._replacingExpiredRuntime) {
+    if (!canAddAttachment(chat)) {
       throw StateError('Wait for the current turn');
     }
     final sharedText = payload.text?.trim() ?? '';
@@ -2378,7 +2419,6 @@ class ProfileWorkspaceController extends ChangeNotifier {
     final originalQueue = List<QueuedPromptDraft>.of(chat.queuedPrompts);
     final originalQueuePaused = chat.queuePaused;
     final originalUncertain = chat.draftSubmissionUncertain;
-    final originalStatus = chat.status;
     final staged = <AttachmentDraft>[];
     chat._attachmentPreparations++;
     try {
@@ -2401,8 +2441,9 @@ class ProfileWorkspaceController extends ChangeNotifier {
       }
       attachments.validateRemoteDrafts([...originalAttachments, ...staged]);
       _owned(chat);
-      if (chat.busy ||
-          chat.status != originalStatus ||
+      if (chat._replacingExpiredRuntime ||
+          chat.queueMutating ||
+          chat.queueDraining ||
           chat.draft != originalText ||
           chat.draftSubmissionUncertain != originalUncertain ||
           chat.queuePaused != originalQueuePaused ||
@@ -2434,6 +2475,10 @@ class ProfileWorkspaceController extends ChangeNotifier {
       rethrow;
     } finally {
       chat._attachmentPreparations--;
+      _changed();
+      if (chat._attachmentPreparations == 0) {
+        await _drainQueuedPrompts(chat);
+      }
     }
   }
 
@@ -2456,10 +2501,7 @@ class ProfileWorkspaceController extends ChangeNotifier {
     _applyDraftSnapshot(chat, restored);
   }
 
-  void _applyDraftSnapshot(
-    ProfileChat chat,
-    ComposerDraftSnapshot restored,
-  ) {
+  void _applyDraftSnapshot(ProfileChat chat, ComposerDraftSnapshot restored) {
     chat.queuedPrompts.addAll(restored.queuedPrompts);
     chat.queuePaused = restored.queuePaused;
     if (chat.draft.isNotEmpty || chat.attachments.isNotEmpty) {
@@ -3471,6 +3513,7 @@ class ProfileWorkspaceController extends ChangeNotifier {
             ? <AttachmentDraft>[]
             : List<AttachmentDraft>.of(chat.attachments));
     if (chat.busy ||
+        chat._attachmentPreparations != 0 ||
         chat.changingAnswer ||
         chat.changingIntelligence ||
         ((prompt ?? chat.draft).trim().isEmpty && files.isEmpty)) {
@@ -3478,6 +3521,7 @@ class ProfileWorkspaceController extends ChangeNotifier {
     }
     final text = prompt ?? chat.draft.trim();
     final draftAtSubmit = chat.draft;
+    chat._submissionInFlight = true;
     chat.lastActive = DateTime.now().millisecondsSinceEpoch / 1000;
     chat.status = ProfileTurnStatus.submitting;
     chat.error = null;
@@ -3553,6 +3597,9 @@ class ProfileWorkspaceController extends ChangeNotifier {
           ? ProfileTurnStatus.reconnecting
           : ProfileTurnStatus.failed;
       if (submitted) _scheduleReconnect(resource);
+    } finally {
+      chat._submissionInFlight = false;
+      _changed();
     }
     await _journal();
     _changed();
@@ -3752,6 +3799,7 @@ class ProfileWorkspaceController extends ChangeNotifier {
         chat.queuePaused ||
         chat.queueMutating ||
         chat.queueDraining ||
+        chat._attachmentPreparations != 0 ||
         chat.busy ||
         chat.queuedPrompts.isEmpty) {
       return;

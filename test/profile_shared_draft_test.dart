@@ -100,8 +100,15 @@ void main() {
       chat
         ..draft = 'Keep this'
         ..attachments.add(original)
-        ..queuedPrompts.add(QueuedPromptDraft(text: 'keep queued'));
+        ..queuedPrompts.add(QueuedPromptDraft(text: 'keep queued'))
+        ..queuePaused = true;
       attachments.failAt = 2;
+      bool? lastCanAdd;
+      void observeAttachmentControls() {
+        lastCanAdd = controller.canAddAttachment(chat);
+      }
+
+      controller.addListener(observeAttachmentControls);
 
       await expectLater(
         controller.stageSharedDraft(
@@ -130,6 +137,9 @@ void main() {
       expect(chat.draft, 'Keep this');
       expect(chat.attachments, [same(original)]);
       expect(chat.queuedPrompts.single.text, 'keep queued');
+      expect(chat.queuePaused, isTrue);
+      expect(lastCanAdd, isTrue);
+      controller.removeListener(observeAttachmentControls);
       expect(attachments.removedIds, ['shared-1']);
       expect(attachments.removedIds, isNot(contains('original')));
     },
@@ -164,34 +174,47 @@ void main() {
     expect(attachments.removedIds, ['shared-1']);
   });
 
-  test('busy and foreign chats fail before any file is prepared', () async {
-    chat.status = ProfileTurnStatus.running;
-    const payload = AndroidSharePayload(
-      files: [
-        AndroidSharedFile(
-          path: '/file',
-          name: 'file.txt',
-          mediaType: 'text/plain',
-          byteLength: 1,
-        ),
-      ],
-    );
-    await expectLater(
-      controller.stageSharedDraft(chat, payload),
-      throwsStateError,
-    );
+  test(
+    'reconnecting chat stages locally while foreign ownership still fails',
+    () async {
+      chat
+        ..status = ProfileTurnStatus.reconnecting
+        ..draft = 'Keep reconnecting draft'
+        ..queuedPrompts.add(QueuedPromptDraft(text: 'keep queued'))
+        ..queuePaused = true;
+      const payload = AndroidSharePayload(
+        text: 'Shared while reconnecting',
+        files: [
+          AndroidSharedFile(
+            path: '/file',
+            name: 'file.txt',
+            mediaType: 'text/plain',
+            byteLength: 1,
+          ),
+        ],
+      );
+      await controller.stageSharedDraft(chat, payload);
 
-    final foreign = ProfileChat(
-      key: chat.key,
-      runtimeId: chat.runtimeId,
-      title: chat.title,
-    );
-    await expectLater(
-      controller.stageSharedDraft(foreign, payload),
-      throwsArgumentError,
-    );
-    expect(attachments.prepareCount, 0);
-  });
+      expect(
+        chat.draft,
+        'Keep reconnecting draft\n\nShared while reconnecting',
+      );
+      expect(chat.attachments.single.name, 'file.txt');
+      expect(chat.queuedPrompts.single.text, 'keep queued');
+      expect(chat.queuePaused, isTrue);
+
+      final foreign = ProfileChat(
+        key: chat.key,
+        runtimeId: chat.runtimeId,
+        title: chat.title,
+      );
+      await expectLater(
+        controller.stageSharedDraft(foreign, payload),
+        throwsArgumentError,
+      );
+      expect(attachments.prepareCount, 1);
+    },
+  );
 }
 
 AttachmentDraft _draft(String id, {required String name}) => AttachmentDraft(

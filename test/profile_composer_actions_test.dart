@@ -94,6 +94,18 @@ void main() {
     expect(find.text('Queue for the next turn'), findsNothing);
   });
 
+  testWidgets('running chats allow choosing files for the next draft', (
+    tester,
+  ) async {
+    await show(tester, status: ProfileTurnStatus.running);
+    await tester.tap(find.byTooltip('Attach file'));
+    await pumpFrames(tester, count: 4);
+    expect(find.text('Files'), findsOneWidget);
+    expect(find.text('Photos'), findsOneWidget);
+    await tester.binding.handlePopRoute();
+    await pumpFrames(tester);
+  });
+
   testWidgets('Message actions queues the draft and clears the composer', (
     tester,
   ) async {

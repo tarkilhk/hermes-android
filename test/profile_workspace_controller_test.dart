@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'dart:io';
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:hermes_android/core/screens/profile_workspace_screen.dart';
@@ -7,12 +8,37 @@ import 'package:hermes_android/core/models/hermes_profile.dart';
 import 'package:hermes_android/core/models/queued_prompt_draft.dart';
 import 'package:hermes_android/core/services/connection_manager.dart';
 import 'package:hermes_android/core/services/composer_draft_store.dart';
+import 'package:hermes_android/core/services/attachment_draft_service.dart';
 import 'package:hermes_android/core/services/profile_gateway.dart';
 import 'package:hermes_android/core/services/profile_workspace_controller.dart';
 import 'package:hermes_android/core/services/profile_selection_store.dart';
 import 'package:hermes_android/core/services/profiles_repository.dart';
 import 'package:hermes_android/core/services/ws_client.dart';
 import 'package:shared_preferences/shared_preferences.dart';
+
+class DelayedAttachmentDraftService extends AttachmentDraftService {
+  final Completer<void> preparationStarted = Completer<void>();
+  final Completer<void> finishPreparation = Completer<void>();
+
+  DelayedAttachmentDraftService({required super.cacheDirectoryProvider});
+
+  @override
+  Future<AttachmentDraft> prepareGenericFile({
+    required String sourcePath,
+    required String displayName,
+    String mediaType = 'application/octet-stream',
+    required Iterable<AttachmentDraft> existingDrafts,
+  }) async {
+    preparationStarted.complete();
+    await finishPreparation.future;
+    return super.prepareGenericFile(
+      sourcePath: sourcePath,
+      displayName: displayName,
+      mediaType: mediaType,
+      existingDrafts: existingDrafts,
+    );
+  }
+}
 
 class Host {
   final gateways = <String, ProfileGateway>{};
@@ -672,6 +698,199 @@ void main() {
       expect(chat.draft, 'follow-up draft');
     },
   );
+
+  test('adds and removes the next attachment while a response runs', () async {
+    final sandbox = await Directory.systemTemp.createTemp(
+      'hermes-running-attachment-',
+    );
+    try {
+      final attachmentService = DelayedAttachmentDraftService(
+        cacheDirectoryProvider: () async =>
+            Directory('${sandbox.path}${Platform.pathSeparator}cache'),
+      );
+      controller.dispose();
+      controller = ProfileWorkspaceController(
+        connectionIdentity: 'original-settings',
+        connection: SavedConnection(
+          id: 'host',
+          label: 'Host',
+          host: 'localhost',
+          port: 1,
+          apiKey: '',
+        ),
+        preferences: preferences,
+        gatewayFactory: host.gateway,
+        attachmentService: attachmentService,
+      );
+      await controller.initialize();
+      final chat = await controller.createChat();
+      await controller.updateDraft(chat, 'first prompt');
+      host.promptSubmitStarted = Completer<void>();
+      host.promptSubmitDelay = Completer<void>();
+      final sending = controller.send(chat);
+      await host.promptSubmitStarted!.future;
+      expect(chat.status, ProfileTurnStatus.running);
+
+      final source = File(
+        '${sandbox.path}${Platform.pathSeparator}follow-up.txt',
+      );
+      await source.writeAsString('follow-up file');
+      host.promptSubmitDelay!.complete();
+      await sending;
+      host
+        ..promptSubmitStarted = null
+        ..promptSubmitDelay = null;
+      expect(chat.status, ProfileTurnStatus.running);
+      await controller.updateDraft(chat, 'queued follow-up');
+      await controller.queuePrompt(chat, 'queued follow-up');
+      expect(chat.queuedPrompts, hasLength(1));
+      bool? lastCanAdd;
+      void observeAttachmentControls() {
+        lastCanAdd = controller.canAddAttachment(chat);
+      }
+
+      controller.addListener(observeAttachmentControls);
+      final adding = controller.addAttachment(
+        chat,
+        source.path,
+        'follow-up.txt',
+      );
+      await attachmentService.preparationStarted.future;
+      final settled = Completer<void>();
+      void observeSettlement() {
+        if (chat.status == ProfileTurnStatus.completed &&
+            !settled.isCompleted) {
+          settled.complete();
+        }
+      }
+
+      controller.addListener(observeSettlement);
+      host.event('a', 'message.complete');
+      await settled.future;
+      controller.removeListener(observeSettlement);
+      attachmentService.finishPreparation.complete();
+      await adding;
+
+      final added = chat.attachments.single;
+      expect(chat.queuedPrompts, isEmpty);
+      expect(chat.queuePaused, isFalse);
+      final submissions = host.calls
+          .where((call) => call.$2 == 'prompt.submit')
+          .toList();
+      expect(submissions, hasLength(2));
+      expect(submissions.last.$3['text'], 'queued follow-up');
+      expect(lastCanAdd, isTrue);
+      controller.removeListener(observeAttachmentControls);
+      expect(controller.canRemoveAttachment(chat, added), isTrue);
+      expect(await File(added.cachedPath).exists(), isTrue);
+      await controller.removeAttachment(chat, added);
+      expect(chat.attachments, isEmpty);
+      expect(await File(added.cachedPath).exists(), isFalse);
+    } finally {
+      if (await sandbox.exists()) await sandbox.delete(recursive: true);
+    }
+  });
+
+  test('cannot remove an attachment captured by prompt submission', () async {
+    final sandbox = await Directory.systemTemp.createTemp(
+      'hermes-submitting-attachment-',
+    );
+    try {
+      controller.dispose();
+      controller = ProfileWorkspaceController(
+        connectionIdentity: 'original-settings',
+        connection: SavedConnection(
+          id: 'host',
+          label: 'Host',
+          host: 'localhost',
+          port: 1,
+          apiKey: '',
+        ),
+        preferences: preferences,
+        gatewayFactory: host.gateway,
+        attachmentService: AttachmentDraftService(
+          cacheDirectoryProvider: () async =>
+              Directory('${sandbox.path}${Platform.pathSeparator}cache'),
+        ),
+      );
+      await controller.initialize();
+      final chat = await controller.createChat();
+      final source = File(
+        '${sandbox.path}${Platform.pathSeparator}original.txt',
+      );
+      await source.writeAsString('original file');
+      await controller.addAttachment(chat, source.path, 'original.txt');
+      final captured = chat.attachments.single;
+      host.promptSubmitStarted = Completer<void>();
+      host.promptSubmitDelay = Completer<void>();
+      final sending = controller.send(chat);
+      await host.promptSubmitStarted!.future;
+
+      expect(controller.canAddAttachment(chat), isFalse);
+      expect(controller.canRemoveAttachment(chat, captured), isFalse);
+      await controller.removeAttachment(chat, captured);
+      expect(chat.attachments, contains(same(captured)));
+
+      host.promptSubmitDelay!.complete();
+      await sending;
+      expect(chat.attachments, isEmpty);
+      expect(controller.canAddAttachment(chat), isTrue);
+    } finally {
+      if (await sandbox.exists()) await sandbox.delete(recursive: true);
+    }
+  });
+
+  test('adds a locally picked file while a saved chat reconnects', () async {
+    final sandbox = await Directory.systemTemp.createTemp(
+      'hermes-reconnecting-attachment-',
+    );
+    try {
+      controller.dispose();
+      controller = ProfileWorkspaceController(
+        connectionIdentity: 'original-settings',
+        connection: SavedConnection(
+          id: 'host',
+          label: 'Host',
+          host: 'localhost',
+          port: 1,
+          apiKey: '',
+        ),
+        preferences: preferences,
+        gatewayFactory: host.gateway,
+        attachmentService: AttachmentDraftService(
+          cacheDirectoryProvider: () async =>
+              Directory('${sandbox.path}${Platform.pathSeparator}cache'),
+        ),
+      );
+      await controller.initialize();
+      final key = ProfileSessionKey(controller.current!.scope, 'same');
+      await controller.openSession(key);
+      final chat = controller.current!.chat!;
+      await controller.updateDraft(chat, 'Keep this next message');
+      final existing = File(
+        '${sandbox.path}${Platform.pathSeparator}existing.txt',
+      );
+      await existing.writeAsString('existing file');
+      await controller.addAttachment(chat, existing.path, 'existing.txt');
+      final callsBeforePickerReturn = host.calls.length;
+      chat.status = ProfileTurnStatus.reconnecting;
+      final picked = File('${sandbox.path}${Platform.pathSeparator}picked.txt');
+      await picked.writeAsString('picked after background reconnect');
+
+      await controller.addAttachment(chat, picked.path, 'picked.txt');
+
+      expect(chat.draft, 'Keep this next message');
+      expect(chat.attachments.map((draft) => draft.name), [
+        'existing.txt',
+        'picked.txt',
+      ]);
+      expect(host.calls, hasLength(callsBeforePickerReturn));
+      expect(host.calls.where((call) => call.$2 == 'prompt.submit'), isEmpty);
+      expect(host.calls.where((call) => call.$2 == 'file.attach'), isEmpty);
+    } finally {
+      if (await sandbox.exists()) await sandbox.delete(recursive: true);
+    }
+  });
 
   test('a stale question panel cannot answer a newer request', () async {
     final chat = await controller.createChat();

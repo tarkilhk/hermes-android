@@ -888,7 +888,10 @@ class _ProfileWorkspaceScreenState extends State<ProfileWorkspaceScreen>
                                       ),
                                     ),
                                     onDeleted:
-                                        chat.busy ||
+                                        !controller.canRemoveAttachment(
+                                              chat,
+                                              file,
+                                            ) ||
                                             chat.changingAnswer ||
                                             chat.commandRunning ||
                                             controller.switching
@@ -954,7 +957,7 @@ class _ProfileWorkspaceScreenState extends State<ProfileWorkspaceScreen>
                             ),
                             icon: const Icon(Icons.add),
                             onPressed:
-                                chat.busy ||
+                                !controller.canAddAttachment(chat) ||
                                     chat.changingAnswer ||
                                     chat.commandRunning ||
                                     controller.switching ||
