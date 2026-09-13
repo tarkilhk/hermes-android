@@ -3,6 +3,8 @@ import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:hermes_android/core/services/android_share_intent_service.dart';
 import 'package:hermes_android/core/services/connection_manager.dart';
+import 'package:hermes_android/core/services/composer_draft_store.dart';
+import 'package:hermes_android/core/services/ws_client.dart';
 import 'package:hermes_android/core/services/profile_gateway.dart';
 import 'package:hermes_android/core/services/profile_workspace_controller.dart';
 import 'package:hermes_android/core/services/profiles_repository.dart';
@@ -37,8 +39,9 @@ Future<ConnectionManager> _manager() async {
 
 ProfileWorkspaceController _controller(
   SavedConnection connection,
-  SharedPreferences prefs,
-) {
+  SharedPreferences prefs, {
+  Set<String> missingSessions = const {},
+}) {
   final controller = ProfileWorkspaceController(
     connection: connection,
     connectionIdentity: 'home-share-${connection.id}',
@@ -56,19 +59,24 @@ ProfileWorkspaceController _controller(
         'limit': int.parse(query['limit']!),
         'total': 0,
       },
-      rpc: (method, params) async =>
-          method == 'session.create' || method == 'session.resume'
-          ? {
-              'session_id': 'runtime-${connection.id}',
-              'stored_session_id': method == 'session.resume'
-                  ? params['session_id']
-                  : 'stored-${connection.id}',
-              'session_key': method == 'session.resume'
-                  ? params['session_id']
-                  : 'stored-${connection.id}',
-              'info': {'profile_name': 'default'},
-            }
-          : {'projects': <Map<String, dynamic>>[]},
+      rpc: (method, params) async {
+        if (method == 'session.resume' &&
+            missingSessions.contains(params['session_id'])) {
+          throw JsonRpcError('session.resume', 'session not found', code: 4007);
+        }
+        return method == 'session.create' || method == 'session.resume'
+            ? {
+                'session_id': 'runtime-${connection.id}',
+                'stored_session_id': method == 'session.resume'
+                    ? params['session_id']
+                    : 'stored-${connection.id}',
+                'session_key': method == 'session.resume'
+                    ? params['session_id']
+                    : 'stored-${connection.id}',
+                'info': {'profile_name': 'default'},
+              }
+            : {'projects': <Map<String, dynamic>>[]};
+      },
     ),
   );
   return controller;
@@ -77,15 +85,19 @@ ProfileWorkspaceController _controller(
 Future<void> _pumpHome(
   WidgetTester tester,
   ConnectionManager manager,
-  AndroidShareIntentService shareIntents,
-) async {
+  AndroidShareIntentService shareIntents, {
+  Set<String> missingSessions = const {},
+}) async {
   await tester.pumpWidget(
     MaterialApp(
       home: HomeScreen(
         connManager: manager,
         shareIntents: shareIntents,
-        profileController: (connection) =>
-            _controller(connection, manager.prefs),
+        profileController: (connection) => _controller(
+          connection,
+          manager.prefs,
+          missingSessions: missingSessions,
+        ),
       ),
     ),
   );
@@ -315,6 +327,66 @@ void main() {
     );
     expect(workspace.controller.current!.chat!.key.sessionId, 'original-chat');
     expect(workspace.controller.current!.chat!.draft, payload.text);
+    expect(shares.pendingShare.value, isNull);
+  });
+
+  testWidgets('cold camera recovery keeps the saved text in its new draft', (
+    tester,
+  ) async {
+    final manager = await _manager();
+    await manager.saveConnection('Work', 'work.local', 8642, 'work-key');
+    final connection = manager.getConnections().single;
+    final drafts = ComposerDraftStore(
+      manager.prefs,
+      connectionIdentity: 'home-share-${connection.id}',
+    );
+    await drafts.write(
+      profileName: 'default',
+      sessionId: 'expired-unsent',
+      text: 'Cold camera draft check',
+      attachments: [],
+    );
+    final shares = AndroidShareIntentService();
+    addTearDown(shares.dispose);
+    await _pumpHome(
+      tester,
+      manager,
+      shares,
+      missingSessions: {'expired-unsent'},
+    );
+    shares.pendingShare.value = AndroidSharePayload(
+      id: 'cold-camera',
+      text: 'Captured content',
+      target: {
+        'connection': connection.id,
+        'connection_identity': 'home-share-${connection.id}',
+        'profile': 'default',
+        'session': 'expired-unsent',
+      },
+    );
+    await tester.pumpAndSettle();
+    expect(find.text('New chat with recovered draft'), findsOneWidget);
+    expect(find.text('Cold camera draft check'), findsOneWidget);
+    await tester.tap(find.byKey(const Key('share-add-to-draft')));
+    await tester.pumpAndSettle();
+    final workspace = tester.widget<ProfileWorkspaceScreen>(
+      find.byType(ProfileWorkspaceScreen),
+    );
+    expect(
+      workspace.controller.current!.chat!.draft,
+      'Cold camera draft check\n\nCaptured content',
+    );
+    expect(
+      (await drafts.read(
+        profileName: 'default',
+        sessionId: workspace.controller.current!.chat!.key.sessionId,
+      ))!.text,
+      'Cold camera draft check\n\nCaptured content',
+    );
+    expect(
+      await drafts.read(profileName: 'default', sessionId: 'expired-unsent'),
+      isNull,
+    );
     expect(shares.pendingShare.value, isNull);
   });
 

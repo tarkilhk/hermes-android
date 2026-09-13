@@ -10,6 +10,8 @@ import 'core/services/config_backup.dart';
 import 'core/services/config_backup_io.dart';
 import 'core/services/config_backup_service.dart';
 import 'core/services/connection_manager.dart';
+import 'core/services/composer_draft_store.dart';
+import 'core/services/ws_client.dart';
 import 'core/services/text_size_preference.dart';
 import 'core/screens/profile_workspace_screen.dart';
 import 'core/screens/shared_draft_review.dart';
@@ -800,12 +802,15 @@ class HomeScreenState extends State<HomeScreen> {
     if (sharedPayload != null) {
       if (controller.discovery == null) await controller.initialize();
       ProfileChat? initialChat;
+      ({ProfileSessionKey key, ComposerDraftSnapshot draft})? recoverableDraft;
+      ProfileSessionKey? verifiedTarget;
       final target = sharedPayload.target;
       if (target != null) {
         try {
           final key = ProfileSessionKey.fromJson(target);
           if (controller.owns(key) &&
               controller.discovery?.named(key.workspace.profileName) != null) {
+            verifiedTarget = key;
             await controller.navigateProfile(key.workspace.profileName);
             final opened = await controller.openSession(
               key,
@@ -815,8 +820,20 @@ class HomeScreenState extends State<HomeScreen> {
               initialChat = opened;
             }
           }
-        } catch (_) {
+        } catch (error) {
           // Keep the photo available for explicit destination selection.
+          if (error is JsonRpcError &&
+              error.method == 'session.resume' &&
+              error.code == 4007 &&
+              error.message.trim().toLowerCase() == 'session not found' &&
+              verifiedTarget != null &&
+              controller.current?.chats.containsKey(verifiedTarget.sessionId) ==
+                  false) {
+            final draft = await controller.savedDraft(verifiedTarget);
+            if (draft != null) {
+              recoverableDraft = (key: verifiedTarget, draft: draft);
+            }
+          }
         }
       }
       final profile = controller.current?.scope.profileName;
@@ -830,6 +847,7 @@ class HomeScreenState extends State<HomeScreen> {
         controller,
         sharedPayload,
         initialChat: initialChat,
+        recoverableDraft: recoverableDraft,
         destinationNotice: target != null && initialChat == null
             ? 'The original chat could not be reopened. Choose a destination below.'
             : null,

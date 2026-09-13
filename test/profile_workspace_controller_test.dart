@@ -249,6 +249,70 @@ void main() {
     expect(controller.current!.chat!.draft, 'unfinished thought');
   });
 
+  test('recovers a cold saved draft into a fresh local chat', () async {
+    final store = ComposerDraftStore(
+      preferences,
+      connectionIdentity: 'original-settings',
+    );
+    final source = ProfileSessionKey(controller.current!.scope, 'cold-draft');
+    await store.write(
+      profileName: 'a',
+      sessionId: source.sessionId,
+      text: 'Cold camera draft check',
+      attachments: const [],
+      queuedPrompts: [QueuedPromptDraft(text: 'send later')],
+    );
+    expect((await controller.savedDraft(source))!.text, contains('Cold'));
+    final destination = await controller.createChat();
+
+    await controller.recoverDraft(source, destination);
+
+    expect(destination.draft, 'Cold camera draft check');
+    expect(destination.draftSubmissionUncertain, isFalse);
+    expect(destination.queuedPrompts.single.text, 'send later');
+    expect(destination.queuePaused, isTrue);
+    expect(await controller.savedDraft(source), isNull);
+    final durable = await store.read(
+      profileName: 'a',
+      sessionId: destination.key.sessionId,
+    );
+    expect(durable!.text, 'Cold camera draft check');
+    expect(durable.queuePaused, isTrue);
+    expect(host.calls.where((call) => call.$2 == 'prompt.submit'), isEmpty);
+    expect(
+      host.calls.where(
+        (call) =>
+            call.$2 == 'session.resume' &&
+            call.$3['session_id'] == source.sessionId,
+      ),
+      isEmpty,
+    );
+  });
+
+  test('does not recover from a draft owned by a live chat', () async {
+    final store = ComposerDraftStore(
+      preferences,
+      connectionIdentity: 'original-settings',
+    );
+    final source = await controller.createChat();
+    await controller.updateDraft(source, 'still being edited');
+    final destination = await controller.createChat();
+
+    await expectLater(
+      controller.recoverDraft(source.key, destination),
+      throwsStateError,
+    );
+
+    expect(destination.draft, isEmpty);
+    expect(
+      (await store.read(
+        profileName: 'a',
+        sessionId: source.key.sessionId,
+      ))!.text,
+      'still being edited',
+    );
+  });
+
   test('lost prompt acknowledgement preserves the draft', () async {
     final store = ComposerDraftStore(
       preferences,

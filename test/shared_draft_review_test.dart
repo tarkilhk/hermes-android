@@ -56,6 +56,7 @@ Future<Future<bool>> _openReview(
   AndroidSharePayload payload, {
   double textScale = 1,
   ProfileChat? initialChat,
+  ({ProfileSessionKey key, ComposerDraftSnapshot draft})? recoverableDraft,
 }) async {
   Future<bool>? result;
   await tester.pumpWidget(
@@ -75,6 +76,7 @@ Future<Future<bool>> _openReview(
               controller,
               payload,
               initialChat: initialChat,
+              recoverableDraft: recoverableDraft,
             );
           },
           child: const Text('Review share'),
@@ -225,6 +227,71 @@ void main() {
     await tester.pumpAndSettle();
     expect(await result, isFalse);
   });
+
+  testWidgets(
+    'photo staging retries keep the recovered draft and one new chat',
+    (tester) async {
+      final fixture = ProfileBrowserFixture();
+      final attachments = _FailingAttachments();
+      final controller = await _controller(fixture, attachments: attachments);
+      addTearDown(controller.dispose);
+      final source = ProfileSessionKey(
+        controller.current!.scope,
+        'expired-draft',
+      );
+      final drafts = ComposerDraftStore(
+        await SharedPreferences.getInstance(),
+        connectionIdentity: 'share-review',
+      );
+      await drafts.write(
+        profileName: source.workspace.profileName,
+        sessionId: source.sessionId,
+        text: 'Keep the original draft',
+        attachments: [],
+      );
+      final result = await _openReview(
+        tester,
+        controller,
+        const AndroidSharePayload(
+          files: [
+            AndroidSharedFile(
+              path: '/missing/capture.jpg',
+              name: 'capture.jpg',
+              mediaType: 'application/octet-stream',
+              byteLength: 42,
+            ),
+          ],
+        ),
+        recoverableDraft: (
+          key: source,
+          draft: (await controller.savedDraft(source))!,
+        ),
+      );
+      for (var attempt = 0; attempt < 2; attempt++) {
+        await tester.tap(find.byKey(const Key('share-add-to-draft')));
+        await tester.pumpAndSettle();
+        expect(find.byKey(const Key('share-review-error')), findsOneWidget);
+        expect(controller.current!.chat!.draft, 'Keep the original draft');
+        expect(
+          fixture.calls.where((call) => call.$2 == 'session.create'),
+          hasLength(1),
+        );
+        expect(
+          fixture.calls.where((call) => call.$2 == 'prompt.submit'),
+          isEmpty,
+        );
+      }
+      expect(attachments.attempts, 2);
+      final recoveredKey = controller.current!.chat!.key;
+      expect(
+        (await controller.savedDraft(recoveredKey))!.text,
+        'Keep the original draft',
+      );
+      await tester.pageBack();
+      await tester.pumpAndSettle();
+      expect(await result, isFalse);
+    },
+  );
 
   testWidgets('loads the next saved-chat page without another API', (
     tester,

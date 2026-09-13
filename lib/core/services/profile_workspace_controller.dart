@@ -345,6 +345,16 @@ class ProfileWorkspaceController extends ChangeNotifier {
       key.workspace.connectionId == connection.id &&
       key.workspace.connectionIdentity == connectionIdentity;
 
+  Future<ComposerDraftSnapshot?> savedDraft(ProfileSessionKey key) {
+    if (!owns(key)) {
+      throw ArgumentError('Wrong connection settings or host');
+    }
+    return _drafts.read(
+      profileName: key.workspace.profileName,
+      sessionId: key.sessionId,
+    );
+  }
+
   void _changed() {
     if (!_closed) notifyListeners();
   }
@@ -1476,6 +1486,64 @@ class ProfileWorkspaceController extends ChangeNotifier {
     return chat;
   }
 
+  Future<void> recoverDraft(
+    ProfileSessionKey source,
+    ProfileChat destination,
+  ) async {
+    if (!owns(source)) {
+      throw ArgumentError('Wrong connection settings or host');
+    }
+    _owned(destination);
+    if (source.workspace != destination.key.workspace) {
+      throw ArgumentError('Draft and destination must use the same profile');
+    }
+    if (_resources[source.workspace]?.chats.containsKey(source.sessionId) ==
+            true ||
+        source.sessionId == destination.key.sessionId ||
+        !destination._replaceableUnsubmittedRuntime ||
+        !destination.draftRestored ||
+        destination.busy ||
+        destination.draft.isNotEmpty ||
+        destination.attachments.isNotEmpty ||
+        destination.queuedPrompts.isNotEmpty ||
+        destination.queueMutating ||
+        destination.queueDraining ||
+        destination.changingAnswer ||
+        destination.changingIntelligence ||
+        destination.commandRunning ||
+        destination.steering ||
+        destination._attachmentPreparations != 0 ||
+        destination._draftWrites != null ||
+        destination._replacementCompletion != null) {
+      throw StateError('Choose a fresh empty chat for this saved draft.');
+    }
+
+    final completion = Completer<void>();
+    destination
+      .._replacingExpiredRuntime = true
+      .._replacementCompletion = completion;
+    try {
+      final restored = await _drafts.move(
+        profileName: source.workspace.profileName,
+        fromSessionId: source.sessionId,
+        toSessionId: destination.key.sessionId,
+        forNewSession: true,
+      );
+      if (restored == null) {
+        throw StateError('The saved draft is no longer available.');
+      }
+      _applyDraftSnapshot(destination, restored);
+      _recoveredDraftTargets[source] = destination;
+      _changed();
+    } finally {
+      destination._replacingExpiredRuntime = false;
+      if (identical(destination._replacementCompletion, completion)) {
+        destination._replacementCompletion = null;
+      }
+      completion.complete();
+    }
+  }
+
   Future<ProfileChat?> openSession(
     ProfileSessionKey key, {
     bool recoverExpiredDraft = false,
@@ -2385,6 +2453,13 @@ class ProfileWorkspaceController extends ChangeNotifier {
       sessionId: chat.key.sessionId,
     );
     if (restored == null) return;
+    _applyDraftSnapshot(chat, restored);
+  }
+
+  void _applyDraftSnapshot(
+    ProfileChat chat,
+    ComposerDraftSnapshot restored,
+  ) {
     chat.queuedPrompts.addAll(restored.queuedPrompts);
     chat.queuePaused = restored.queuePaused;
     if (chat.draft.isNotEmpty || chat.attachments.isNotEmpty) {

@@ -1,5 +1,11 @@
 # Changelog
 
+## [2.31.5+2190] - 2026-09-13
+
+### Fixed
+
+- Recover saved draft text, attachments and queued messages when a camera return cannot reopen the original chat after app restart.
+
 ## [2.31.4+2189] - 2026-09-13
 
 ### Fixed

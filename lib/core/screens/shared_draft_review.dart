@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 
 import '../services/android_share_intent_service.dart';
 import '../services/attachment_draft_service.dart';
+import '../services/composer_draft_store.dart';
 import '../services/profile_workspace_controller.dart';
 
 Future<bool> reviewSharedDraft(
@@ -9,6 +10,7 @@ Future<bool> reviewSharedDraft(
   ProfileWorkspaceController controller,
   AndroidSharePayload payload, {
   ProfileChat? initialChat,
+  ({ProfileSessionKey key, ComposerDraftSnapshot draft})? recoverableDraft,
   String? destinationNotice,
 }) async =>
     await Navigator.of(context).push<bool>(
@@ -17,6 +19,7 @@ Future<bool> reviewSharedDraft(
           controller: controller,
           payload: payload,
           initialChat: initialChat,
+          recoverableDraft: recoverableDraft,
           destinationNotice: destinationNotice,
         ),
       ),
@@ -27,12 +30,15 @@ class _SharedDraftReview extends StatefulWidget {
   final ProfileWorkspaceController controller;
   final AndroidSharePayload payload;
   final ProfileChat? initialChat;
+  final ({ProfileSessionKey key, ComposerDraftSnapshot draft})?
+  recoverableDraft;
   final String? destinationNotice;
 
   const _SharedDraftReview({
     required this.controller,
     required this.payload,
     this.initialChat,
+    this.recoverableDraft,
     this.destinationNotice,
   });
 
@@ -42,11 +48,14 @@ class _SharedDraftReview extends StatefulWidget {
 
 class _SharedDraftReviewState extends State<_SharedDraftReview> {
   static const _newChat = '__new_chat__';
+  static const _recoverDraft = '__recover_draft__';
 
   ProfileWorkspaceController get controller => widget.controller;
   late String _profileName;
   String _destination = _newChat;
   ProfileChat? _createdTarget;
+  ProfileChat? _recoveryTarget;
+  bool _recoveryApplied = false;
   bool _initialChatValid = false;
   bool _working = false;
   String? _error;
@@ -63,6 +72,9 @@ class _SharedDraftReviewState extends State<_SharedDraftReview> {
         identical(controller.current?.chats[initial.key.sessionId], initial);
     if (_initialChatValid && initial != null) {
       _destination = initial.key.sessionId;
+    } else if (widget.recoverableDraft?.key.workspace ==
+        controller.current?.scope) {
+      _destination = _recoverDraft;
     }
     controller.addListener(_controllerChanged);
   }
@@ -145,7 +157,23 @@ class _SharedDraftReviewState extends State<_SharedDraftReview> {
     });
     try {
       final ProfileChat chat;
-      if (destination == _newChat) {
+      if (destination == _recoverDraft) {
+        final recovery = widget.recoverableDraft;
+        if (recovery == null || recovery.key.workspace != owner) {
+          throw StateError(
+            'Return to the original profile to recover this draft.',
+          );
+        }
+        if (resource.selectedProject != null) {
+          await controller.selectProject(null);
+        }
+        chat = _recoveryTarget ?? await controller.createChat(owner: owner);
+        _recoveryTarget = chat;
+        if (!_recoveryApplied) {
+          await controller.recoverDraft(recovery.key, chat);
+          _recoveryApplied = true;
+        }
+      } else if (destination == _newChat) {
         if (_createdTarget == null && resource.selectedProject != null) {
           await controller.selectProject(null);
           if (controller.current != resource) {
@@ -252,6 +280,24 @@ class _SharedDraftReviewState extends State<_SharedDraftReview> {
                       Text(notice),
                       const SizedBox(height: 12),
                     ],
+                    if (widget.recoverableDraft case final recovery?) ...[
+                      Text(
+                        'Choose “New chat with recovered draft” in the ${recovery.key.workspace.profileName} profile to keep your saved text and attachments with this content. Review before sending. Queued messages will stay paused.',
+                      ),
+                      if (recovery.draft.text.isNotEmpty)
+                        Padding(
+                          padding: const EdgeInsets.symmetric(vertical: 8),
+                          child: Text(
+                            recovery.draft.text,
+                            maxLines: 6,
+                            overflow: TextOverflow.ellipsis,
+                          ),
+                        ),
+                      Text(
+                        '${recovery.draft.attachments.length} attachments · ${recovery.draft.queuedPrompts.length} queued messages',
+                      ),
+                      const SizedBox(height: 12),
+                    ],
                     Text(
                       'Destination',
                       style: Theme.of(context).textTheme.titleMedium,
@@ -292,6 +338,21 @@ class _SharedDraftReviewState extends State<_SharedDraftReview> {
                       },
                       child: Column(
                         children: [
+                          if (widget
+                                  .recoverableDraft
+                                  ?.key
+                                  .workspace
+                                  .profileName ==
+                              _profileName)
+                            RadioListTile<String>(
+                              key: const Key('share-destination-recover'),
+                              value: _recoverDraft,
+                              enabled: !_working,
+                              contentPadding: EdgeInsets.zero,
+                              title: const Text(
+                                'New chat with recovered draft',
+                              ),
+                            ),
                           RadioListTile<String>(
                             key: Key('share-destination-new'),
                             value: _newChat,
@@ -362,7 +423,11 @@ class _SharedDraftReviewState extends State<_SharedDraftReview> {
                   child: FilledButton(
                     key: const Key('share-add-to-draft'),
                     onPressed: _working ? null : _commit,
-                    child: const Text('Add to draft'),
+                    child: Text(
+                      _destination == _recoverDraft
+                          ? 'Recover draft and add content'
+                          : 'Add to draft',
+                    ),
                   ),
                 ),
               ),
