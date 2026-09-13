@@ -240,6 +240,8 @@ class ComposerDraftStore {
     'sanitized': draft.sanitized,
     'status': draft.status.name,
     'ref_text': draft.refText,
+    'image_path': draft.imagePath,
+    'attached_session_id': draft.attachedSessionId,
     'error': draft.error,
     'atlas_intake_accepted': draft.atlasIntakeAccepted,
   };
@@ -292,15 +294,15 @@ class ComposerDraftStore {
           Map<String, dynamic>.from(value as Map),
         );
         final hasReusableReference =
-            !forNewSession &&
-            draft.status == AttachmentDraftStatus.attached &&
-            draft.refText?.isNotEmpty == true;
+            !forNewSession && draft.hasGatewayAttachment;
         final cachedFileExists = hasReusableReference
             ? true
             : await File(draft.cachedPath).exists();
         if (forNewSession) {
           draft
             ..refText = null
+            ..imagePath = null
+            ..attachedSessionId = null
             ..atlasIntakeAccepted = null;
           if (!cachedFileExists) {
             draft
@@ -364,6 +366,8 @@ class ComposerDraftStore {
       sanitized: value['sanitized'] == true,
       status: enumValue(AttachmentDraftStatus.values, value['status']),
       refText: value['ref_text'] as String?,
+      imagePath: value['image_path'] as String?,
+      attachedSessionId: value['attached_session_id'] as String?,
       error: value['error'] as String?,
       atlasIntakeAccepted: value['atlas_intake_accepted'] as bool?,
     );

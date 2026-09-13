@@ -1,5 +1,13 @@
 # Changelog
 
+## [2.31.8+2193] - 2026-09-13
+
+### Fixed
+
+- Send photos through the image attachment API, with safe retry and removal after a partial upload.
+- Place file references before the message text when sending attachments.
+- Regenerate answers in the current chat, matching Desktop, while keeping Branch as a separate action.
+
 ## [2.31.7+2192] - 2026-09-13
 
 ### Fixed

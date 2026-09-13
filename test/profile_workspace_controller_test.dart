@@ -51,6 +51,10 @@ class Host {
   bool running = true;
   bool promptSubmitFails = false;
   bool fileAttachFails = false;
+  Map<String, dynamic> imageAttachResult = {
+    'attached': true,
+    'path': '/profile/images/upload.png',
+  };
   bool approvalFails = false;
   Completer<void>? approvalDelay;
   Completer<void>? promptSubmitStarted;
@@ -124,8 +128,9 @@ class Host {
         if (method == 'session.active_list') return {'sessions': []};
         if (method == 'file.attach') {
           if (fileAttachFails) throw StateError('Synthetic upload failure');
-          return {'ref_text': 'attached:${params['name']}'};
+          return {'attached': true, 'ref_text': 'attached:${params['name']}'};
         }
+        if (method == 'image.attach_bytes') return imageAttachResult;
         if (method == 'prompt.submit') {
           promptSubmitStarted?.complete();
           await promptSubmitDelay?.future;

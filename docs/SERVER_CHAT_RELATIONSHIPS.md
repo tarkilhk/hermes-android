@@ -6,10 +6,12 @@ were removed from Android in 2.30.1. Existing parent metadata and normal
 Branch/Regenerate remain; explicit synchronized versions are deferred. Any
 patch-specific contracts below describe the rejected experiment only.
 
-Regenerate and Branch create durable Hermes sessions using the existing saved-row
-boundary checks. Edit and the one-shot Fork action keep their existing server
-operations and draft protection. A rejected regeneration returns to its source;
-an uncertain submission is not automatically retried.
+As of 2.31.8, Regenerate retries the selected prompt in the current conversation,
+replacing that answer and subsequent messages, matching current official Desktop.
+Branch creates a separate durable session. Both use freshly verified saved rows.
+Drafts remain intact; a definite regeneration rejection restores the displayed
+conversation, and an uncertain submission is not automatically retried. See the
+[current Desktop comparison](DESKTOP_ATTACHMENT_REGENERATION_PARITY.md).
 
 The old answer arrows relied on a phone-only index of related sessions. That
 index was removed in 2.18.0. Startup makes a best-effort removal of only

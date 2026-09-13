@@ -1,5 +1,9 @@
 # Answer actions and versions
 
+Current behavior in 2.31.8: Regenerate replaces the selected answer and subsequent
+messages in the same conversation, matching official Desktop. Use Branch to
+keep a separate conversation. See [Desktop parity](DESKTOP_ATTACHMENT_REGENERATION_PARITY.md).
+
 Owner correction, 2026-09-12: **No Hermes backend modifications.** Any patch
 contracts or deployment instructions described below are rejected experiments,
 retained only as research. They were never deployed. Use existing Hermes APIs;

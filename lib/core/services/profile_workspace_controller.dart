@@ -2411,17 +2411,37 @@ class ProfileWorkspaceController extends ChangeNotifier {
   Future<void> removeAttachment(ProfileChat chat, AttachmentDraft draft) async {
     _owned(chat);
     if (!canRemoveAttachment(chat, draft)) return;
-    final index = chat.attachments.indexOf(draft);
-    chat.attachments.removeAt(index);
-    try {
-      await _persistDraft(chat);
-    } catch (_) {
-      chat.attachments.insert(index, draft);
-      _changed();
-      rethrow;
-    }
-    await attachments.removeCachedFile(draft);
+    chat.queueMutating = true;
     _changed();
+    try {
+      await _detachImage(chat, draft);
+      final index = chat.attachments.indexOf(draft);
+      chat.attachments.removeAt(index);
+      try {
+        await _persistDraft(chat);
+      } catch (_) {
+        chat.attachments.insert(index, draft);
+        rethrow;
+      }
+      await attachments.removeCachedFile(draft);
+    } finally {
+      chat.queueMutating = false;
+      _changed();
+    }
+  }
+
+  Future<void> _detachImage(ProfileChat chat, AttachmentDraft draft) async {
+    if (draft.imagePath == null || draft.attachedSessionId != chat.runtimeId) {
+      return;
+    }
+    await _owned(chat).gateway.call('image.detach', {
+      'session_id': chat.runtimeId,
+      'path': draft.imagePath,
+    });
+    draft
+      ..status = AttachmentDraftStatus.ready
+      ..imagePath = null
+      ..attachedSessionId = null;
   }
 
   bool canAddAttachment(ProfileChat chat) {
@@ -2661,7 +2681,7 @@ class ProfileWorkspaceController extends ChangeNotifier {
     await openSession(ProfileSessionKey(resource.scope, parent));
   }
 
-  /// Fork before regenerating so no operation rewrites the source transcript.
+  /// Branches an answer, or regenerates it in place to match Desktop rewind.
   Future<ProfileChat?> branchAnswer(
     ProfileChat source,
     int messageIndex, {
@@ -2703,6 +2723,12 @@ class ProfileWorkspaceController extends ChangeNotifier {
       if (regenerate && target.userOrdinal < 0) {
         throw StateError('This answer has no saved prompt to regenerate');
       }
+      if (regenerate) {
+        if (!await _regenerate(source, target)) {
+          throw StateError(source.error ?? 'Regeneration failed');
+        }
+        return source;
+      }
       final expected = history
           .take(targetIndex + 1)
           .where(isBranchMessage)
@@ -2730,9 +2756,7 @@ class ProfileWorkspaceController extends ChangeNotifier {
         source: source.source,
         parentSessionId: parent,
         projectId: source.projectId,
-        title: regenerate
-            ? source.title
-            : result['title']?.toString() ?? '${source.title} branch',
+        title: result['title']?.toString() ?? '${source.title} branch',
       );
       _hydrate(child, result);
       child.messages = answerHistoryRows(
@@ -2766,18 +2790,7 @@ class ProfileWorkspaceController extends ChangeNotifier {
         resource.selectedSession = id;
       }
       _changed();
-      if (regenerate && !await _regenerate(child, target)) {
-        // The server child remains reachable, but a rejected regeneration
-        // returns the user to the source transcript.
-        if (current == resource &&
-            resource.chat == child &&
-            navigation == _navigationGeneration &&
-            profileGeneration == _generation) {
-          resource.selectedSession = source.key.sessionId;
-        }
-        throw StateError(child.error ?? 'Regeneration failed');
-      }
-      if (!regenerate) await refreshHistory(child);
+      await refreshHistory(child);
       return child;
     } finally {
       source.changingAnswer = false;
@@ -2799,7 +2812,7 @@ class ProfileWorkspaceController extends ChangeNotifier {
       if (target.userOrdinal >= users.length ||
           answerMessageText(users[target.userOrdinal]) != target.prompt) {
         throw StateError(
-          'Could not locate the original prompt in the new session',
+          'Could not locate the original prompt in this conversation',
         );
       }
       final prompt = users[target.userOrdinal];
@@ -2830,8 +2843,8 @@ class ProfileWorkspaceController extends ChangeNotifier {
         chat.messages = original;
         chat.status = ProfileTurnStatus.failed;
         chat.error = e is JsonRpcError && e.code == 4018
-            ? 'Hermes could not match this saved prompt. The original chat is unchanged. Send a new message to continue.'
-            : 'Hermes did not accept the regeneration. The original chat is unchanged.';
+            ? 'Hermes could not match this saved prompt. The conversation is unchanged. Send a new message to continue.'
+            : 'Hermes did not accept the regeneration. The conversation is unchanged.';
       } else {
         chat.status = ProfileTurnStatus.reconnecting;
         chat.error =
@@ -3563,6 +3576,7 @@ class ProfileWorkspaceController extends ChangeNotifier {
             ? <AttachmentDraft>[]
             : List<AttachmentDraft>.of(chat.attachments));
     if (chat.busy ||
+        chat.queueMutating ||
         chat._attachmentPreparations != 0 ||
         chat.changingAnswer ||
         chat.changingIntelligence ||
@@ -3586,9 +3600,36 @@ class ProfileWorkspaceController extends ChangeNotifier {
       await resource.gateway.requireProfile();
       // Persist only ownership and status. No prompt text, paths or credentials.
       await _journal();
+      for (final draft in files) {
+        if (draft.isImage && draft.attachedSessionId != chat.runtimeId) {
+          draft
+            ..status = AttachmentDraftStatus.ready
+            ..imagePath = null
+            ..attachedSessionId = null;
+        }
+      }
       await AttachmentDraftSendCoordinator(attachments).uploadThenSubmit(
         drafts: files,
         upload: ({required draft, required dataUrl}) async {
+          if (draft.isImage) {
+            final result = await resource.gateway.call('image.attach_bytes', {
+              'session_id': chat.runtimeId,
+              'filename': draft.name,
+              'content_base64': dataUrl.substring(dataUrl.indexOf(',') + 1),
+            });
+            chat._replaceableUnsubmittedRuntime = false;
+            final path = result['path'];
+            if (result['attached'] != true || path is! String || path.isEmpty) {
+              throw AttachmentDraftException(
+                result['message'] as String? ??
+                    'Could not attach ${draft.name}.',
+              );
+            }
+            return AttachmentUploadReceipt(
+              imagePath: path,
+              attachedSessionId: chat.runtimeId,
+            );
+          }
           final result = await resource.gateway.call('file.attach', {
             'session_id': chat.runtimeId,
             'name': draft.name,
@@ -3596,7 +3637,7 @@ class ProfileWorkspaceController extends ChangeNotifier {
           });
           chat._replaceableUnsubmittedRuntime = false;
           final ref = result['ref_text'];
-          if (ref is! String || ref.isEmpty) {
+          if (result['attached'] != true || ref is! String || ref.isEmpty) {
             throw const FormatException('Missing attachment reference');
           }
           return AttachmentUploadReceipt(refText: ref);
@@ -3608,6 +3649,10 @@ class ProfileWorkspaceController extends ChangeNotifier {
         removeCachedFileAfterUpload: attachmentOverride == null,
         submitPrompt: (refs) async {
           await resource.gateway.requireProfile();
+          final promptText = [
+            refs.join('\n'),
+            text,
+          ].where((part) => part.isNotEmpty).join('\n\n');
           chat._replaceableUnsubmittedRuntime = false;
           chat.messages.add({
             'role': 'user',
@@ -3623,7 +3668,9 @@ class ProfileWorkspaceController extends ChangeNotifier {
           _changed();
           await resource.gateway.call('prompt.submit', {
             'session_id': chat.runtimeId,
-            'text': [text, ...refs].where((s) => s.isNotEmpty).join('\n\n'),
+            'text': promptText.isEmpty && files.any((draft) => draft.isImage)
+                ? 'What do you see in this image?'
+                : promptText,
           });
           acknowledged = true;
           if (!preserveComposer) {
@@ -3781,6 +3828,15 @@ class ProfileWorkspaceController extends ChangeNotifier {
       return;
     }
     chat.queueMutating = true;
+    try {
+      for (final draft in chat.queuedPrompts[index].attachments) {
+        await _detachImage(chat, draft);
+      }
+    } catch (_) {
+      chat.queueMutating = false;
+      _changed();
+      rethrow;
+    }
     final removed = chat.queuedPrompts.removeAt(index);
     _changed();
     try {

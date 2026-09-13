@@ -1,5 +1,4 @@
 import 'dart:async';
-import 'dart:convert';
 
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
@@ -20,6 +19,7 @@ class AnswerHost {
   final parents = <String, String>{};
   final calls = <(String, Map<String, dynamic>)>[];
   Completer<void>? branchDelay;
+  Completer<void>? submitDelay;
   Object? submitError;
   bool omitRowIds = false;
   bool omitSessionParent = false;
@@ -148,6 +148,7 @@ class AnswerHost {
               parents[child] = id;
               return {...session(child), 'parent': id};
             case 'prompt.submit':
+              await submitDelay?.future;
               if (submitError != null) throw submitError!;
               final rows = history(profile, id);
               final cut = params['truncate_before_row_id'];
@@ -381,46 +382,38 @@ void main() {
     },
   );
 
-  test(
-    'regenerates in a durable server child without changing the source',
-    () async {
-      original.draft = 'Unsent draft';
-      final before = jsonEncode(host.history('a', 'original'));
-      final child = (await controller.branchAnswer(
-        original,
-        2,
-        regenerate: true,
-      ))!;
-      await host.complete(child);
-      final submit = host.calls.lastWhere((c) => c.$1 == 'prompt.submit').$2;
-      expect(host.calls.lastWhere((c) => c.$1 == 'session.branch').$2, {
-        'session_id': original.runtimeId,
-        'count': 2,
-        'profile': 'a',
-      });
-      expect(submit, {
-        'session_id': child.runtimeId,
-        'profile': 'a',
-        'text': 'Original prompt',
-        'truncate_before_row_id': 1001,
-        'confirm_truncate': true,
-        'confirm_empty_truncate': true,
-      });
-      expect(jsonEncode(host.history('a', 'original')), before);
-      expect(
-        child.messages
-            .where((m) => !isHiddenAnswerMessage(m))
-            .map(answerMessageText),
-        ['Original prompt', 'New answer 1'],
-      );
-      expect(child.parentSessionId, original.key.sessionId);
-      expect(original.draft, 'Unsent draft');
-      expect(
-        preferences.getKeys().where((k) => k.startsWith('answer_versions')),
-        isEmpty,
-      );
-    },
-  );
+  test('regenerates in place without creating a branch', () async {
+    original.draft = 'Unsent draft';
+    final regenerated = (await controller.branchAnswer(
+      original,
+      2,
+      regenerate: true,
+    ))!;
+    await host.complete(regenerated);
+    final submit = host.calls.lastWhere((c) => c.$1 == 'prompt.submit').$2;
+    expect(host.calls.where((c) => c.$1 == 'session.branch'), isEmpty);
+    expect(submit, {
+      'session_id': original.runtimeId,
+      'profile': 'a',
+      'text': 'Original prompt',
+      'truncate_before_row_id': 1,
+      'confirm_truncate': true,
+      'confirm_empty_truncate': true,
+    });
+    expect(
+      regenerated.messages
+          .where((m) => !isHiddenAnswerMessage(m))
+          .map(answerMessageText),
+      ['Original prompt', 'New answer 0'],
+    );
+    expect(regenerated, same(original));
+    expect(regenerated.parentSessionId, isNull);
+    expect(original.draft, 'Unsent draft');
+    expect(
+      preferences.getKeys().where((k) => k.startsWith('answer_versions')),
+      isEmpty,
+    );
+  });
 
   test('startup purges only obsolete local answer relationships', () async {
     controller.dispose();
@@ -437,9 +430,9 @@ void main() {
   });
 
   test(
-    'duplicate taps and sending during a branch do not submit twice',
+    'duplicate taps and sending during regeneration do not submit twice',
     () async {
-      host.branchDelay = Completer<void>();
+      host.submitDelay = Completer<void>();
       final pending = controller.branchAnswer(original, 2, regenerate: true);
       await Future<void>.delayed(Duration.zero);
       expect(
@@ -448,28 +441,28 @@ void main() {
       );
       original.draft = 'Do not send yet';
       await controller.send(original);
-      expect(host.calls.where((c) => c.$1 == 'prompt.submit'), isEmpty);
-      host.branchDelay!.complete();
-      final child = (await pending)!;
-      await host.complete(child);
-      expect(host.calls.where((c) => c.$1 == 'session.branch').length, 1);
+      expect(host.calls.where((c) => c.$1 == 'prompt.submit').length, 1);
+      host.submitDelay!.complete();
+      final regenerated = (await pending)!;
+      await host.complete(regenerated);
+      expect(host.calls.where((c) => c.$1 == 'session.branch'), isEmpty);
       expect(host.calls.where((c) => c.$1 == 'prompt.submit').length, 1);
     },
   );
 
   test(
-    'profile switch during branching keeps navigation and owners isolated',
+    'profile switch during regeneration keeps navigation and owners isolated',
     () async {
-      host.branchDelay = Completer<void>();
+      host.submitDelay = Completer<void>();
       final pending = controller.branchAnswer(original, 2, regenerate: true);
       await Future<void>.delayed(Duration.zero);
       await controller.switchProfile('b');
       await controller.openSession(
         ProfileSessionKey(controller.current!.scope, 'original'),
       );
-      host.branchDelay!.complete();
-      final child = (await pending)!;
-      await host.complete(child);
+      host.submitDelay!.complete();
+      final regenerated = (await pending)!;
+      await host.complete(regenerated);
       expect(controller.current!.scope.profileName, 'b');
       expect(
         host.calls.lastWhere((c) => c.$1 == 'prompt.submit').$2['profile'],
@@ -499,27 +492,36 @@ void main() {
     'a paged transcript uses the saved row rather than its local position',
     () async {
       original.messages = original.messages.sublist(3);
-      final child = (await controller.branchAnswer(
+      final regenerated = (await controller.branchAnswer(
         original,
         1,
         regenerate: true,
       ))!;
-      await host.complete(child);
-      expect(
-        host.calls.lastWhere((c) => c.$1 == 'session.branch').$2['count'],
-        4,
-      );
+      await host.complete(regenerated);
+      expect(host.calls.where((c) => c.$1 == 'session.branch'), isEmpty);
       expect(
         host.calls.lastWhere((c) => c.$1 == 'prompt.submit').$2['text'],
         'Follow-up',
       );
       expect(
-        child.messages
+        host.calls
+            .lastWhere((c) => c.$1 == 'prompt.submit')
+            .$2['truncate_before_row_id'],
+        4,
+      );
+      expect(
+        regenerated.messages
             .where((m) => !isHiddenAnswerMessage(m))
             .map(answerMessageText),
-        ['Original prompt', 'Original answer', 'Follow-up', 'New answer 1'],
+        [
+          'Original prompt',
+          'Tool output',
+          'Original answer',
+          'Follow-up',
+          'New answer 0',
+        ],
       );
-      expect(child.parentSessionId, original.key.sessionId);
+      expect(regenerated, same(original));
     },
   );
 
@@ -594,26 +596,23 @@ void main() {
     expect(find.text('Parent chat'), findsNothing);
   });
 
-  test('rejected regeneration returns to its server parent', () async {
-    final second = (await controller.branchAnswer(
+  test('rejected regeneration restores the same chat', () async {
+    final regenerated = (await controller.branchAnswer(
       original,
       2,
       regenerate: true,
     ))!;
-    await host.complete(second);
+    await host.complete(regenerated);
     host.submitError = JsonRpcError('prompt.submit', 'Session busy');
     await expectLater(
-      controller.branchAnswer(second, 1, regenerate: true),
+      controller.branchAnswer(original, 1, regenerate: true),
       throwsStateError,
     );
-    expect(controller.current!.chat, same(second));
+    expect(controller.current!.chat, same(original));
+    expect(original.status, ProfileTurnStatus.failed);
     expect(
-      controller.current!.chats['child-2']!.status,
-      ProfileTurnStatus.failed,
-    );
-    expect(
-      controller.current!.chats['child-2']!.error,
-      'Hermes did not accept the regeneration. The original chat is unchanged.',
+      original.error,
+      'Hermes did not accept the regeneration. The conversation is unchanged.',
     );
   });
 
@@ -631,58 +630,62 @@ void main() {
         throwsStateError,
       );
 
-      final child = controller.current!.chats['child-1']!;
-      expect(child.status, ProfileTurnStatus.failed);
+      expect(original.status, ProfileTurnStatus.failed);
       expect(
-        child.error,
-        'Hermes could not match this saved prompt. The original chat is unchanged. Send a new message to continue.',
+        original.error,
+        'Hermes could not match this saved prompt. The conversation is unchanged. Send a new message to continue.',
       );
-      expect(child.error, isNot(contains('JsonRpcError')));
+      expect(original.error, isNot(contains('JsonRpcError')));
       expect(controller.current!.chat, same(original));
       expect(original.messages.last['text'], 'Later answer');
     },
   );
 
   test(
-    'missing durable row IDs refuses regeneration without counting a copy as an answer',
+    'missing durable row IDs refuses regeneration without changing the chat',
     () async {
       host.omitRowIds = true;
       await expectLater(
         controller.branchAnswer(original, 2, regenerate: true),
         throwsStateError,
       );
-      final child = controller.current!.chats['child-1']!;
-      expect(child.status, ProfileTurnStatus.failed);
+      expect(original.status, ProfileTurnStatus.failed);
       expect(
-        child.error,
-        'Hermes did not accept the regeneration. The original chat is unchanged.',
+        original.error,
+        'Hermes did not accept the regeneration. The conversation is unchanged.',
       );
-      expect(child.messages.last['text'], 'Original answer');
+      expect(original.messages.last['text'], 'Later answer');
       expect(host.calls.where((c) => c.$1 == 'prompt.submit'), isEmpty);
-      expect(child.parentSessionId, original.key.sessionId);
       expect(controller.current!.chat, same(original));
     },
   );
 
   test(
-    'uncertain submit keeps server lineage and does not automatically resubmit',
+    'uncertain regenerate keeps the same chat and does not resubmit',
     () async {
       host.submitError = TimeoutException('connection lost');
-      final child = (await controller.branchAnswer(
+      final regenerated = (await controller.branchAnswer(
         original,
         2,
         regenerate: true,
       ))!;
-      expect(child.status, ProfileTurnStatus.reconnecting);
-      expect(child.parentSessionId, original.key.sessionId);
-      await controller.reconnect(child.key.workspace);
+      expect(regenerated, same(original));
+      expect(original.status, ProfileTurnStatus.reconnecting);
+      expect(original.parentSessionId, isNull);
+      await controller.reconnect(original.key.workspace);
       expect(host.calls.where((c) => c.$1 == 'prompt.submit').length, 1);
-      expect(original.messages.last['text'], 'Later answer');
+      expect(original.messages.map(answerMessageText), [
+        'Original prompt',
+        'Tool output',
+        'Original answer',
+        'Follow-up',
+        'Later answer',
+      ]);
     },
   );
 
   testWidgets(
-    'regenerate opens a server child with parent navigation and no carousel',
+    'regenerate updates the same chat without parent navigation or carousel',
     (tester) async {
       await tester.pumpWidget(
         MaterialApp(home: ProfileWorkspaceScreen(controller: controller)),
@@ -705,28 +708,26 @@ void main() {
         }
       });
       await tester.pump();
-      final child = controller.current!.chat!;
-      expect(child.key.sessionId, 'child-1');
-      expect(child.status, ProfileTurnStatus.running);
-      await tester.runAsync(() => host.complete(child));
+      final regenerated = controller.current!.chat!;
+      expect(regenerated, same(original));
+      expect(regenerated.status, ProfileTurnStatus.running);
+      await tester.runAsync(() => host.complete(regenerated));
       await tester.pumpAndSettle();
-      expect(child.status, ProfileTurnStatus.completed);
+      expect(regenerated.status, ProfileTurnStatus.completed);
       expect(
-        child.messages
+        regenerated.messages
             .where((m) => !isHiddenAnswerMessage(m))
             .map(answerMessageText),
-        ['Original prompt', 'New answer 1'],
+        ['Original prompt', 'New answer 0'],
       );
-      expect(find.text('New answer 1'), findsOneWidget);
+      expect(find.text('New answer 0'), findsOneWidget);
       expect(find.byTooltip('Previous answer'), findsNothing);
       expect(find.byTooltip('Next answer'), findsNothing);
       await tester.tap(find.byTooltip('Chat actions'));
       await tester.pumpAndSettle();
-      expect(find.text('Parent chat'), findsOneWidget);
-      await tester.tap(find.text('Parent chat'));
-      await tester.pumpAndSettle();
-      expect(find.text('Original answer'), findsOneWidget);
-      expect(find.text('Later answer'), findsOneWidget);
+      expect(find.text('Parent chat'), findsNothing);
+      expect(find.text('Original answer'), findsNothing);
+      expect(find.text('Later answer'), findsNothing);
     },
   );
 

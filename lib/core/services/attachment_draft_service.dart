@@ -48,11 +48,15 @@ typedef AttachmentDraftChanged = FutureOr<void> Function(AttachmentDraft draft);
 typedef AttachmentPromptSubmit = Future<void> Function(List<String> refTexts);
 
 class AttachmentUploadReceipt {
-  final String refText;
+  final String? refText;
+  final String? imagePath;
+  final String? attachedSessionId;
   final bool? atlasIntakeAccepted;
 
   const AttachmentUploadReceipt({
-    required this.refText,
+    this.refText,
+    this.imagePath,
+    this.attachedSessionId,
     this.atlasIntakeAccepted,
   });
 }
@@ -93,7 +97,7 @@ class AttachmentDraftSendCoordinator {
         .whereType<String>()
         .where((ref) => ref.isNotEmpty)
         .toList(growable: false);
-    if (refs.length != snapshot.length) {
+    if (snapshot.any((draft) => !draft.hasGatewayAttachment)) {
       throw const AttachmentDraftException(
         'Every attachment must have a gateway reference before prompt submit.',
       );
@@ -373,11 +377,12 @@ class AttachmentDraftService {
     validateRemoteDrafts(snapshot);
     final receipts = <AttachmentUploadReceipt>[];
     for (final draft in snapshot) {
-      if (draft.status == AttachmentDraftStatus.attached &&
-          draft.refText?.isNotEmpty == true) {
+      if (draft.hasGatewayAttachment) {
         receipts.add(
           AttachmentUploadReceipt(
-            refText: draft.refText!,
+            refText: draft.refText,
+            imagePath: draft.imagePath,
+            attachedSessionId: draft.attachedSessionId,
             atlasIntakeAccepted: draft.atlasIntakeAccepted,
           ),
         );
@@ -443,9 +448,15 @@ class AttachmentDraftService {
     draft
       ..status = AttachmentDraftStatus.attached
       ..refText = receipt.refText
+      ..imagePath = receipt.imagePath
+      ..attachedSessionId = receipt.attachedSessionId
       ..atlasIntakeAccepted = receipt.atlasIntakeAccepted;
     await onChanged?.call(draft);
-    if (removeCachedFileAfterUpload) await removeCachedFile(draft);
+    // Images are queued on a live session. Keep their bytes until submit is
+    // acknowledged so a replacement session can attach them again.
+    if (removeCachedFileAfterUpload && !draft.isImage) {
+      await removeCachedFile(draft);
+    }
     return receipt;
   }
 

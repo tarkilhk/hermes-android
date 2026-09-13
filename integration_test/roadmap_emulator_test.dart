@@ -755,6 +755,12 @@ void main() {
     final sourceActions = find.byKey(
       ValueKey('answer-actions-$sourceAnswerId'),
     );
+    final branchesBeforeRegenerate = harness.fixture.answerActionRequests
+        .where((request) => request.$1 == 'session.branch')
+        .length;
+    final submitsBeforeRegenerate = harness.fixture.answerActionRequests
+        .where((request) => request.$1 == 'prompt.submit')
+        .length;
     await tester.ensureVisible(sourceActions);
     await tester.tap(
       find.descendant(
@@ -762,39 +768,36 @@ void main() {
         matching: find.byTooltip('Regenerate response'),
       ),
     );
-    await _pumpUntil(tester, () => harness.controller.current!.chat != source);
-    final regenerated = harness.controller.current!.chat!;
     await _pumpUntil(
       tester,
       () =>
-          harness.fixture.answerActionRequests.any(
-            (request) =>
-                request.$1 == 'prompt.submit' &&
-                request.$2['session_id'] == regenerated.runtimeId,
-          ) &&
+          harness.fixture.answerActionRequests
+                  .where((request) => request.$1 == 'prompt.submit')
+                  .length >
+              submitsBeforeRegenerate &&
           !source.changingAnswer,
     );
-    final regeneratedBranch = harness.fixture.answerActionRequests
-        .where((request) => request.$1 == 'session.branch')
-        .single;
-    expect(regeneratedBranch.$2, {
-      'session_id': source.runtimeId,
-      'count': 4,
-      'profile': 'personal',
-    });
+    expect(harness.controller.current!.chat, same(source));
+    expect(
+      harness.fixture.answerActionRequests.where(
+        (request) => request.$1 == 'session.branch',
+      ),
+      hasLength(branchesBeforeRegenerate),
+    );
     final regeneratedSubmit = harness.fixture.answerActionRequests
         .where((request) => request.$1 == 'prompt.submit')
         .last;
-    expect(regeneratedSubmit.$2['session_id'], regenerated.runtimeId);
+    expect(regeneratedSubmit.$2['session_id'], source.runtimeId);
     expect(regeneratedSubmit.$2['text'], 'Corrected emulator prompt');
     expect(regeneratedSubmit.$2['profile'], 'personal');
-    harness.fixture.completeAnswerAction('personal', regenerated.runtimeId);
+    harness.fixture.completeAnswerAction('personal', source.runtimeId);
     await _settle(tester);
     expect(find.byTooltip('Previous answer'), findsNothing);
     expect(find.byTooltip('Next answer'), findsNothing);
     await tester.tap(find.byTooltip('Chat actions'));
     await _settle(tester);
-    await tester.tap(find.text('Parent chat'));
+    expect(find.text('Parent chat'), findsNothing);
+    await tester.tapAt(Offset.zero);
     await _settle(tester);
     expect(harness.controller.current!.chat, same(source));
     expect(source.draft, 'Keep this unrelated draft');
@@ -802,10 +805,14 @@ void main() {
     final submitsBeforeBranch = harness.fixture.answerActionRequests
         .where((request) => request.$1 == 'prompt.submit')
         .length;
-    await tester.ensureVisible(sourceActions);
+    final regeneratedAnswerId = answerMessageId(source.messages.last)!;
+    final regeneratedActions = find.byKey(
+      ValueKey('answer-actions-$regeneratedAnswerId'),
+    );
+    await tester.ensureVisible(regeneratedActions);
     await tester.tap(
       find.descendant(
-        of: sourceActions,
+        of: regeneratedActions,
         matching: find.byTooltip('Branch in new session'),
       ),
     );

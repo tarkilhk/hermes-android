@@ -35,6 +35,50 @@ void main() {
   }
 
   test(
+    'retains accepted image ownership and resets it for a new session',
+    () async {
+      final file = File('${sandbox.path}/picture.png');
+      await file.writeAsBytes([1, 2, 3, 4]);
+      final image = AttachmentDraft(
+        id: 'picture',
+        cachedPath: file.path,
+        name: 'picture.png',
+        byteLength: 4,
+        mediaType: 'image/png',
+        kind: AttachmentDraftKind.image,
+        sanitized: true,
+        status: AttachmentDraftStatus.attached,
+        imagePath: '/profile/images/picture.png',
+        attachedSessionId: 'runtime',
+      );
+      final store = ComposerDraftStore(preferences, connectionIdentity: 'host');
+      await store.write(
+        profileName: 'work',
+        sessionId: 'one',
+        text: 'Read it',
+        attachments: [image],
+      );
+      final restored = (await store.read(
+        profileName: 'work',
+        sessionId: 'one',
+      ))!.attachments.single;
+      expect(restored.hasGatewayAttachment, isTrue);
+      expect(restored.imagePath, image.imagePath);
+      expect(restored.attachedSessionId, 'runtime');
+      final moved = (await store.move(
+        profileName: 'work',
+        fromSessionId: 'one',
+        toSessionId: 'two',
+        forNewSession: true,
+      ))!.attachments.single;
+      expect(moved.status, AttachmentDraftStatus.ready);
+      expect(moved.imagePath, isNull);
+      expect(moved.attachedSessionId, isNull);
+      expect(await File(moved.cachedPath).exists(), isTrue);
+    },
+  );
+
+  test(
     'separates drafts by connection identity, profile, and session',
     () async {
       final first = ComposerDraftStore(
@@ -188,62 +232,65 @@ void main() {
     expect(restored.queuedPrompts.single.attachments, isEmpty);
   });
 
-  test('moving to a new session resets remote refs and pauses queues', () async {
-    final store = ComposerDraftStore(
-      preferences,
-      connectionIdentity: 'host-auth',
-    );
-    final cached = await attachment('cached.txt');
-    cached
-      ..status = AttachmentDraftStatus.attached
-      ..refText = '@cached'
-      ..atlasIntakeAccepted = true;
-    final missing = await attachment('missing.txt');
-    missing
-      ..status = AttachmentDraftStatus.attached
-      ..refText = '@missing';
-    await File(missing.cachedPath).delete();
-    final queued = await attachment('queued.txt');
-    queued
-      ..status = AttachmentDraftStatus.attached
-      ..refText = '@queued';
-    await store.write(
-      profileName: 'work',
-      sessionId: 'expired',
-      text: 'keep this text',
-      attachments: [cached, missing],
-      submissionUncertain: true,
-      queuedPrompts: [
-        QueuedPromptDraft(text: 'later', attachments: [queued]),
-      ],
-    );
+  test(
+    'moving to a new session resets remote refs and pauses queues',
+    () async {
+      final store = ComposerDraftStore(
+        preferences,
+        connectionIdentity: 'host-auth',
+      );
+      final cached = await attachment('cached.txt');
+      cached
+        ..status = AttachmentDraftStatus.attached
+        ..refText = '@cached'
+        ..atlasIntakeAccepted = true;
+      final missing = await attachment('missing.txt');
+      missing
+        ..status = AttachmentDraftStatus.attached
+        ..refText = '@missing';
+      await File(missing.cachedPath).delete();
+      final queued = await attachment('queued.txt');
+      queued
+        ..status = AttachmentDraftStatus.attached
+        ..refText = '@queued';
+      await store.write(
+        profileName: 'work',
+        sessionId: 'expired',
+        text: 'keep this text',
+        attachments: [cached, missing],
+        submissionUncertain: true,
+        queuedPrompts: [
+          QueuedPromptDraft(text: 'later', attachments: [queued]),
+        ],
+      );
 
-    final moved = await store.move(
-      profileName: 'work',
-      fromSessionId: 'expired',
-      toSessionId: 'new',
-      forNewSession: true,
-    );
+      final moved = await store.move(
+        profileName: 'work',
+        fromSessionId: 'expired',
+        toSessionId: 'new',
+        forNewSession: true,
+      );
 
-    expect(moved!.text, 'keep this text');
-    expect(moved.submissionUncertain, isTrue);
-    expect(moved.queuePaused, isTrue);
-    expect(moved.attachments.first.status, AttachmentDraftStatus.ready);
-    expect(moved.attachments.first.refText, isNull);
-    expect(moved.attachments.first.atlasIntakeAccepted, isNull);
-    expect(moved.attachments.last.status, AttachmentDraftStatus.failed);
-    expect(moved.attachments.last.refText, isNull);
-    expect(moved.attachments.last.error, contains('no longer available'));
-    final queuedMoved = moved.queuedPrompts.single.attachments.single;
-    expect(queuedMoved.status, AttachmentDraftStatus.ready);
-    expect(queuedMoved.refText, isNull);
-    expect(
-      await store.read(profileName: 'work', sessionId: 'expired'),
-      isNull,
-    );
-    final durable = await store.read(profileName: 'work', sessionId: 'new');
-    expect(durable!.queuePaused, isTrue);
-    expect(durable.attachments.first.status, AttachmentDraftStatus.ready);
-    expect(durable.attachments.last.status, AttachmentDraftStatus.failed);
-  });
+      expect(moved!.text, 'keep this text');
+      expect(moved.submissionUncertain, isTrue);
+      expect(moved.queuePaused, isTrue);
+      expect(moved.attachments.first.status, AttachmentDraftStatus.ready);
+      expect(moved.attachments.first.refText, isNull);
+      expect(moved.attachments.first.atlasIntakeAccepted, isNull);
+      expect(moved.attachments.last.status, AttachmentDraftStatus.failed);
+      expect(moved.attachments.last.refText, isNull);
+      expect(moved.attachments.last.error, contains('no longer available'));
+      final queuedMoved = moved.queuedPrompts.single.attachments.single;
+      expect(queuedMoved.status, AttachmentDraftStatus.ready);
+      expect(queuedMoved.refText, isNull);
+      expect(
+        await store.read(profileName: 'work', sessionId: 'expired'),
+        isNull,
+      );
+      final durable = await store.read(profileName: 'work', sessionId: 'new');
+      expect(durable!.queuePaused, isTrue);
+      expect(durable.attachments.first.status, AttachmentDraftStatus.ready);
+      expect(durable.attachments.last.status, AttachmentDraftStatus.failed);
+    },
+  );
 }

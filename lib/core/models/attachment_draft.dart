@@ -20,6 +20,8 @@ class AttachmentDraft {
 
   AttachmentDraftStatus status;
   String? refText;
+  String? imagePath;
+  String? attachedSessionId;
   String? error;
   bool? atlasIntakeAccepted;
 
@@ -34,9 +36,15 @@ class AttachmentDraft {
     this.sanitized = false,
     this.status = AttachmentDraftStatus.ready,
     this.refText,
+    this.imagePath,
+    this.attachedSessionId,
     this.error,
     this.atlasIntakeAccepted,
   });
 
   bool get isImage => kind == AttachmentDraftKind.image;
+
+  bool get hasGatewayAttachment =>
+      status == AttachmentDraftStatus.attached &&
+      (isImage ? imagePath?.isNotEmpty == true : refText?.isNotEmpty == true);
 }
