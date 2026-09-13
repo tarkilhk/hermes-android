@@ -1,5 +1,11 @@
 # Changelog
 
+## [2.31.4+2189] - 2026-09-13
+
+### Fixed
+
+- Keep captured photos linked to their unsent chat when camera return overlaps reconnection.
+
 ## [2.31.3+2188] - 2026-09-13
 
 ### Fixed

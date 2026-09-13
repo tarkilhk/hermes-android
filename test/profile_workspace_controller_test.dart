@@ -36,6 +36,9 @@ class Host {
   int sessionCreates = 0;
   Completer<void>? replacementCreateStarted;
   Completer<void>? replacementCreateDelay;
+  Completer<void>? expiredResumeStarted;
+  Completer<void>? expiredResumeDelay;
+  bool expiredResumeWasDelayed = false;
   Map<String, dynamic>? inflight;
   Map<String, dynamic>? todoState;
   Completer<void>? projectDelay;
@@ -116,6 +119,11 @@ class Host {
         if (method == 'session.resume' &&
             expireUnsubmittedResume &&
             params['session_id'] == 'same') {
+          if (!expiredResumeWasDelayed && expiredResumeDelay != null) {
+            expiredResumeWasDelayed = true;
+            expiredResumeStarted?.complete();
+            await expiredResumeDelay!.future;
+          }
           throw JsonRpcError('session.resume', 'session not found', code: 4007);
         }
         if (method == 'clarify.respond') return clarifyResult;
@@ -157,7 +165,7 @@ class Host {
         if (method == 'session.create' || method == 'session.resume') {
           if (method == 'session.create') sessionCreates++;
           final replacement = sessionCreates > 1;
-          if (replacement) {
+          if (method == 'session.create' && replacement) {
             replacementCreateStarted?.complete();
             await replacementCreateDelay?.future;
           }
@@ -461,6 +469,73 @@ void main() {
       expect(opened, same(chat));
       expect(chat.draft, 'camera draft');
       expect(chat.commandOutput, isEmpty);
+      expect(host.sessionCreates, 2);
+      expect(host.calls.where((call) => call.$2 == 'prompt.submit'), isEmpty);
+    },
+  );
+
+  test(
+    'explicit recovery waits for an in-flight replacement of its captured key',
+    () async {
+      final chat = await controller.createChat();
+      final capturedKey = chat.key;
+      await controller.updateDraft(chat, 'camera draft');
+      host
+        ..expireUnsubmittedResume = true
+        ..replacementCreateStarted = Completer<void>()
+        ..replacementCreateDelay = Completer<void>();
+
+      final reconnecting = controller.reconnect(capturedKey.workspace);
+      await host.replacementCreateStarted!.future;
+      final opening = controller.openSession(
+        capturedKey,
+        recoverExpiredDraft: true,
+      );
+      final openingResult = opening.then<Object?>(
+        (value) => value,
+        onError: (Object error) => error,
+      );
+
+      host.replacementCreateDelay!.complete();
+      await reconnecting;
+      expect(await openingResult, same(chat));
+
+      expect(chat.key.sessionId, 'replacement');
+      expect(chat.draft, 'camera draft');
+      expect(host.sessionCreates, 2);
+      expect(host.calls.where((call) => call.$2 == 'prompt.submit'), isEmpty);
+    },
+  );
+
+  test(
+    'explicit recovery joins replacement started during its resume request',
+    () async {
+      final chat = await controller.createChat();
+      final capturedKey = chat.key;
+      await controller.updateDraft(chat, 'camera draft');
+      host
+        ..expireUnsubmittedResume = true
+        ..expiredResumeStarted = Completer<void>()
+        ..expiredResumeDelay = Completer<void>()
+        ..replacementCreateStarted = Completer<void>()
+        ..replacementCreateDelay = Completer<void>();
+
+      final opening = controller.openSession(
+        capturedKey,
+        recoverExpiredDraft: true,
+      );
+      await host.expiredResumeStarted!.future;
+      final reconnecting = controller.reconnect(capturedKey.workspace);
+      await host.replacementCreateStarted!.future;
+      final openingExpectation = expectLater(opening, completion(same(chat)));
+
+      host.expiredResumeDelay!.complete();
+      host.replacementCreateDelay!.complete();
+      await reconnecting;
+      await openingExpectation;
+
+      expect(chat.key.sessionId, 'replacement');
+      expect(chat.draft, 'camera draft');
       expect(host.sessionCreates, 2);
       expect(host.calls.where((call) => call.$2 == 'prompt.submit'), isEmpty);
     },

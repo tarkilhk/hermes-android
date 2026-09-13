@@ -1484,12 +1484,19 @@ class ProfileWorkspaceController extends ChangeNotifier {
     if (!owns(key)) {
       throw ArgumentError('Wrong connection settings or host');
     }
-    final recovered = recoverExpiredDraft ? _recoveredDraftTargets[key] : null;
-    if (recovered != null &&
-        identical(
-          _resources[key.workspace]?.chats[recovered.key.sessionId],
-          recovered,
-        )) {
+    if (recoverExpiredDraft) {
+      final replacement = _resources[key.workspace]
+          ?.chats[key.sessionId]
+          ?._replacementCompletion;
+      if (replacement != null) {
+        await replacement.future;
+        if (_recoveredDraftTarget(key) == null) {
+          throw StateError('The draft could not be reconnected.');
+        }
+      }
+    }
+    final recovered = recoverExpiredDraft ? _recoveredDraftTarget(key) : null;
+    if (recovered != null) {
       key = recovered.key;
     }
     if (current?.scope != key.workspace &&
@@ -1557,10 +1564,22 @@ class ProfileWorkspaceController extends ChangeNotifier {
       try {
         response = await resource.gateway.resume(key.sessionId);
       } on JsonRpcError catch (error) {
-        if (!recoverExpiredDraft || !_isDefinitivelyExpiredDraft(chat, error)) {
-          rethrow;
+        if (!recoverExpiredDraft || !_isMissingSessionResume(error)) rethrow;
+        var recovered = _recoveredDraftTarget(key);
+        final replacement = chat._replacementCompletion;
+        if (recovered == null && replacement != null) {
+          await replacement.future;
+          recovered = _recoveredDraftTarget(key);
+          if (recovered == null) rethrow;
         }
-        await _replaceExpiredDraftRuntime(resource, chat);
+        if (recovered != null) {
+          chat = recovered;
+          key = recovered.key;
+        } else {
+          if (!_isDefinitivelyExpiredDraft(chat, error)) rethrow;
+          await _replaceExpiredDraftRuntime(resource, chat);
+          key = chat.key;
+        }
         replacedExpiredDraft = true;
       }
       if (_closed || resource.deletedSessions.contains(key.sessionId)) {
@@ -1622,6 +1641,17 @@ class ProfileWorkspaceController extends ChangeNotifier {
     return current == resource && identical(current?.chat, chat) ? chat : null;
   }
 
+  ProfileChat? _recoveredDraftTarget(ProfileSessionKey key) {
+    final recovered = _recoveredDraftTargets[key];
+    return recovered != null &&
+            identical(
+              _resources[key.workspace]?.chats[recovered.key.sessionId],
+              recovered,
+            )
+        ? recovered
+        : null;
+  }
+
   bool _isDefinitivelyExpiredDraft(ProfileChat chat, JsonRpcError error) {
     return chat._replaceableUnsubmittedRuntime &&
         !chat._replacingExpiredRuntime &&
@@ -1635,10 +1665,13 @@ class ProfileWorkspaceController extends ChangeNotifier {
         !chat.steering &&
         !chat.approvalResponding &&
         !chat.sensitivePromptResponding &&
-        error.method == 'session.resume' &&
-        error.code == 4007 &&
-        error.message.trim().toLowerCase() == 'session not found';
+        _isMissingSessionResume(error);
   }
+
+  bool _isMissingSessionResume(JsonRpcError error) =>
+      error.method == 'session.resume' &&
+      error.code == 4007 &&
+      error.message.trim().toLowerCase() == 'session not found';
 
   Future<void> _replaceExpiredDraftRuntime(
     ProfileWorkspaceData resource,
