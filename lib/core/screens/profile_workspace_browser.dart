@@ -3,6 +3,7 @@ import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 
+import '../services/composer_draft_store.dart';
 import '../services/profile_workspace_controller.dart';
 import '../models/session_visibility.dart';
 import '../services/profile_gateway.dart';
@@ -314,6 +315,51 @@ class _ProfileWorkspaceBrowserState extends State<ProfileWorkspaceBrowser> {
     );
   }
 
+  Widget _savedDraft(ComposerDraftSummary draft) {
+    final resource = controller.current!;
+    final preview = draft.text.trim().replaceAll(RegExp(r'\s+'), ' ');
+    final attachmentLabel =
+        '${draft.attachmentCount} staged attachment${draft.attachmentCount == 1 ? '' : 's'}';
+    final queueLabel =
+        '${draft.queuedCount} queued message${draft.queuedCount == 1 ? '' : 's'}';
+    final title = preview.isNotEmpty
+        ? preview
+        : draft.attachmentCount > 0
+        ? attachmentLabel
+        : queueLabel;
+    final details = [
+      if (draft.submissionUncertain) 'Delivery uncertain',
+      if (preview.isNotEmpty && draft.attachmentCount > 0) attachmentLabel,
+      if (draft.queuedCount > 0 &&
+          (preview.isNotEmpty || draft.attachmentCount > 0))
+        queueLabel,
+    ];
+    return Padding(
+      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 2),
+      child: Material(
+        color: Theme.of(context).colorScheme.surfaceContainerLow,
+        borderRadius: BorderRadius.circular(16),
+        clipBehavior: Clip.antiAlias,
+        child: ListTile(
+          key: ValueKey('saved-draft-${draft.sessionId}'),
+          leading: const Icon(Icons.edit_note_outlined),
+          title: Text(title, maxLines: 2, overflow: TextOverflow.ellipsis),
+          subtitle: Text(
+            details.isEmpty ? 'Not yet sent' : details.join(' · '),
+          ),
+          onTap: controller.switching
+              ? null
+              : () => _run(
+                  () => controller.openSavedDraft(
+                    resource.scope,
+                    draft.sessionId,
+                  ),
+                ),
+        ),
+      ),
+    );
+  }
+
   Widget _empty(String text) => Padding(
     padding: const EdgeInsets.all(24),
     child: Text(
@@ -434,6 +480,16 @@ class _ProfileWorkspaceBrowserState extends State<ProfileWorkspaceBrowser> {
           ..sort((a, b) => _activity(b).compareTo(_activity(a)));
     final pinned = matches.where((r) => r['pinned'] == true).toList();
     final recent = matches.where((r) => r['pinned'] != true).toList();
+    final savedDrafts =
+        project == null &&
+            !_unreadOnly &&
+            !resource.archivedOnly &&
+            _query.isEmpty
+        ? controller
+              .savedDrafts(resource.scope)
+              .where((draft) => !rows.containsKey(draft.sessionId))
+              .toList()
+        : const <ComposerDraftSummary>[];
     _projectHasMore = project != null && recent.length > _projectVisibleCount;
     return [
       if (_unreadOnly)
@@ -482,6 +538,10 @@ class _ProfileWorkspaceBrowserState extends State<ProfileWorkspaceBrowser> {
             child: const Text('Retry'),
           ),
         ),
+      if (savedDrafts.isNotEmpty) ...[
+        _heading('Saved drafts'),
+        ...savedDrafts.map(_savedDraft),
+      ],
       if (pinned.isNotEmpty) ...[
         _heading('Pinned chats'),
         ...pinned.map(_session),

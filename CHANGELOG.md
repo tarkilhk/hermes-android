@@ -1,5 +1,11 @@
 # Changelog
 
+## [2.31.7+2192] - 2026-09-13
+
+### Fixed
+
+- Find and recover saved unsent drafts from Chats after app restart, including drafts whose original chat is no longer available.
+
 ## [2.31.6+2191] - 2026-09-13
 
 ### Fixed

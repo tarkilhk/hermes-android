@@ -22,6 +22,14 @@ class ComposerDraftSnapshot {
   });
 }
 
+typedef ComposerDraftSummary = ({
+  String sessionId,
+  String text,
+  int attachmentCount,
+  int queuedCount,
+  bool submissionUncertain,
+});
+
 /// Stores only work that has not been accepted by Hermes yet.
 class ComposerDraftStore {
   final SharedPreferences _preferences;
@@ -34,6 +42,26 @@ class ComposerDraftStore {
   }
 
   String get _key => 'composer_drafts_v1_$connectionIdentity';
+
+  List<ComposerDraftSummary> summaries({required String profileName}) {
+    return [
+      for (final record in _readRecords())
+        if (record['profile'] == profileName &&
+            record['session'] is String &&
+            (record['session'] as String).isNotEmpty &&
+            record['text'] is String &&
+            record['attachments'] is List)
+          (
+            sessionId: record['session'] as String,
+            text: record['text'] as String,
+            attachmentCount: (record['attachments'] as List).length,
+            queuedCount: record['queue'] is List
+                ? (record['queue'] as List).length
+                : 0,
+            submissionUncertain: record['submission_uncertain'] == true,
+          ),
+    ];
+  }
 
   Future<ComposerDraftSnapshot?> read({
     required String profileName,
@@ -111,10 +139,7 @@ class ComposerDraftStore {
       return null;
     }
     final sourceRecord = jsonEncode(records[index]);
-    final snapshot = await _decodeRecord(
-      records[index],
-      forNewSession: true,
-    );
+    final snapshot = await _decodeRecord(records[index], forNewSession: true);
     if (snapshot == null) {
       throw StateError('The saved draft could not be read.');
     }

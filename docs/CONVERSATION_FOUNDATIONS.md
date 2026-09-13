@@ -27,3 +27,7 @@ The local Desktop gateway used by earlier integration tests was not running duri
 Static analysis is clean. The full Flutter suite passed 890 tests with 4 opt-in checks skipped. The targeted tests cover restart draft restoration, ownership isolation, missing files, accepted/uncertain sends, duplicate taps, typing during acknowledgement, cached reopen, technical routes, session YOLO and approval request replacement/failure. Personal 2.1.3 / ARM64 code 21462 is the build for this delivery; build/install results are recorded in the delivery sequence.
 
 The owner-facing roadmap remains the scope authority. No transcript database, task outbox, compatibility layer, new command-discovery button or background-push implementation was added.
+
+## Cold-start draft access in 2.31.7
+
+Saved drafts are discoverable from the ordinary Chats screen even when Hermes no longer lists the original unsent chat. This reads the existing draft records for the exact connection/profile and reuses verified session resume or explicit draft recovery. It adds no local conversation records. Ambiguous resume errors preserve the source, duplicate taps cannot create duplicate replacements, and uncertain work is never sent automatically. The original Samsung failure and a second process-removal cycle passed; current evidence is in the [QA sweep](QA_SWEEP_2026-09-13.md).

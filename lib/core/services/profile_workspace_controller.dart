@@ -266,6 +266,7 @@ class ProfileWorkspaceController extends ChangeNotifier {
   int _generation = 0;
   int _navigationGeneration = 0;
   bool _closed = false;
+  bool _openingSavedDraft = false;
   Future<void> _journalQueue = Future.value();
   List<ProfileLiveActivity> _liveActivity = const [];
   Map<String, String> _activityProfileErrors = const {};
@@ -354,6 +355,55 @@ class ProfileWorkspaceController extends ChangeNotifier {
       profileName: key.workspace.profileName,
       sessionId: key.sessionId,
     );
+  }
+
+  List<ComposerDraftSummary> savedDrafts(WorkspaceScope owner) {
+    if (!owns(ProfileSessionKey(owner, 'draft'))) {
+      throw ArgumentError('Wrong connection settings or host');
+    }
+    if (current?.scope != owner) return const [];
+    return _drafts.summaries(profileName: owner.profileName);
+  }
+
+  Future<void> openSavedDraft(WorkspaceScope owner, String sessionId) async {
+    final key = ProfileSessionKey(owner, sessionId);
+    if (!owns(key)) {
+      throw ArgumentError('Wrong connection settings or host');
+    }
+    if (sessionId.isEmpty || switching || current?.scope != owner) {
+      throw StateError('Profile changed. Open the draft again.');
+    }
+    if (_openingSavedDraft) {
+      throw StateError('Wait for the saved draft to open.');
+    }
+    _openingSavedDraft = true;
+    try {
+      if (await savedDraft(key) == null) {
+        throw StateError('The saved draft is no longer available.');
+      }
+      if (_closed || switching || current?.scope != owner) {
+        throw StateError('Profile changed. Open the draft again.');
+      }
+      try {
+        final opened = await openSession(key);
+        if (opened == null) {
+          throw StateError('The saved draft could not be opened.');
+        }
+        return;
+      } on JsonRpcError catch (error) {
+        if (!_isMissingSessionResume(error)) rethrow;
+      }
+      if (_closed || switching || current?.scope != owner) {
+        throw StateError('Profile changed. Open the draft again.');
+      }
+      if (await savedDraft(key) == null) {
+        throw StateError('The saved draft is no longer available.');
+      }
+      final destination = await createChat(owner: owner);
+      await recoverDraft(key, destination);
+    } finally {
+      _openingSavedDraft = false;
+    }
   }
 
   void _changed() {

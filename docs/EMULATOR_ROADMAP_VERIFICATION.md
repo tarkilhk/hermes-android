@@ -1,5 +1,12 @@
 # Roadmap emulator verification
 
+## Latest verified patch, 2.31.7
+
+All 1,318 unit/widget tests pass with four opt-in skips and clean analysis. All seven isolated emulator scenarios passed on the current client, with the standard driver exiting 0. Logs are `build/2.31.7-emulator-scenarios.log` and `build/2.31.7-emulator-final-driver.log`.
+
+The initial driver attempts lost the ADB port forward. The final run started without pausing Dart; restoring the forward allowed the same standard driver to collect the result. Android recorded no new startup ANR. No test assertions or SDK code were changed. The signed Personal 2.31.7 / 21922 release is installed on Samsung, where ordinary draft restart/recovery and native intake passed. The [QA sweep](QA_SWEEP_2026-09-13.md) records remaining live-contract limits.
+
+
 The owner requested direct emulator testing after the selected implementation
 work. This record separates native Android checks, synthetic server scenarios
 and checks that still need a configured Hermes server or Firebase project.

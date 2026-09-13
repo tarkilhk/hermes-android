@@ -13,11 +13,11 @@ void main() {
       ).firstMatch(pubspec);
 
       expect(match, isNotNull);
-      expect(match!.group(1), '2.31.6');
-      expect(int.parse(match.group(2)!), 2191);
+      expect(match!.group(1), '2.31.7');
+      expect(int.parse(match.group(2)!), 2192);
       expect(int.parse(match.group(2)!), greaterThan(2144));
       // F-Droid ABI split: packaged arm64 code is base * 10 + ABI code.
-      expect(int.parse(match.group(2)!) * 10 + 2, 21912);
+      expect(int.parse(match.group(2)!) * 10 + 2, 21922);
     },
   );
 
@@ -42,7 +42,7 @@ void main() {
     );
     expect(gradle, contains('variant.versionCode * 10 + abiVersionCode'));
     expect(releaseWorkflow, contains("MINIMUM_INSTALLED_VERSION_CODE: '2127'"));
-    expect(releaseWorkflow, contains("REQUIRED_BASE_VERSION_CODE: '2191'"));
+    expect(releaseWorkflow, contains("REQUIRED_BASE_VERSION_CODE: '2192'"));
     expect(releaseWorkflow, contains("ARM64_ABI_CODE: '2'"));
     expect(
       releaseWorkflow,
@@ -56,7 +56,7 @@ void main() {
     expect(releaseWorkflow, contains('Refuse an unsigned tagged release'));
     expect(releaseWorkflow, contains("env.HAS_RELEASE_KEYSTORE == 'true'"));
     expect(qualityWorkflow, contains("MINIMUM_INSTALLED_VERSION_CODE: '2127'"));
-    expect(qualityWorkflow, contains("REQUIRED_BASE_VERSION_CODE: '2191'"));
+    expect(qualityWorkflow, contains("REQUIRED_BASE_VERSION_CODE: '2192'"));
   });
 
   test('release identity variables belong to the verification step env', () {
@@ -68,7 +68,7 @@ void main() {
       r"^      - name: Verify release identity and upgrade versionCode\r?\n"
       r"        env:\r?\n"
       r"          MINIMUM_INSTALLED_VERSION_CODE: '2127'\r?\n"
-      r"          REQUIRED_BASE_VERSION_CODE: '2191'\r?\n"
+      r"          REQUIRED_BASE_VERSION_CODE: '2192'\r?\n"
       r"        run: \|$",
       multiLine: true,
     );
