@@ -1,5 +1,14 @@
 # Changelog
 
+## [2.31.3+2188] - 2026-09-13
+
+### Fixed
+
+- Show running tasks only under their verified profile in Activity.
+- Open the notified chat on cold start while keeping pending shared content available for review.
+- Recover expired, unsent chats while preserving drafts, attachments, queued messages and chat settings.
+- Explain rejected regeneration without exposing technical errors or changing the original chat.
+
 ## [2.31.2+2187] - 2026-09-13
 
 ### Fixed

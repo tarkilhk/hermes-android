@@ -23,7 +23,32 @@ class _ActivityHost {
     scope: scope,
     discover: discover,
     connect: () async {},
-    get: (path, query) async => path == 'sessions'
+    get: (path, query) async => path == 'sessions/search'
+        ? {
+            'results': [
+              for (final row in const [
+                {'id': 'running', 'title': 'Running job', 'profile': 'main'},
+                {'id': 'needs-input', 'title': 'Question', 'profile': 'main'},
+                {
+                  'id': 'side-work',
+                  'title': 'Deploy checks',
+                  'profile': 'main',
+                },
+                {
+                  'id': 'idle-old',
+                  'title': 'Idle old server',
+                  'profile': 'main',
+                },
+              ])
+                if (row['id'] == query['q'])
+                  {
+                    'session_id': row['id'],
+                    'title': row['title'],
+                    'profile': row['profile'],
+                  },
+            ],
+          }
+        : path == 'sessions'
         ? {
             'sessions': [
               {'id': 'running', 'title': 'Running job', 'profile': 'main'},

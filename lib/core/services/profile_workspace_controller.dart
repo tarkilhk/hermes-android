@@ -83,7 +83,7 @@ enum ProfileTurnStatus {
 class ProfileChat {
   ContextOccupancy? context;
   int contextGeneration = 0;
-  final ProfileSessionKey key;
+  ProfileSessionKey key;
   String runtimeId;
   String title;
   String source;
@@ -153,6 +153,11 @@ class ProfileChat {
   bool queueMutating = false;
   bool queueDraftChanged = false;
   bool queueDraining = false;
+  bool _replaceableUnsubmittedRuntime = false;
+  bool _replacingExpiredRuntime = false;
+  int _attachmentPreparations = 0;
+  Completer<void>? _replacementCompletion;
+  Future<void>? _draftWrites;
   ProfileTurnStatus status = ProfileTurnStatus.idle;
   ProfileChat({
     required this.key,
@@ -248,6 +253,7 @@ class ProfileWorkspaceController extends ChangeNotifier {
   late final ComposerDraftStore _drafts;
   final ProfileAttention? onAttention;
   final Map<WorkspaceScope, ProfileWorkspaceData> _resources = {};
+  final Map<ProfileSessionKey, ProfileChat> _recoveredDraftTargets = {};
   final Set<ProfileSessionKey> _unrestoredPending = {};
   ProfileDiscovery? discovery;
   ProfileWorkspaceData? current;
@@ -496,120 +502,152 @@ class ProfileWorkspaceController extends ChangeNotifier {
     _changed();
     try {
       final profiles = await _resource('default').gateway.discover();
-      final results = await Future.wait(
+      final activeResource = _resource(profiles.serverPreferred.name);
+      await activeResource.gateway.connect();
+      final response = await activeResource.gateway.call('session.active_list');
+      if (response['sessions'] is! List) {
+        throw const FormatException('Missing active sessions');
+      }
+      final activeRows = <Map<String, dynamic>>[];
+      final seenRuntimeSessions = <(String, String)>{};
+      for (final row in ProfileGateway.records(response['sessions'])) {
+        final runtimeId = row['id'];
+        final sessionId = row['session_key'];
+        final status = row['status'];
+        final lastActive = row['last_active'];
+        final reportedSideTasks = row['side_tasks_running'];
+        final sideTasksRunning = reportedSideTasks is int
+            ? reportedSideTasks
+            : 0;
+        if (runtimeId is! String ||
+            runtimeId.isEmpty ||
+            sessionId is! String ||
+            sessionId.isEmpty ||
+            status is! String ||
+            (reportedSideTasks != null && reportedSideTasks is! int) ||
+            sideTasksRunning < 0 ||
+            (lastActive != null && lastActive is! num)) {
+          throw const FormatException('Invalid active session');
+        }
+        final foregroundState = switch (status) {
+          'waiting' => ProfileLiveActivityState.needsInput,
+          'working' => ProfileLiveActivityState.running,
+          'starting' => ProfileLiveActivityState.running,
+          _ => null,
+        };
+        final state =
+            foregroundState ??
+            (sideTasksRunning > 0 ? ProfileLiveActivityState.running : null);
+        if (state == null || !seenRuntimeSessions.add((runtimeId, sessionId))) {
+          continue;
+        }
+        activeRows.add({...row, '_activity_state': state});
+      }
+
+      final sessionIds = activeRows
+          .map((row) => row['session_key'] as String)
+          .toSet();
+      final ownership = await Future.wait(
         profiles.profiles.map((profile) async {
           final resource = _resource(profile.name);
           try {
-            await resource.gateway.connect();
-            final response = await resource.gateway.call('session.active_list');
-            if (response['sessions'] is! List) {
-              throw const FormatException('Missing active sessions');
-            }
-            final activeRows = <Map<String, dynamic>>[];
-            for (final row in ProfileGateway.records(response['sessions'])) {
-              final runtimeId = row['id'];
-              final sessionId = row['session_key'];
-              final status = row['status'];
-              final lastActive = row['last_active'];
-              final reportedSideTasks = row['side_tasks_running'];
-              final sideTasksRunning = reportedSideTasks is int
-                  ? reportedSideTasks
-                  : 0;
-              if (runtimeId is! String ||
-                  runtimeId.isEmpty ||
-                  sessionId is! String ||
-                  sessionId.isEmpty ||
-                  status is! String ||
-                  (reportedSideTasks != null && reportedSideTasks is! int) ||
-                  sideTasksRunning < 0 ||
-                  (lastActive != null && lastActive is! num)) {
-                throw const FormatException('Invalid active session');
+            final matches = <String, Map<String, dynamic>>{};
+            for (final sessionId in sessionIds) {
+              final exact = (await resource.gateway.search(
+                sessionId,
+                visibility: SessionVisibility.all,
+              )).where((row) => row['id'] == sessionId).toList();
+              if (exact.length > 1) {
+                throw const FormatException('Ambiguous session metadata');
               }
-              final foregroundState = switch (status) {
-                'waiting' => ProfileLiveActivityState.needsInput,
-                'working' => ProfileLiveActivityState.running,
-                'starting' => ProfileLiveActivityState.running,
-                _ => null,
-              };
-              final state =
-                  foregroundState ??
-                  (sideTasksRunning > 0
-                      ? ProfileLiveActivityState.running
-                      : null);
-              if (state == null) continue;
-              activeRows.add({...row, '_activity_state': state});
-            }
-            var metadata = [...resource.visibleSessions, ...resource.sessions];
-            final needsTitles = activeRows.any((row) {
-              final sessionId = row['session_key'];
-              return resource.chats[sessionId]?.title == null &&
-                  !metadata.any(
-                    (entry) =>
-                        entry['id'] == sessionId && entry['title'] is String,
-                  );
-            });
-            if (needsTitles) {
-              try {
-                final page = await resource.gateway.sessions();
-                metadata = [...metadata, ...page.rows];
-              } catch (_) {
-                // Live state remains useful when optional title metadata fails.
-              }
-            }
-            final items = <ProfileLiveActivity>[];
-            for (final row in activeRows) {
-              final runtimeId = row['id'] as String;
-              final sessionId = row['session_key'] as String;
-              final metadataRow = metadata
-                  .where((entry) => entry['id'] == sessionId)
-                  .firstOrNull;
-              final metadataTitle = metadataRow?['title'];
-              final knownTitle =
-                  resource.chats[sessionId]?.title ??
-                  (metadataTitle is String ? metadataTitle.trim() : null);
-              final shortId = sessionId.length <= 8
-                  ? sessionId
-                  : sessionId.substring(0, 8);
-              items.add(
-                ProfileLiveActivity(
-                  workspace: resource.scope,
-                  runtimeId: runtimeId,
-                  sessionId: sessionId,
-                  title: knownTitle == null || knownTitle.isEmpty
-                      ? 'Hermes session · $shortId'
-                      : knownTitle,
-                  lastActive: (row['last_active'] as num?)?.toDouble() ?? 0,
-                  state: row['_activity_state'] as ProfileLiveActivityState,
-                  sideTasksRunning: row['side_tasks_running'] is int
-                      ? row['side_tasks_running'] as int
-                      : 0,
-                ),
-              );
+              if (exact.length == 1) matches[sessionId] = exact.single;
             }
             return (
               profile: profile.name,
-              items: items,
+              resource: resource,
+              matches: matches,
               error: null as String?,
             );
           } catch (_) {
             return (
               profile: profile.name,
-              items: <ProfileLiveActivity>[],
+              resource: resource,
+              matches: <String, Map<String, dynamic>>{},
               error: 'Activity unavailable for ${profile.label}.',
             );
           }
         }),
       );
       if (_closed || generation != _activityGeneration) return;
-      final items = results.expand((result) => result.items).toList()
-        ..sort((a, b) => b.lastActive.compareTo(a.lastActive));
+      final discoveredNames = profiles.profiles.map((p) => p.name).toSet();
+      final allProfilesVerified = ownership.every(
+        (result) => result.error == null,
+      );
+      final items = <ProfileLiveActivity>[];
+      var hidden = 0;
+      for (final row in activeRows) {
+        final runtimeId = row['id'] as String;
+        final sessionId = row['session_key'] as String;
+        final localOwners =
+            <({ProfileWorkspaceData resource, ProfileChat chat})>[
+              for (final resource in _resources.values)
+                if (discoveredNames.contains(resource.scope.profileName))
+                  for (final chat in resource.chats.values)
+                    if (chat.runtimeId == runtimeId &&
+                        chat.key.sessionId == sessionId)
+                      (resource: resource, chat: chat),
+            ];
+        ProfileWorkspaceData? owner;
+        String? title;
+        if (localOwners.length == 1) {
+          owner = localOwners.single.resource;
+          title = localOwners.single.chat.title.trim();
+        } else if (localOwners.isEmpty && allProfilesVerified) {
+          final savedOwners = ownership
+              .where((result) => result.matches.containsKey(sessionId))
+              .toList();
+          if (savedOwners.length == 1) {
+            owner = savedOwners.single.resource;
+            final metadataTitle =
+                savedOwners.single.matches[sessionId]?['title'];
+            if (metadataTitle is String) title = metadataTitle.trim();
+          }
+        }
+        if (owner == null) {
+          hidden++;
+          continue;
+        }
+        final shortId = sessionId.length <= 8
+            ? sessionId
+            : sessionId.substring(0, 8);
+        items.add(
+          ProfileLiveActivity(
+            workspace: owner.scope,
+            runtimeId: runtimeId,
+            sessionId: sessionId,
+            title: title == null || title.isEmpty
+                ? 'Hermes session · $shortId'
+                : title,
+            lastActive: (row['last_active'] as num?)?.toDouble() ?? 0,
+            state: row['_activity_state'] as ProfileLiveActivityState,
+            sideTasksRunning: row['side_tasks_running'] is int
+                ? row['side_tasks_running'] as int
+                : 0,
+          ),
+        );
+      }
+      items.sort((a, b) => b.lastActive.compareTo(a.lastActive));
       _liveActivity = List.unmodifiable(items);
       _activityProfileErrors = Map.unmodifiable({
-        for (final result in results)
+        for (final result in ownership)
           if (result.error != null) result.profile: result.error!,
+        if (hidden > 0)
+          'ownership':
+              'Some live sessions were hidden because their profile could not be verified.',
       });
-      activityAvailableProfiles =
-          results.length - _activityProfileErrors.length;
+      activityAvailableProfiles = ownership
+          .where((result) => result.error == null)
+          .length;
       activityLoaded = true;
     } catch (_) {
       if (_closed || generation != _activityGeneration) return;
@@ -1427,7 +1465,7 @@ class ProfileWorkspaceController extends ChangeNotifier {
       title: 'New chat',
       source: 'desktop',
       projectId: project?['id'] as String?,
-    );
+    ).._replaceableUnsubmittedRuntime = true;
     resource.chats[id] = chat;
     _hydrateIntelligence(chat, response);
     _applyTodoSnapshot(chat, response['todo_state']);
@@ -1438,14 +1476,25 @@ class ProfileWorkspaceController extends ChangeNotifier {
     return chat;
   }
 
-  Future<void> openSession(ProfileSessionKey key) async {
+  Future<ProfileChat?> openSession(
+    ProfileSessionKey key, {
+    bool recoverExpiredDraft = false,
+  }) async {
     final navigation = ++_navigationGeneration;
     if (!owns(key)) {
       throw ArgumentError('Wrong connection settings or host');
     }
+    final recovered = recoverExpiredDraft ? _recoveredDraftTargets[key] : null;
+    if (recovered != null &&
+        identical(
+          _resources[key.workspace]?.chats[recovered.key.sessionId],
+          recovered,
+        )) {
+      key = recovered.key;
+    }
     if (current?.scope != key.workspace &&
         !await switchProfile(key.workspace.profileName)) {
-      return;
+      return null;
     }
     final resource = _resource(key.workspace.profileName);
     if (resource.deletedSessions.contains(key.sessionId)) {
@@ -1462,6 +1511,7 @@ class ProfileWorkspaceController extends ChangeNotifier {
         !openedRows.any((row) => row['unread'] == false);
     _cancelOlderLoads();
     var chat = resource.chats[key.sessionId];
+    var replacedExpiredDraft = false;
     if (chat == null) {
       final response = await resource.gateway.resume(key.sessionId);
       final sessionRow = <Map<String, dynamic>>[
@@ -1496,33 +1546,46 @@ class ProfileWorkspaceController extends ChangeNotifier {
           );
       if (resource.deletedSessions.contains(key.sessionId)) {
         resource.chats.remove(key.sessionId);
-        return;
+        return null;
       }
       _hydrate(chat, response);
       await _restoreDraft(chat);
     } else if (chat.status != ProfileTurnStatus.submitting) {
       // A chat opened elsewhere may have progressed while this view was away.
       // Keep an in-flight local submission intact until its acknowledgement.
-      final response = await resource.gateway.resume(key.sessionId);
-      if (_closed || resource.deletedSessions.contains(key.sessionId)) return;
-      _hydrate(chat, response);
-      chat.parentSessionId = response.containsKey('parent_session_id')
-          ? _serverParent(response['parent_session_id'], key.sessionId)
-          : parentSessionId(chat);
-      if (response.containsKey('parent_session_id')) {
-        _applyServerParentRows(
-          resource,
-          key.sessionId,
-          response['parent_session_id'],
-        );
+      Map<String, dynamic>? response;
+      try {
+        response = await resource.gateway.resume(key.sessionId);
+      } on JsonRpcError catch (error) {
+        if (!recoverExpiredDraft || !_isDefinitivelyExpiredDraft(chat, error)) {
+          rethrow;
+        }
+        await _replaceExpiredDraftRuntime(resource, chat);
+        replacedExpiredDraft = true;
       }
-      await _restoreDraft(chat);
+      if (_closed || resource.deletedSessions.contains(key.sessionId)) {
+        return null;
+      }
+      if (response != null) {
+        _hydrate(chat, response);
+        chat.parentSessionId = response.containsKey('parent_session_id')
+            ? _serverParent(response['parent_session_id'], key.sessionId)
+            : parentSessionId(chat);
+        if (response.containsKey('parent_session_id')) {
+          _applyServerParentRows(
+            resource,
+            key.sessionId,
+            response['parent_session_id'],
+          );
+        }
+        await _restoreDraft(chat);
+      }
     }
     // The user may have navigated again while resume was in flight.
     if (current == resource &&
         !switching &&
         navigation == _navigationGeneration) {
-      resource.selectedSession = key.sessionId;
+      resource.selectedSession = chat.key.sessionId;
     }
     _changed();
     if (current?.chat == chat) {
@@ -1530,22 +1593,23 @@ class ProfileWorkspaceController extends ChangeNotifier {
       if (chat.projectId == null) unawaited(_loadChatProject(resource, chat));
       await refreshHistory(chat);
       if (markReadAfterOpen &&
+          !chat._replaceableUnsubmittedRuntime &&
           chat.historyError == null &&
           !chat.historyLoading &&
           chat.historySessionId != null &&
           !_closed &&
           current == resource &&
-          identical(resource.chats[key.sessionId], chat) &&
-          resource.selectedSession == key.sessionId &&
+          identical(resource.chats[chat.key.sessionId], chat) &&
+          resource.selectedSession == chat.key.sessionId &&
           navigation == _navigationGeneration &&
           resource.sessionGeneration == openedSessionGeneration &&
-          !resource.mutatingSessions.contains(key.sessionId)) {
+          !resource.mutatingSessions.contains(chat.key.sessionId)) {
         try {
-          await mutateSession(key, changes: const {'unread': false});
+          await mutateSession(chat.key, changes: const {'unread': false});
         } catch (_) {
           if (!_closed &&
               current == resource &&
-              identical(resource.chats[key.sessionId], chat)) {
+              identical(resource.chats[chat.key.sessionId], chat)) {
             if (!chat.commandOutput.contains(_markReadFailureNotice)) {
               chat.commandOutput.add(_markReadFailureNotice);
             }
@@ -1553,7 +1617,164 @@ class ProfileWorkspaceController extends ChangeNotifier {
           }
         }
       }
-      await _drainQueuedPrompts(chat);
+      if (!replacedExpiredDraft) await _drainQueuedPrompts(chat);
+    }
+    return current == resource && identical(current?.chat, chat) ? chat : null;
+  }
+
+  bool _isDefinitivelyExpiredDraft(ProfileChat chat, JsonRpcError error) {
+    return chat._replaceableUnsubmittedRuntime &&
+        !chat._replacingExpiredRuntime &&
+        chat._attachmentPreparations == 0 &&
+        !chat.busy &&
+        !chat.changingAnswer &&
+        !chat.changingIntelligence &&
+        !chat.commandRunning &&
+        !chat.queueMutating &&
+        !chat.queueDraining &&
+        !chat.steering &&
+        !chat.approvalResponding &&
+        !chat.sensitivePromptResponding &&
+        error.method == 'session.resume' &&
+        error.code == 4007 &&
+        error.message.trim().toLowerCase() == 'session not found';
+  }
+
+  Future<void> _replaceExpiredDraftRuntime(
+    ProfileWorkspaceData resource,
+    ProfileChat chat,
+  ) async {
+    final oldKey = chat.key;
+    final oldRuntime = chat.runtimeId;
+    if (chat._replacingExpiredRuntime ||
+        !identical(resource.chats[oldKey.sessionId], chat)) {
+      throw StateError('The draft changed while its chat was reconnecting.');
+    }
+    final replacementCompletion = Completer<void>();
+    chat
+      .._replacingExpiredRuntime = true
+      .._replacementCompletion = replacementCompletion;
+    final draft = chat.draft;
+    final attachments = List<AttachmentDraft>.of(chat.attachments);
+    final queue = List<QueuedPromptDraft>.of(chat.queuedPrompts);
+    final submissionUncertain = chat.draftSubmissionUncertain;
+    final queuePaused = chat.queuePaused;
+    bool unchanged() =>
+        !_closed &&
+        identical(resource.chats[oldKey.sessionId], chat) &&
+        chat.key == oldKey &&
+        chat.runtimeId == oldRuntime &&
+        chat._replaceableUnsubmittedRuntime &&
+        chat.draft == draft &&
+        chat.draftSubmissionUncertain == submissionUncertain &&
+        chat.queuePaused == queuePaused &&
+        listEquals(chat.attachments, attachments) &&
+        listEquals(chat.queuedPrompts, queue);
+
+    try {
+      await _persistDraft(chat);
+      if (!unchanged()) {
+        throw StateError('The draft changed while its chat was reconnecting.');
+      }
+      String? cwd;
+      if (chat.projectId != null) {
+        final project = resource.projects
+            .where((candidate) => candidate['id'] == chat.projectId)
+            .firstOrNull;
+        final projectPath = project?['primary_path'];
+        if (projectPath is! String || projectPath.isEmpty) {
+          throw StateError(
+            'The original project destination is unavailable. The draft was not moved.',
+          );
+        }
+        cwd = projectPath;
+      }
+      final created = await resource.gateway.createSession(cwd: cwd);
+      if (!unchanged()) {
+        throw StateError('The draft changed while its chat was reconnecting.');
+      }
+      final newSessionId = created['stored_session_id'];
+      final newRuntime = created['session_id'];
+      if (newSessionId is! String ||
+          newSessionId.isEmpty ||
+          newRuntime is! String ||
+          newRuntime.isEmpty ||
+          newSessionId == oldKey.sessionId ||
+          resource.chats.containsKey(newSessionId)) {
+        throw const FormatException('Missing replacement session identity');
+      }
+
+      final preserveIntelligence = chat.intelligenceRuntime == oldRuntime;
+      if (preserveIntelligence && chat.model != null && chat.provider != null) {
+        final modelResult = await resource.gateway.call('config.set', {
+          'session_id': newRuntime,
+          'key': 'model',
+          'value': WsClient.buildSessionModelValue(
+            provider: chat.provider!,
+            model: chat.model!,
+          ),
+        });
+        if (modelResult['confirm_required'] == true) {
+          throw StateError(
+            modelResult['confirm_message']?.toString() ??
+                'Model needs confirmation.',
+          );
+        }
+        if (chat.reasoningEffort != null) {
+          await resource.gateway.call('config.set', {
+            'session_id': newRuntime,
+            'key': 'reasoning',
+            'value': chat.reasoningEffort!,
+          });
+        }
+      }
+      if (chat.yolo != null) {
+        await resource.gateway.call('config.set', {
+          'session_id': newRuntime,
+          'key': 'yolo',
+          'value': chat.yolo! ? '1' : '0',
+        });
+      }
+      if (!unchanged()) {
+        throw StateError('The draft changed while its chat was reconnecting.');
+      }
+
+      await _drafts.move(
+        profileName: resource.scope.profileName,
+        fromSessionId: oldKey.sessionId,
+        toSessionId: newSessionId,
+      );
+      if (!unchanged()) {
+        throw StateError('The draft changed while its chat was reconnecting.');
+      }
+
+      final wasPending = _unrestoredPending.remove(oldKey);
+      resource.chats.remove(oldKey.sessionId);
+      chat
+        ..key = ProfileSessionKey(resource.scope, newSessionId)
+        ..runtimeId = newRuntime
+        ..intelligenceRuntime = preserveIntelligence ? newRuntime : null
+        ..historySessionId = null
+        ..nextHistoryOffset = null
+        ..historyError = null
+        ..status = ProfileTurnStatus.idle
+        ..error = null;
+      resource.chats[newSessionId] = chat;
+      _recoveredDraftTargets[oldKey] = chat;
+      if (resource.selectedSession == oldKey.sessionId) {
+        resource.selectedSession = newSessionId;
+      }
+      if (wasPending) _unrestoredPending.add(chat.key);
+      resource.retry?.cancel();
+      resource.retry = null;
+      resource.reconnectAttempt = 0;
+      resource.reconnectError = null;
+    } finally {
+      chat._replacingExpiredRuntime = false;
+      if (identical(chat._replacementCompletion, replacementCompletion)) {
+        chat._replacementCompletion = null;
+      }
+      replacementCompletion.complete();
     }
   }
 
@@ -1981,23 +2202,35 @@ class ProfileWorkspaceController extends ChangeNotifier {
 
   Future<void> addAttachment(ProfileChat chat, String path, String name) async {
     _owned(chat);
+    if (chat.busy || chat._replacingExpiredRuntime) {
+      throw StateError('Wait for the current turn');
+    }
+    chat._attachmentPreparations++;
+    late final AttachmentDraft draft;
+    try {
+      final image = RegExp(
+        r'\.(png|jpe?g|webp)$',
+        caseSensitive: false,
+      ).hasMatch(name);
+      draft = image
+          ? await attachments.prepareImage(
+              sourcePath: path,
+              displayName: name,
+              existingDrafts: chat.attachments,
+              mode: AttachmentDraftMode.remoteGateway,
+            )
+          : await attachments.prepareGenericFile(
+              sourcePath: path,
+              displayName: name,
+              existingDrafts: chat.attachments,
+            );
+    } finally {
+      chat._attachmentPreparations--;
+    }
+    final replacement = chat._replacementCompletion;
+    if (replacement != null) await replacement.future;
+    _owned(chat);
     if (chat.busy) throw StateError('Wait for the current turn');
-    final image = RegExp(
-      r'\.(png|jpe?g|webp)$',
-      caseSensitive: false,
-    ).hasMatch(name);
-    final draft = image
-        ? await attachments.prepareImage(
-            sourcePath: path,
-            displayName: name,
-            existingDrafts: chat.attachments,
-            mode: AttachmentDraftMode.remoteGateway,
-          )
-        : await attachments.prepareGenericFile(
-            sourcePath: path,
-            displayName: name,
-            existingDrafts: chat.attachments,
-          );
     chat.attachments.add(draft);
     await _persistDraft(chat);
     _changed();
@@ -2005,7 +2238,7 @@ class ProfileWorkspaceController extends ChangeNotifier {
 
   Future<void> removeAttachment(ProfileChat chat, AttachmentDraft draft) async {
     _owned(chat);
-    if (chat.busy) return;
+    if (chat.busy || chat._replacingExpiredRuntime) return;
     chat.attachments.remove(draft);
     await _persistDraft(chat);
     await attachments.removeCachedFile(draft);
@@ -2014,6 +2247,10 @@ class ProfileWorkspaceController extends ChangeNotifier {
 
   Future<void> updateDraft(ProfileChat chat, String text) {
     _owned(chat);
+    final replacement = chat._replacementCompletion;
+    if (replacement != null) {
+      return replacement.future.then((_) => updateDraft(chat, text));
+    }
     chat.draft = text;
     chat.draftSubmissionUncertain = false;
     _changed();
@@ -2029,7 +2266,9 @@ class ProfileWorkspaceController extends ChangeNotifier {
     AndroidSharePayload payload,
   ) async {
     _owned(chat);
-    if (chat.busy) throw StateError('Wait for the current turn');
+    if (chat.busy || chat._replacingExpiredRuntime) {
+      throw StateError('Wait for the current turn');
+    }
     final sharedText = payload.text?.trim() ?? '';
     if (sharedText.isEmpty && payload.files.isEmpty) return;
 
@@ -2040,6 +2279,7 @@ class ProfileWorkspaceController extends ChangeNotifier {
     final originalUncertain = chat.draftSubmissionUncertain;
     final originalStatus = chat.status;
     final staged = <AttachmentDraft>[];
+    chat._attachmentPreparations++;
     try {
       for (final file in payload.files) {
         final combined = [...originalAttachments, ...staged];
@@ -2091,6 +2331,8 @@ class ProfileWorkspaceController extends ChangeNotifier {
         } catch (_) {}
       }
       rethrow;
+    } finally {
+      chat._attachmentPreparations--;
     }
   }
 
@@ -2130,15 +2372,31 @@ class ProfileWorkspaceController extends ChangeNotifier {
   }
 
   Future<void> _persistDraft(ProfileChat chat) {
-    return _drafts.write(
-      profileName: chat.key.workspace.profileName,
-      sessionId: chat.key.sessionId,
-      text: chat.draft,
-      attachments: chat.attachments,
-      submissionUncertain: chat.draftSubmissionUncertain,
-      queuedPrompts: chat.queuedPrompts,
-      queuePaused: chat.queuePaused || chat.queueDraining,
+    final key = chat.key;
+    final text = chat.draft;
+    final attachments = List<AttachmentDraft>.of(chat.attachments);
+    final queue = List<QueuedPromptDraft>.of(chat.queuedPrompts);
+    final submissionUncertain = chat.draftSubmissionUncertain;
+    final queuePaused = chat.queuePaused || chat.queueDraining;
+    Future<void> save() => _drafts.write(
+      profileName: key.workspace.profileName,
+      sessionId: key.sessionId,
+      text: text,
+      attachments: attachments,
+      submissionUncertain: submissionUncertain,
+      queuedPrompts: queue,
+      queuePaused: queuePaused,
     );
+    final pending = chat._draftWrites;
+    final write = pending == null ? save() : pending.then((_) => save());
+    final settled = write.catchError((Object _) {});
+    chat._draftWrites = settled;
+    unawaited(
+      settled.then((_) {
+        if (identical(chat._draftWrites, settled)) chat._draftWrites = null;
+      }),
+    );
+    return write;
   }
 
   Future<void> _clearStoredDraft(WorkspaceScope scope, String sessionId) {
@@ -2371,7 +2629,9 @@ class ProfileWorkspaceController extends ChangeNotifier {
         rejected = true;
         chat.messages = original;
         chat.status = ProfileTurnStatus.failed;
-        chat.error = 'Could not regenerate: $e';
+        chat.error = e is JsonRpcError && e.code == 4018
+            ? 'Hermes could not match this saved prompt. The original chat is unchanged. Send a new message to continue.'
+            : 'Hermes did not accept the regeneration. The original chat is unchanged.';
       } else {
         chat.status = ProfileTurnStatus.reconnecting;
         chat.error =
@@ -2626,7 +2886,8 @@ class ProfileWorkspaceController extends ChangeNotifier {
     ChatIntelligenceSelection selection,
   ) async {
     _owned(chat);
-    if (chat.busy ||
+    if (chat._replacingExpiredRuntime ||
+        chat.busy ||
         chat.changingAnswer ||
         chat.changingIntelligence ||
         switching ||
@@ -2670,7 +2931,12 @@ class ProfileWorkspaceController extends ChangeNotifier {
       });
 
   Future<void> send(ProfileChat chat) async {
-    if (chat.commandRunning || chat.changingIntelligence || switching) return;
+    if (chat._replacingExpiredRuntime ||
+        chat.commandRunning ||
+        chat.changingIntelligence ||
+        switching) {
+      return;
+    }
     if (chat.draft.trimLeft().startsWith('/')) {
       await _sendCommand(chat);
       return;
@@ -3004,6 +3270,7 @@ class ProfileWorkspaceController extends ChangeNotifier {
     required String method,
     required String prompt,
   }) async {
+    chat._replaceableUnsubmittedRuntime = false;
     final result = await resource.gateway.call(method, {
       'session_id': chat.runtimeId,
       'text': prompt,
@@ -3089,6 +3356,7 @@ class ProfileWorkspaceController extends ChangeNotifier {
     List<AttachmentDraft>? attachmentOverride,
   }) async {
     final resource = _owned(chat);
+    if (chat._replacingExpiredRuntime) return false;
     final files =
         attachmentOverride ??
         (preserveComposer
@@ -3124,6 +3392,7 @@ class ProfileWorkspaceController extends ChangeNotifier {
             'name': draft.name,
             'data_url': dataUrl,
           });
+          chat._replaceableUnsubmittedRuntime = false;
           final ref = result['ref_text'];
           if (ref is! String || ref.isEmpty) {
             throw const FormatException('Missing attachment reference');
@@ -3137,6 +3406,7 @@ class ProfileWorkspaceController extends ChangeNotifier {
         removeCachedFileAfterUpload: attachmentOverride == null,
         submitPrompt: (refs) async {
           await resource.gateway.requireProfile();
+          chat._replaceableUnsubmittedRuntime = false;
           chat.messages.add({
             'role': 'user',
             'content': text,
@@ -3229,7 +3499,9 @@ class ProfileWorkspaceController extends ChangeNotifier {
 
   Future<void> queuePrompt(ProfileChat chat, String rawText) async {
     _owned(chat);
-    if (chat.queueMutating || chat.queueDraining) {
+    if (chat._replacingExpiredRuntime ||
+        chat.queueMutating ||
+        chat.queueDraining) {
       throw StateError('Another queued message is still being saved.');
     }
     final text = rawText.trim();
@@ -3293,7 +3565,11 @@ class ProfileWorkspaceController extends ChangeNotifier {
     QueuedPromptDraft? expectedPrompt,
   }) async {
     _owned(chat);
-    if (chat.queueDraining || chat.queueMutating) return;
+    if (chat._replacingExpiredRuntime ||
+        chat.queueDraining ||
+        chat.queueMutating) {
+      return;
+    }
     if (index < 0 || index >= chat.queuedPrompts.length) return;
     if (expectedPrompt != null &&
         !identical(chat.queuedPrompts[index], expectedPrompt)) {
@@ -3339,7 +3615,11 @@ class ProfileWorkspaceController extends ChangeNotifier {
   }
 
   Future<void> resumeQueue(ProfileChat chat) async {
-    if (chat.queueDraining || chat.queueMutating) return;
+    if (chat._replacingExpiredRuntime ||
+        chat.queueDraining ||
+        chat.queueMutating) {
+      return;
+    }
     final gateway = _owned(chat).gateway;
     chat.queueDraining = true;
     _changed();
@@ -3966,13 +4246,19 @@ class ProfileWorkspaceController extends ChangeNotifier {
       for (final chat in resource.chats.values.toList()) {
         if (!chat.busy && chat != resource.chat) continue;
         final wasBusy = chat.busy;
-        final result = await resource.gateway.resume(chat.key.sessionId);
-        _hydrate(chat, result);
+        Map<String, dynamic>? result;
+        try {
+          result = await resource.gateway.resume(chat.key.sessionId);
+        } on JsonRpcError catch (error) {
+          if (!_isDefinitivelyExpiredDraft(chat, error)) rethrow;
+          await _replaceExpiredDraftRuntime(resource, chat);
+        }
+        if (result != null) _hydrate(chat, result);
         await refreshHistory(chat);
         if (wasBusy && !chat.busy) {
           _notify(chat, chat.status == ProfileTurnStatus.failed);
         }
-        await _drainQueuedPrompts(chat);
+        if (result != null) await _drainQueuedPrompts(chat);
       }
       await _journal();
       resource.reconnectAttempt = 0;

@@ -91,6 +91,32 @@ class ComposerDraftStore {
     if (!saved) throw StateError('Could not save unsent messages.');
   }
 
+  Future<void> move({
+    required String profileName,
+    required String fromSessionId,
+    required String toSessionId,
+  }) async {
+    if (fromSessionId == toSessionId) {
+      throw ArgumentError('Draft destination must be new.');
+    }
+    final records = _readRecords();
+    if (records.any(
+      (value) =>
+          value['profile'] == profileName && value['session'] == toSessionId,
+    )) {
+      throw StateError('The replacement chat already has a draft.');
+    }
+    final index = records.indexWhere(
+      (value) =>
+          value['profile'] == profileName && value['session'] == fromSessionId,
+    );
+    if (index < 0) return;
+    records[index] = {...records[index], 'session': toSessionId};
+    if (!await _preferences.setString(_key, jsonEncode(records))) {
+      throw StateError('Could not move unsent messages.');
+    }
+  }
+
   List<Map<String, dynamic>> _readRecords() {
     final raw = _preferences.getString(_key);
     if (raw == null || raw.isEmpty) return [];

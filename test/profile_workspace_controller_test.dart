@@ -2,7 +2,9 @@ import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:hermes_android/core/screens/profile_workspace_screen.dart';
+import 'package:hermes_android/core/models/attachment_draft.dart';
 import 'package:hermes_android/core/models/hermes_profile.dart';
+import 'package:hermes_android/core/models/queued_prompt_draft.dart';
 import 'package:hermes_android/core/services/connection_manager.dart';
 import 'package:hermes_android/core/services/composer_draft_store.dart';
 import 'package:hermes_android/core/services/profile_gateway.dart';
@@ -30,6 +32,10 @@ class Host {
   int connectFailures = 0;
   int connectCalls = 0;
   int resumeFailures = 0;
+  bool expireUnsubmittedResume = false;
+  int sessionCreates = 0;
+  Completer<void>? replacementCreateStarted;
+  Completer<void>? replacementCreateDelay;
   Map<String, dynamic>? inflight;
   Map<String, dynamic>? todoState;
   Completer<void>? projectDelay;
@@ -107,6 +113,11 @@ class Host {
           resumeFailures--;
           throw TimeoutException('Session resume temporarily unavailable');
         }
+        if (method == 'session.resume' &&
+            expireUnsubmittedResume &&
+            params['session_id'] == 'same') {
+          throw JsonRpcError('session.resume', 'session not found', code: 4007);
+        }
         if (method == 'clarify.respond') return clarifyResult;
         if (method == 'projects.tree') {
           return {
@@ -144,10 +155,18 @@ class Host {
           };
         }
         if (method == 'session.create' || method == 'session.resume') {
+          if (method == 'session.create') sessionCreates++;
+          final replacement = sessionCreates > 1;
+          if (replacement) {
+            replacementCreateStarted?.complete();
+            await replacementCreateDelay?.future;
+          }
           return {
-            'session_id': '$name-runtime',
-            'stored_session_id': 'same',
-            'session_key': 'same',
+            'session_id': replacement
+                ? '$name-replacement-runtime'
+                : '$name-runtime',
+            'stored_session_id': replacement ? 'replacement' : 'same',
+            'session_key': replacement ? 'replacement' : 'same',
             'messages': <Map<String, dynamic>>[],
             'running': method == 'session.resume' && running,
             'inflight': inflight,
@@ -257,6 +276,211 @@ void main() {
 
     expect(chat.draft, isEmpty);
     expect(await store.read(profileName: 'a', sessionId: 'same'), isNull);
+  });
+
+  test(
+    'expired unsubmitted runtime keeps its draft and project on replacement',
+    () async {
+      final store = ComposerDraftStore(
+        preferences,
+        connectionIdentity: 'original-settings',
+      );
+      final project = controller.current!.projects.single;
+      final chat = await controller.createChat(inProject: project);
+      final oldKey = chat.key;
+      final attachment = AttachmentDraft(
+        id: 'camera',
+        cachedPath: 'camera.png',
+        name: 'camera.png',
+        byteLength: 20,
+        mediaType: 'image/png',
+        kind: AttachmentDraftKind.image,
+        sourceImageFormat: AttachmentImageFormat.png,
+        sanitized: true,
+      );
+      chat.attachments.add(attachment);
+      chat.queuedPrompts.add(QueuedPromptDraft(text: 'later'));
+      chat
+        ..model = 'chosen-model'
+        ..provider = 'chosen-provider'
+        ..reasoningEffort = 'low'
+        ..intelligenceRuntime = chat.runtimeId
+        ..yolo = true;
+      await controller.updateDraft(chat, 'keep this draft');
+      host.expireUnsubmittedResume = true;
+      controller.current!.reconnectError =
+          'Could not reconnect to a. No prompts were resent.';
+
+      await controller.navigateProfile('a');
+      await controller.openSession(oldKey, recoverExpiredDraft: true);
+
+      expect(chat.key.sessionId, 'replacement');
+      expect(chat.runtimeId, 'a-replacement-runtime');
+      expect(chat.draft, 'keep this draft');
+      expect(chat.attachments, [same(attachment)]);
+      expect(chat.queuedPrompts.single.text, 'later');
+      expect(chat.projectId, project['id']);
+      expect(chat.intelligenceRuntime, 'a-replacement-runtime');
+      expect(chat.yolo, isTrue);
+      expect(controller.current!.chat, same(chat));
+      expect(controller.current!.reconnectError, isNull);
+      expect(
+        host.calls.lastWhere((call) => call.$2 == 'session.create').$3['cwd'],
+        project['primary_path'],
+      );
+      expect(await store.read(profileName: 'a', sessionId: 'same'), isNull);
+      final migrated = await store.read(
+        profileName: 'a',
+        sessionId: 'replacement',
+      );
+      expect(migrated?.text, 'keep this draft');
+      expect(migrated?.attachments.single.id, 'camera');
+      expect(migrated?.queuedPrompts.single.text, 'later');
+      expect(
+        host.calls
+            .where((call) => call.$2 == 'config.set')
+            .map((call) => call.$3['session_id']),
+        everyElement('a-replacement-runtime'),
+      );
+      expect(
+        host.calls
+            .where((call) => call.$2 == 'config.set')
+            .map((call) => call.$3['key']),
+        containsAll(['model', 'reasoning', 'yolo']),
+      );
+    },
+  );
+
+  test(
+    'unknown resume failure does not replace an unsubmitted runtime',
+    () async {
+      final chat = await controller.createChat();
+      final oldKey = chat.key;
+      await controller.updateDraft(chat, 'keep this draft');
+      host.resumeFailures = 1;
+
+      await controller.navigateProfile('a');
+      await expectLater(
+        controller.openSession(oldKey),
+        throwsA(isA<TimeoutException>()),
+      );
+
+      expect(chat.key, oldKey);
+      expect(chat.draft, 'keep this draft');
+      expect(host.sessionCreates, 1);
+    },
+  );
+
+  test('ordinary open does not replace a definitively expired draft', () async {
+    final chat = await controller.createChat();
+    final oldKey = chat.key;
+    await controller.updateDraft(chat, 'keep this draft');
+    host.expireUnsubmittedResume = true;
+
+    await controller.navigateProfile('a');
+    await expectLater(
+      controller.openSession(oldKey),
+      throwsA(isA<JsonRpcError>()),
+    );
+
+    expect(chat.key, oldKey);
+    expect(chat.draft, 'keep this draft');
+    expect(host.sessionCreates, 1);
+  });
+
+  test('reconnect replaces the selected definitively expired draft', () async {
+    final chat = await controller.createChat();
+    await controller.updateDraft(chat, 'keep this draft');
+    host.expireUnsubmittedResume = true;
+
+    await controller.reconnect(chat.key.workspace);
+
+    expect(chat.key.sessionId, 'replacement');
+    expect(chat.draft, 'keep this draft');
+    expect(controller.current!.chat, same(chat));
+    expect(controller.current!.reconnectError, isNull);
+  });
+
+  test(
+    'replacement blocks composer writes until the durable key moves',
+    () async {
+      final store = ComposerDraftStore(
+        preferences,
+        connectionIdentity: 'original-settings',
+      );
+      final chat = await controller.createChat();
+      final oldKey = chat.key;
+      await controller.updateDraft(chat, 'keep this draft');
+      host
+        ..expireUnsubmittedResume = true
+        ..replacementCreateStarted = Completer<void>()
+        ..replacementCreateDelay = Completer<void>();
+      await controller.navigateProfile('a');
+
+      final opening = controller.openSession(oldKey, recoverExpiredDraft: true);
+      await host.replacementCreateStarted!.future;
+      final typing = controller.updateDraft(chat, 'racing edit');
+      await controller.send(chat);
+      await expectLater(
+        controller.queuePrompt(chat, 'racing queue'),
+        throwsStateError,
+      );
+      host.replacementCreateDelay!.complete();
+      await opening;
+      await typing;
+
+      expect(host.calls.where((call) => call.$2 == 'prompt.submit'), isEmpty);
+      expect(await store.read(profileName: 'a', sessionId: 'same'), isNull);
+      expect(
+        (await store.read(profileName: 'a', sessionId: 'replacement'))?.text,
+        'racing edit',
+      );
+    },
+  );
+
+  test(
+    'camera target follows a draft already replaced by background reconnect',
+    () async {
+      final chat = await controller.createChat();
+      final capturedKey = chat.key;
+      await controller.updateDraft(chat, 'camera draft');
+      host.expireUnsubmittedResume = true;
+
+      await controller.reconnect(capturedKey.workspace);
+      expect(chat.key, isNot(capturedKey));
+      await controller.navigateProfile('a');
+      await expectLater(
+        controller.openSession(capturedKey),
+        throwsA(isA<JsonRpcError>()),
+      );
+      final opened = await controller.openSession(
+        capturedKey,
+        recoverExpiredDraft: true,
+      );
+
+      expect(opened, same(chat));
+      expect(chat.draft, 'camera draft');
+      expect(chat.commandOutput, isEmpty);
+      expect(host.sessionCreates, 2);
+      expect(host.calls.where((call) => call.$2 == 'prompt.submit'), isEmpty);
+    },
+  );
+
+  test('definitive resume failure does not replace a submitted chat', () async {
+    final chat = await controller.createChat();
+    final oldKey = chat.key;
+    await controller.updateDraft(chat, 'accepted prompt');
+    await controller.send(chat);
+    host.expireUnsubmittedResume = true;
+
+    await controller.navigateProfile('a');
+    await expectLater(
+      controller.openSession(oldKey),
+      throwsA(isA<JsonRpcError>()),
+    );
+
+    expect(chat.key, oldKey);
+    expect(host.sessionCreates, 1);
   });
 
   test(

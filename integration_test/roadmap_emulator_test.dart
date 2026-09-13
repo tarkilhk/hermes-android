@@ -181,6 +181,13 @@ void main() {
     tester,
   ) async {
     await harness.launch(tester);
+    await tester.tap(find.byKey(const ValueKey('chat-chat-0')));
+    await _settle(tester);
+    final runningChat = harness.controller.current!.chat!;
+    // The base fixture reuses a runtime placeholder; live gateway IDs are unique.
+    runningChat.runtimeId = 'runtime-running';
+    await tester.tap(find.byTooltip('Back to sessions'));
+    await _settle(tester);
     await tester.tap(find.byKey(const ValueKey('chat-chat-1')));
     await _settle(tester);
     final chat = harness.controller.current!.chat!;
@@ -217,13 +224,13 @@ void main() {
 
     harness.fixture.liveSessions['personal'] = [
       {
-        'id': 'runtime-running',
+        'id': runningChat.runtimeId,
         'session_key': 'chat-0',
         'status': 'working',
         'last_active': 2,
       },
       {
-        'id': 'runtime-input',
+        'id': chat.runtimeId,
         'session_key': 'chat-1',
         'status': 'waiting',
         'last_active': 1,

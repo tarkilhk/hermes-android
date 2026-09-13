@@ -100,10 +100,12 @@ void main() {
     tester,
   ) async {
     final personal = await controller.createChat();
+    personal.runtimeId = 'runtime-personal';
     personal.draft = 'Personal draft';
     personal.status = ProfileTurnStatus.attention;
     await controller.navigateProfile('work');
     final work = await controller.createChat();
+    work.runtimeId = 'runtime-work';
     work.draft = 'Work draft';
     fixture.liveSessions['personal'] = [
       {

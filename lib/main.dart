@@ -49,6 +49,7 @@ class HermesApp extends StatefulWidget {
   final ConnectionManager connManager;
   final AndroidShareIntentService? shareIntents;
   final AndroidLaunchIntentService? launchIntents;
+  final Future<void>? startupExternalNavigationReady;
 
   /// When supplied, this app owns and disposes the registry.
   final ProfileWorkspaceRegistry? profileControllers;
@@ -56,6 +57,7 @@ class HermesApp extends StatefulWidget {
     required this.connManager,
     this.shareIntents,
     this.launchIntents,
+    this.startupExternalNavigationReady,
     this.profileControllers,
     super.key,
   });
@@ -105,6 +107,7 @@ class HermesAppState extends State<HermesApp> with WidgetsBindingObserver {
   ProfileSessionKey? _pendingNotificationKey;
   Future<void>? _pendingNotificationOpen;
   int _notificationOpenGeneration = 0;
+  String? _deferredShareId;
   bool _disposed = false;
 
   Future<ProfileWorkspaceController> profileController(
@@ -155,6 +158,7 @@ class HermesAppState extends State<HermesApp> with WidgetsBindingObserver {
       _showNotificationOpenError();
       return;
     }
+    _deferPendingShareForNotification();
 
     final pending = _pendingNotificationOpen;
     if (_pendingNotificationKey == key && pending != null) return pending;
@@ -171,6 +175,13 @@ class HermesAppState extends State<HermesApp> with WidgetsBindingObserver {
         _pendingNotificationOpen = null;
       }
     }
+  }
+
+  void _deferPendingShareForNotification() {
+    final pendingShareId = widget.shareIntents?.pendingShare.value?.id;
+    if (pendingShareId == null) return;
+    _deferredShareId = pendingShareId;
+    _homeKey.currentState?.deferPendingShareAutoOpen(pendingShareId);
   }
 
   bool _isCurrentNotificationOpen(int generation) =>
@@ -250,6 +261,7 @@ class HermesAppState extends State<HermesApp> with WidgetsBindingObserver {
     WidgetsBinding.instance.addObserver(this);
     _profileNotifications = PluginTurnNotificationSink(
       onOpen: (payload) {
+        if (payload.isNotEmpty) _deferPendingShareForNotification();
         unawaited(
           WidgetsBinding.instance.endOfFrame.then(
             (_) => openProfileNotification(payload),
@@ -263,9 +275,9 @@ class HermesAppState extends State<HermesApp> with WidgetsBindingObserver {
           ? BackgroundPushState.unavailableBuild
           : BackgroundPushState.syncing,
     );
-    _notificationsReady = _profileNotifications.initialize().catchError(
-      (Object _) {},
-    );
+    _notificationsReady =
+        widget.startupExternalNavigationReady ??
+        _profileNotifications.initialize().catchError((Object _) {});
     unawaited(
       WidgetsBinding.instance.endOfFrame.then((_) => _syncBackgroundPush()),
     );
@@ -428,6 +440,8 @@ class HermesAppState extends State<HermesApp> with WidgetsBindingObserver {
         backgroundPushState: _backgroundPushState,
         shareIntents: widget.shareIntents,
         launchIntents: widget.launchIntents,
+        startupExternalNavigationReady: _notificationsReady,
+        deferredShareId: _deferredShareId,
       ),
     );
   }
@@ -467,6 +481,8 @@ class HomeScreen extends StatefulWidget {
   final ValueListenable<BackgroundPushState>? backgroundPushState;
   final AndroidShareIntentService? shareIntents;
   final AndroidLaunchIntentService? launchIntents;
+  final Future<void>? startupExternalNavigationReady;
+  final String? deferredShareId;
   final Future<String?> Function()? pickBackupFile;
   final Future<ConfigImportResult> Function(
     String contents,
@@ -485,6 +501,8 @@ class HomeScreen extends StatefulWidget {
     this.backgroundPushState,
     this.shareIntents,
     this.launchIntents,
+    this.startupExternalNavigationReady,
+    this.deferredShareId,
     this.pickBackupFile,
     this.importBackup,
     super.key,
@@ -501,6 +519,8 @@ class HomeScreenState extends State<HomeScreen> {
   bool _opening = false;
   bool _reviewingShare = false;
   bool _discardingShare = false;
+  bool _startupExternalNavigationReady = false;
+  String? _deferredShareId;
   AppDestination _destination = AppDestination.connections;
   static const String _lastConnectionKey = 'last_connection_id';
 
@@ -565,15 +585,33 @@ class HomeScreenState extends State<HomeScreen> {
   @override
   void initState() {
     super.initState();
+    _deferredShareId = widget.deferredShareId;
     _refresh();
     widget.shareIntents?.pendingShare.addListener(_onSharedText);
     widget.shareIntents?.intakeError.addListener(_onShareError);
     widget.launchIntents?.pendingQuickChat.addListener(_onQuickChat);
     WidgetsBinding.instance.addPostFrameCallback((_) {
-      _onSharedText();
       _onShareError();
       _onQuickChat();
     });
+    final ready = widget.startupExternalNavigationReady;
+    if (ready == null) {
+      _startupExternalNavigationReady = true;
+      WidgetsBinding.instance.addPostFrameCallback((_) => _onSharedText());
+    } else {
+      unawaited(_enableStartupExternalNavigation(ready));
+    }
+  }
+
+  Future<void> _enableStartupExternalNavigation(Future<void> ready) async {
+    await ready;
+    if (!mounted) return;
+    _startupExternalNavigationReady = true;
+    _onSharedText();
+  }
+
+  void deferPendingShareAutoOpen(String id) {
+    _deferredShareId = id;
   }
 
   SavedConnection? _connectionForExternalAction() {
@@ -584,10 +622,17 @@ class HomeScreenState extends State<HomeScreen> {
     return preferred ?? (_connections.length == 1 ? _connections.single : null);
   }
 
-  void _onSharedText() {
+  void _onSharedText() => _openSharedText(explicit: false);
+
+  void _reviewPendingShare() => _openSharedText(explicit: true);
+
+  void _openSharedText({required bool explicit}) {
     if (!mounted) return;
     setState(() {});
-    if (widget.shareIntents?.pendingShare.value == null ||
+    final payload = widget.shareIntents?.pendingShare.value;
+    if (payload == null ||
+        !_startupExternalNavigationReady ||
+        (!explicit && payload.id == _deferredShareId) ||
         _reviewingShare ||
         _discardingShare ||
         _connections.isEmpty) {
@@ -762,9 +807,12 @@ class HomeScreenState extends State<HomeScreen> {
           if (controller.owns(key) &&
               controller.discovery?.named(key.workspace.profileName) != null) {
             await controller.navigateProfile(key.workspace.profileName);
-            await controller.openSession(key);
-            if (controller.current?.chat?.key == key) {
-              initialChat = controller.current!.chat;
+            final opened = await controller.openSession(
+              key,
+              recoverExpiredDraft: true,
+            );
+            if (opened != null && identical(controller.current?.chat, opened)) {
+              initialChat = opened;
             }
           }
         } catch (_) {
@@ -1045,7 +1093,7 @@ class HomeScreenState extends State<HomeScreen> {
                                         _discardingShare ||
                                         _connections.isEmpty
                                     ? null
-                                    : _onSharedText,
+                                    : _reviewPendingShare,
                                 child: const Text('Review'),
                               ),
                               TextButton(

@@ -1,6 +1,5 @@
 import 'package:flutter_test/flutter_test.dart';
 import 'package:hermes_android/core/models/hermes_profile.dart';
-import 'package:hermes_android/core/models/profile_live_activity.dart';
 import 'package:hermes_android/core/services/connection_manager.dart';
 import 'package:hermes_android/core/services/profile_gateway.dart';
 import 'package:hermes_android/core/services/profile_workspace_controller.dart';
@@ -10,7 +9,12 @@ import 'package:shared_preferences/shared_preferences.dart';
 class ActivityHost {
   final calls = <(String, String, Map<String, dynamic>)>[];
   final reads = <(String, String)>[];
-  final live = <String, List<Map<String, dynamic>>>{};
+  final live = <Map<String, dynamic>>[];
+  final saved = <String, List<Map<String, dynamic>>>{
+    'a': [
+      {'id': 'same', 'title': 'Known phone chat', 'profile': 'a'},
+    ],
+  };
   final failedProfiles = <String>{};
   final profiles = ['a', 'b'];
 
@@ -25,12 +29,25 @@ class ActivityHost {
     discover: discover,
     get: (path, query) async {
       reads.add((scope.profileName, path));
+      if (path == 'sessions/search') {
+        if (failedProfiles.contains(scope.profileName)) {
+          throw StateError('Profile offline');
+        }
+        return {
+          'results': (saved[scope.profileName] ?? const [])
+              .where((row) => row['id'] == query['q'])
+              .map(
+                (row) => {
+                  'session_id': row['id'],
+                  'title': row['title'],
+                  'profile': row['profile'],
+                },
+              )
+              .toList(),
+        };
+      }
       if (path == 'sessions') {
-        final rows = scope.profileName == 'a'
-            ? [
-                {'id': 'same', 'title': 'Known phone chat', 'profile': 'a'},
-              ]
-            : <Map<String, dynamic>>[];
+        final rows = saved[scope.profileName] ?? <Map<String, dynamic>>[];
         return {
           'sessions': rows,
           'offset': int.parse(query['offset']!),
@@ -56,7 +73,7 @@ class ActivityHost {
         if (failedProfiles.contains(scope.profileName)) {
           throw StateError('Profile offline');
         }
-        return {'sessions': live[scope.profileName] ?? []};
+        return {'sessions': live};
       }
       if (method == 'session.create' || method == 'session.resume') {
         return {
@@ -100,20 +117,12 @@ void main() {
     final selected = await controller.createChat();
     final selectedScope = controller.current!.scope;
     host.reads.clear();
-    host.live['a'] = [
+    host.live.addAll([
       {
         'id': 'a-live',
         'session_key': 'same',
         'status': 'working',
         'last_active': 2,
-      },
-    ];
-    host.live['b'] = [
-      {
-        'id': 'b-live',
-        'session_key': 'same',
-        'status': 'waiting',
-        'last_active': 3,
       },
       {
         'id': 'b-unknown',
@@ -121,78 +130,108 @@ void main() {
         'status': 'working',
         'last_active': 1,
       },
-    ];
+    ]);
     host.profiles.add('c');
-    host.live['c'] = [
-      {
-        'id': 'c-starting',
-        'session_key': 'new-profile-session',
-        'status': 'starting',
-        'last_active': 4,
-      },
-    ];
 
     await controller.refreshActivity();
 
-    expect(controller.liveActivity, hasLength(4));
+    expect(controller.liveActivity, hasLength(1));
+    expect(controller.liveActivity.single.workspace.profileName, 'a');
+    expect(controller.liveActivity.single.sessionId, 'same');
+    expect(controller.liveActivity.single.title, 'Known phone chat');
     expect(
-      controller.liveActivity
-          .where((item) => item.sessionId == 'same')
-          .map((item) => item.workspace.profileName)
-          .toSet(),
-      {'a', 'b'},
-    );
-    final unknown = controller.liveActivity.singleWhere(
-      (item) => item.runtimeId == 'b-unknown',
-    );
-    expect(unknown.title, 'Hermes session · never-op');
-    expect(unknown.state, ProfileLiveActivityState.running);
-    expect(
-      controller.liveActivity
-          .singleWhere((item) => item.runtimeId == 'b-live')
-          .state,
-      ProfileLiveActivityState.needsInput,
+      controller.activityProfileErrors['ownership'],
+      'Some live sessions were hidden because their profile could not be verified.',
     );
     expect(
-      controller.liveActivity
-          .singleWhere((item) => item.runtimeId == 'c-starting')
-          .state,
-      ProfileLiveActivityState.running,
+      host.calls.where((call) => call.$2 == 'session.active_list'),
+      hasLength(1),
     );
     expect(
       host.reads
-          .where((read) => read.$2 == 'sessions')
+          .where((read) => read.$2 == 'sessions/search')
           .map((read) => read.$1)
           .toSet(),
-      {'b', 'c'},
+      {'a', 'b', 'c'},
     );
     expect(controller.current!.scope, selectedScope);
     expect(controller.current!.chat, same(selected));
     expect(host.calls.where((call) => call.$2 == 'session.resume'), isEmpty);
   });
 
-  test(
-    'removes ended entries and reports failed profiles separately',
-    () async {
-      final completed = await controller.createChat();
-      completed.status = ProfileTurnStatus.completed;
-      host.live['a'] = [
-        {'id': 'old-a', 'session_key': 'same', 'status': 'working'},
-      ];
-      host.live['b'] = [
-        {'id': 'old-b', 'session_key': 'same', 'status': 'working'},
-      ];
-      await controller.refreshActivity();
-      expect(controller.liveActivity, hasLength(2));
+  test('removes ended entries from the global snapshot', () async {
+    final completed = await controller.createChat();
+    completed.status = ProfileTurnStatus.completed;
+    host.live.addAll([
+      {'id': 'old-a', 'session_key': 'same', 'status': 'working'},
+    ]);
+    await controller.refreshActivity();
+    expect(controller.liveActivity, hasLength(1));
 
-      host.live['a'] = [];
+    host.live.clear();
+    await controller.refreshActivity();
+
+    expect(controller.liveActivity, isEmpty);
+    expect(controller.activity, contains(completed));
+    expect(controller.activityProfileErrors, isEmpty);
+    expect(controller.activityLoading, isFalse);
+  });
+
+  test('hides a global row with ambiguous saved ownership', () async {
+    host.saved['b'] = [
+      {'id': 'same', 'title': 'Colliding chat', 'profile': 'b'},
+    ];
+    host.live.add({
+      'id': 'foreign-runtime',
+      'session_key': 'same',
+      'status': 'working',
+    });
+
+    await controller.refreshActivity();
+
+    expect(controller.liveActivity, isEmpty);
+    expect(controller.activityProfileErrors['ownership'], isNotNull);
+    expect(host.calls.where((call) => call.$2 == 'session.resume'), isEmpty);
+  });
+
+  test(
+    'hides saved ownership when another profile cannot be checked',
+    () async {
       host.failedProfiles.add('b');
+      host.live.add({
+        'id': 'foreign-runtime',
+        'session_key': 'same',
+        'status': 'working',
+      });
+
       await controller.refreshActivity();
 
       expect(controller.liveActivity, isEmpty);
-      expect(controller.activity, contains(completed));
-      expect(controller.activityProfileErrors.keys, ['b']);
-      expect(controller.activityLoading, isFalse);
+      expect(
+        controller.activityProfileErrors.keys,
+        containsAll(['b', 'ownership']),
+      );
+    },
+  );
+
+  test(
+    'uses an exact local runtime and durable identity to resolve ownership',
+    () async {
+      final local = await controller.createChat();
+      host.saved['b'] = [
+        {'id': local.key.sessionId, 'title': 'Colliding chat', 'profile': 'b'},
+      ];
+      host.live.add({
+        'id': local.runtimeId,
+        'session_key': local.key.sessionId,
+        'status': 'working',
+      });
+
+      await controller.refreshActivity();
+
+      expect(controller.liveActivity, hasLength(1));
+      expect(controller.liveActivity.single.workspace.profileName, 'a');
+      expect(controller.activityProfileErrors['ownership'], isNull);
     },
   );
 }

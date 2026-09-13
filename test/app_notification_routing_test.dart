@@ -5,6 +5,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:hermes_android/core/models/hermes_profile.dart';
 import 'package:hermes_android/core/screens/profile_workspace_screen.dart';
+import 'package:hermes_android/core/services/android_share_intent_service.dart';
 import 'package:hermes_android/core/services/connection_manager.dart';
 import 'package:hermes_android/core/services/profile_connection_identity.dart';
 import 'package:hermes_android/core/services/profile_workspace_controller.dart';
@@ -80,14 +81,18 @@ int _resumeCount(NotificationHarness harness, String profile) => harness
 
 Future<GlobalKey<HermesAppState>> _pumpApp(
   WidgetTester tester,
-  NotificationHarness harness,
-) async {
+  NotificationHarness harness, {
+  AndroidShareIntentService? shareIntents,
+  Future<void>? startupExternalNavigationReady,
+}) async {
   final key = GlobalKey<HermesAppState>();
   await tester.pumpWidget(
     HermesApp(
       key: key,
       connManager: harness.manager,
       profileControllers: harness.registry,
+      shareIntents: shareIntents,
+      startupExternalNavigationReady: startupExternalNavigationReady,
     ),
   );
   await tester.pump();
@@ -160,6 +165,67 @@ void main() {
     expect(_resumeCount(harness, 'a'), 2);
     await _expectSinglePopReturnsHome(tester);
   });
+
+  testWidgets(
+    'a cold notification tap defers recovered share review without discarding it',
+    (tester) async {
+      final harness = await _harness();
+      final shares = AndroidShareIntentService();
+      addTearDown(shares.dispose);
+      final pending = AndroidSharePayload(
+        id: 'recovered-camera',
+        text: 'Keep this camera intake',
+        target: ProfileSessionKey(
+          WorkspaceScope(
+            connectionId: harness.connection.id,
+            connectionIdentity: harness.identity,
+            profileName: 'b',
+          ),
+          'expired-camera-chat',
+        ).toJson(),
+      );
+      shares.pendingShare.value = pending;
+      final shareLoad = Completer<void>();
+      final notificationHistory = Completer<void>();
+      final startupReady = Completer<void>();
+      harness.host.delays['b'] = shareLoad;
+      harness.host.delays['a'] = notificationHistory;
+
+      final app = await _pumpApp(
+        tester,
+        harness,
+        shareIntents: shares,
+        startupExternalNavigationReady: startupReady.future,
+      );
+      final opening = app.currentState!.openProfileNotification(
+        _payload(harness, 'a'),
+      );
+      await tester.pump();
+      startupReady.complete();
+      await tester.pump();
+      shareLoad.complete();
+      await tester.pump();
+      notificationHistory.complete();
+      await opening;
+      await _pumpNavigation(tester);
+
+      expect(harness.controller.current!.scope.profileName, 'a');
+      expect(harness.controller.current!.chat!.key.sessionId, 'same');
+      expect(find.byType(ProfileWorkspaceScreen), findsOneWidget);
+      expect(find.text('Add shared content'), findsNothing);
+      expect(shares.pendingShare.value, same(pending));
+      expect(
+        find.text('This chat is unavailable on its original host or profile.'),
+        findsNothing,
+      );
+
+      await _expectSinglePopReturnsHome(tester);
+      await tester.tap(find.text('Review'));
+      await tester.pumpAndSettle();
+      expect(find.text('Add shared content'), findsOneWidget);
+      expect(shares.pendingShare.value, same(pending));
+    },
+  );
 
   testWidgets('one controller route is reused across profiles', (tester) async {
     final harness = await _harness();

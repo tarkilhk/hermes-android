@@ -194,7 +194,7 @@ class ProfileBrowserFixture {
     rpc: (method, params) async {
       calls.add((scope.profileName, method, params));
       if (method == 'session.active_list') {
-        return {'sessions': liveSessions[scope.profileName] ?? []};
+        return {'sessions': liveSessions.values.expand((rows) => rows).toList()};
       }
       if (method == 'projects.tree') {
         if (failProjects) throw StateError('Projects unavailable');

@@ -611,7 +611,37 @@ void main() {
       controller.current!.chats['child-2']!.status,
       ProfileTurnStatus.failed,
     );
+    expect(
+      controller.current!.chats['child-2']!.error,
+      'Hermes did not accept the regeneration. The original chat is unchanged.',
+    );
   });
+
+  test(
+    'stale saved prompt rejection stays actionable and hides RPC text',
+    () async {
+      host.submitError = JsonRpcError(
+        'prompt.submit',
+        'target user message is no longer in session history',
+        code: 4018,
+      );
+
+      await expectLater(
+        controller.branchAnswer(original, 2, regenerate: true),
+        throwsStateError,
+      );
+
+      final child = controller.current!.chats['child-1']!;
+      expect(child.status, ProfileTurnStatus.failed);
+      expect(
+        child.error,
+        'Hermes could not match this saved prompt. The original chat is unchanged. Send a new message to continue.',
+      );
+      expect(child.error, isNot(contains('JsonRpcError')));
+      expect(controller.current!.chat, same(original));
+      expect(original.messages.last['text'], 'Later answer');
+    },
+  );
 
   test(
     'missing durable row IDs refuses regeneration without counting a copy as an answer',
@@ -623,7 +653,10 @@ void main() {
       );
       final child = controller.current!.chats['child-1']!;
       expect(child.status, ProfileTurnStatus.failed);
-      expect(child.error, contains('saved prompt address'));
+      expect(
+        child.error,
+        'Hermes did not accept the regeneration. The original chat is unchanged.',
+      );
       expect(child.messages.last['text'], 'Original answer');
       expect(host.calls.where((c) => c.$1 == 'prompt.submit'), isEmpty);
       expect(child.parentSessionId, original.key.sessionId);
